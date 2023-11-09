@@ -13,7 +13,7 @@ from requests import Session
 HTTP_200_OK = 204
 HTTP_204_NO_CONTENT = 204
 
-WIRENBOARD_CLOUD_URL = 'http://localhost:7000/'
+WIRENBOARD_CLOUD_URL = 'http://localhost:7000/api-agent/v1/'
 WIRENBOARD_FRP_CONFIG = '/root/soft/frp/frpc.conf'
 WIRENBOARD_TELEGRAF_CONFIG = '/root/soft/telegraf/telegraf.conf'
 WIRENBOARD_ACTIVATION_LINK_CONFIG = '/root/soft/activation_link/activation_link.conf'
@@ -137,7 +137,7 @@ def main():
 
         request_time = time.perf_counter() - start
 
-        print(datetime.now(), 'Done in:', int(request_time * 1000), flush=True)
+        print(datetime.now(), 'Done in:', int(request_time * 1000), 'ms', flush=True)
 
         time.sleep(WIRENBOARD_REQUEST_PERIOD_SECONDS)
 
