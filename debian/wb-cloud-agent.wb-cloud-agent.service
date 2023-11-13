@@ -1,0 +1,12 @@
+[Unit]
+Description=Wiren Board Cloud Agent
+StartLimitIntervalSec=3600
+StartLimitBurst=100
+
+[Service]
+ExecStart=/usr/bin/wb-cloud-agent
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

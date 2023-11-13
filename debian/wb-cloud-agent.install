@@ -1,0 +1,2 @@
+wb_cloud_agent/wb_cloud_agent.py /usr/bin/wb-cloud-agent
+system/nginx/nginx-site.conf /etc/nginx/sites-available/wb-cloud-agent

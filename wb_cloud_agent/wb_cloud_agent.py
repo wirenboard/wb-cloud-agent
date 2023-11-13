@@ -15,9 +15,9 @@ HTTP_200_OK = 204
 HTTP_204_NO_CONTENT = 204
 
 WIRENBOARD_CLOUD_URL = os.getenv('WIRENBOARD_CLOUD_URL', 'http://localhost:7000/api-agent/v1/')
-WIRENBOARD_FRP_CONFIG = os.getenv('WIRENBOARD_FRP_CONFIG', '/root/soft/frp/frpc.conf')
-WIRENBOARD_TELEGRAF_CONFIG = os.getenv('WIRENBOARD_TELEGRAF_CONFIG', '/root/soft/telegraf/telegraf.conf')
-WIRENBOARD_ACTIVATION_LINK_CONFIG = os.getenv('WIRENBOARD_ACTIVATION_LINK_CONFIG', '/root/soft/activation_link/activation_link.conf')
+WIRENBOARD_FRP_CONFIG = os.getenv('WIRENBOARD_FRP_CONFIG', '/var/lib/wb-cloud-agent/frpc.conf')
+WIRENBOARD_TELEGRAF_CONFIG = os.getenv('WIRENBOARD_TELEGRAF_CONFIG', '/var/lib/wb-cloud-agent/telegraf.conf')
+WIRENBOARD_ACTIVATION_LINK_CONFIG = os.getenv('WIRENBOARD_ACTIVATION_LINK_CONFIG', '/var/lib/wb-cloud-agent/activation_link.conf')
 
 WIRENBOARD_REQUEST_PERIOD_SECONDS = int(os.getenv('WIRENBOARD_REQUEST_PERIOD_SECONDS', '3'))
 

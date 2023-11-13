@@ -1,0 +1,14 @@
+[Unit]
+Description=telegraf metric sender for Wiren Board Cloud
+After=wb-cloud-agent.service
+StartLimitIntervalSec=3600
+StartLimitBurst=100
+
+[Service]
+ExecCondition=/usr/bin/test -f /var/lib/wb-cloud-agent/telegraf.conf
+ExecStart=/usr/bin/telegraf --config /var/lib/wb-cloud-agent/telegraf.conf
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
