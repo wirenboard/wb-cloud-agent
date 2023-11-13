@@ -1,1 +1,1 @@
-buildDebArchAll()
+buildDebSbuild defaultTargets: "bullseye-host"
