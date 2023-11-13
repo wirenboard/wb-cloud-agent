@@ -4,18 +4,9 @@ WORKDIR /src
 
 RUN apt update
 
-RUN apt install -y fakeroot build-essential
-
-RUN apt install -y devscripts
-
-RUN apt install -y python3
-
-RUN apt-get install -y python3-venv python3-pip
+RUN apt install -y fakeroot build-essential devscripts python3 python3-venv python3-pip python3-stdeb python-all debhelper dh-python
 
 RUN pip install setuptools stdeb
-
-RUN apt install -y python3-stdeb fakeroot python-all
-RUN apt install -y debhelper dh-python
 
 COPY ./src /src
 
