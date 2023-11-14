@@ -18,6 +18,8 @@ if [ ! -f "$ORIGINAL_CERT" ]; then
     exit 1
 fi
 
+mkdir -p /var/lib/wb-cloud-agent
+
 # create correct certificate for nginx to use
 if [ ! -f "$TARGET_CERT" ] || ! cert_is_valid "$TARGET_CERT"; then
     if cert_is_valid "$ORIGINAL_CERT"; then
