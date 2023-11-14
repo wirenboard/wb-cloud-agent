@@ -82,14 +82,14 @@ def update_tunnel_config(payload):
     with open(WIRENBOARD_FRP_CONFIG, 'w') as file:
         file.write(payload['config'])
 
-    subprocess.run(['systemctl', 'restart', 'frpc.service'])
+    subprocess.run(['systemctl', 'restart', 'wb-cloud-agent-frpc.service'])
 
 
 def update_metrics_config(payload):
     with open(WIRENBOARD_TELEGRAF_CONFIG, 'w') as file:
         file.write(payload['config'])
 
-    subprocess.run(['systemctl', 'restart', 'telegraf.service'])
+    subprocess.run(['systemctl', 'restart', 'wb-cloud-agent-telegraf.service'])
 
 
 HANDLERS = {
