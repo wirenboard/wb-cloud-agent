@@ -36,7 +36,7 @@ fi
 # try Nginx config
 ln -sf /etc/nginx/sites-available/wb-cloud-agent /etc/nginx/sites-enabled/wb-cloud-agent
 if nginx -tq; then
-    nginx -s reload
+    deb-systemd-invoke restart nginx.service
 else
     echo "Nginx config check failed, something is wrong"
     rm -f /etc/nginx/sites-enabled/wb-cloud-agent
