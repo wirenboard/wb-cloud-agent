@@ -9,6 +9,12 @@ Rules-Requires-Root: no
 
 Package: wb-cloud-agent
 Architecture: all
-Depends: ${misc:Depends}, python3-all, python3-requests, telegraf-wb-cloud-agent | telegraf, frpc, wb-configs (>= 3.20.0~~)
+Depends: ${misc:Depends},
+         python3-all,
+         python3-requests,
+         telegraf-wb-cloud-agent | telegraf,
+         frpc,
+         python3-wb-common (>= 2.1.1),
+         wb-configs (>= 3.20.0~~)
 Description: Wiren Board Cloud agent
  This package provides Wiren Board Cloud agent service.
