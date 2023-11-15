@@ -26,7 +26,7 @@ WIRENBOARD_ACTIVATION_LINK_CONFIG = os.getenv(
 
 WIRENBOARD_REQUEST_PERIOD_SECONDS = int(os.getenv("WIRENBOARD_REQUEST_PERIOD_SECONDS", "3"))
 
-MQTT_PREFIX = "/devices/system__wb-cloud-agent/"
+MQTT_PREFIX = "/devices/system__wb-cloud-agent"
 
 
 @dataclass
@@ -109,23 +109,26 @@ HANDLERS = {
 
 
 def publish_vdev(mqtt):
-    mqtt.publish(MQTT_PREFIX + "/meta/driver", "wb-cloud-agent", retain=True)
+    mqtt.publish(MQTT_PREFIX + "/meta/name", "cloud status", retain=True, qos=2)
+    mqtt.publish(MQTT_PREFIX + "/meta/driver", "wb-cloud-agent", retain=True, qos=2)
     mqtt.publish(
         MQTT_PREFIX + "/controls/status/meta",
-        "{'type': 'text', 'readonly': true}",
+        '{"type": "text", "readonly": true, "name": "status", "order": 1, "title": {"en": "Status"}}',
         retain=True,
+        qos=2,
     )
     mqtt.publish(
         MQTT_PREFIX + "/controls/activation_link/meta",
-        "{'type': 'text', 'readonly': true}",
+        '{"type": "text", "readonly": true, "name": "activation_link", "order": 2, "title": {"en": "Link"}}',
         retain=True,
+        qos=2,
     )
-    mqtt.publish(MQTT_PREFIX + "/controls/status", "disconnected", retain=True)
-    mqtt.publish(MQTT_PREFIX + "/controls/activation_link", "unknown", retain=True)
+    mqtt.publish(MQTT_PREFIX + "/controls/status", "disconnected", retain=True, qos=2)
+    mqtt.publish(MQTT_PREFIX + "/controls/activation_link", "unknown", retain=True, qos=2)
 
 
 def publish_ctrl(mqtt, ctrl, value):
-    mqtt.publish(MQTT_PREFIX + f"/controls/{ctrl}", value, retain=True)
+    mqtt.publish(MQTT_PREFIX + f"/controls/{ctrl}", value, retain=True, qos=2)
 
 
 def make_request(client, mqtt):
