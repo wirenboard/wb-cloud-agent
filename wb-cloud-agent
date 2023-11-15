@@ -12,6 +12,7 @@ from typing import Optional
 from urllib.parse import urljoin
 
 from requests import Session
+from wb_common.mqtt_client import MQTTClient
 
 HTTP_200_OK = 204
 HTTP_204_NO_CONTENT = 204
@@ -24,6 +25,8 @@ WIRENBOARD_ACTIVATION_LINK_CONFIG = os.getenv(
 )
 
 WIRENBOARD_REQUEST_PERIOD_SECONDS = int(os.getenv("WIRENBOARD_REQUEST_PERIOD_SECONDS", "3"))
+
+MQTT_PREFIX = "/devices/system__wb-cloud-agent/"
 
 
 @dataclass
@@ -75,22 +78,26 @@ class ConvenientHTTPClient:
         return f"{self.base_url}/"
 
 
-def update_activation_link(payload):
+def update_activation_link(payload, mqtt):
     with open(WIRENBOARD_ACTIVATION_LINK_CONFIG, "w") as file:
         file.write(payload["activationLink"])
 
+    publish_ctrl(mqtt, "activation_link", payload["activationLink"])
 
-def update_tunnel_config(payload):
+
+def update_tunnel_config(payload, __):
     with open(WIRENBOARD_FRP_CONFIG, "w") as file:
         file.write(payload["config"])
 
+    subprocess.run(["systemctl", "enable", "wb-cloud-agent-frpc.service"])
     subprocess.run(["systemctl", "restart", "wb-cloud-agent-frpc.service"])
 
 
-def update_metrics_config(payload):
+def update_metrics_config(payload, __):
     with open(WIRENBOARD_TELEGRAF_CONFIG, "w") as file:
         file.write(payload["config"])
 
+    subprocess.run(["systemctl", "enable", "wb-cloud-agent-telegraf.service"])
     subprocess.run(["systemctl", "restart", "wb-cloud-agent-telegraf.service"])
 
 
@@ -101,7 +108,27 @@ HANDLERS = {
 }
 
 
-def make_request(client):
+def publish_vdev(mqtt):
+    mqtt.publish(MQTT_PREFIX + "/meta/driver", "wb-cloud-agent", retain=True)
+    mqtt.publish(
+        MQTT_PREFIX + "/controls/status/meta",
+        "{'type': 'text', 'readonly': true}",
+        retain=True,
+    )
+    mqtt.publish(
+        MQTT_PREFIX + "/controls/activation_link/meta",
+        "{'type': 'text', 'readonly': true}",
+        retain=True,
+    )
+    mqtt.publish(MQTT_PREFIX + "/controls/status", "disconnected", retain=True)
+    mqtt.publish(MQTT_PREFIX + "/controls/activation_link", "unknown", retain=True)
+
+
+def publish_ctrl(mqtt, ctrl, value):
+    mqtt.publish(MQTT_PREFIX + f"/controls/{ctrl}", value, retain=True)
+
+
+def make_request(client, mqtt):
     event_data, event_status = client.request(method="get", endpoint="events/")
     print(datetime.now(), event_status, event_data)
 
@@ -121,7 +148,7 @@ def make_request(client):
     if not payload:
         raise ValueError("Empty payload")
 
-    handler(payload)
+    handler(payload, mqtt)
     print(datetime.now(), "Event handled successfully:", event_id)
 
     _, confirmation_status = client.request(method="post", endpoint="events/" + event_id + "/confirm/")
@@ -131,14 +158,21 @@ def make_request(client):
 
 
 def main():
+    mqtt = MQTTClient("wb-cloud-agent")
+    mqtt.start()
+    publish_vdev(mqtt)
+
     client = ConvenientHTTPClient()
     while True:
         start = time.perf_counter()
 
         try:
-            make_request(client)
+            make_request(client, mqtt)
         except Exception as ex:
             print(datetime.now(), "Error:", ex)
+            publish_ctrl(mqtt, "status", "error:" + str(ex))
+        else:
+            publish_ctrl(mqtt, "status", "ok")
 
         request_time = time.perf_counter() - start
 
