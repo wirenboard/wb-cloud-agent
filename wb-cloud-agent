@@ -4,6 +4,7 @@ import os
 import subprocess
 import sys
 import time
+from contextlib import ExitStack
 from dataclasses import dataclass
 from datetime import datetime
 from functools import cached_property
@@ -85,20 +86,22 @@ def update_activation_link(payload, mqtt):
     publish_ctrl(mqtt, "activation_link", payload["activationLink"])
 
 
-def update_tunnel_config(payload, __):
+def update_tunnel_config(payload, mqtt):
     with open(WIRENBOARD_FRP_CONFIG, "w") as file:
         file.write(payload["config"])
 
     subprocess.run(["systemctl", "enable", "wb-cloud-agent-frpc.service"])
     subprocess.run(["systemctl", "restart", "wb-cloud-agent-frpc.service"])
+    publish_ctrl(mqtt, "activation_link", "unknown")
 
 
-def update_metrics_config(payload, __):
+def update_metrics_config(payload, mqtt):
     with open(WIRENBOARD_TELEGRAF_CONFIG, "w") as file:
         file.write(payload["config"])
 
     subprocess.run(["systemctl", "enable", "wb-cloud-agent-telegraf.service"])
     subprocess.run(["systemctl", "restart", "wb-cloud-agent-telegraf.service"])
+    publish_ctrl(mqtt, "activation_link", "unknown")
 
 
 HANDLERS = {
@@ -125,6 +128,15 @@ def publish_vdev(mqtt):
     )
     mqtt.publish(MQTT_PREFIX + "/controls/status", "disconnected", retain=True, qos=2)
     mqtt.publish(MQTT_PREFIX + "/controls/activation_link", "unknown", retain=True, qos=2)
+
+
+def remove_vdev(mqtt):
+    mqtt.publish(MQTT_PREFIX + "/meta/name", "", retain=True, qos=2)
+    mqtt.publish(MQTT_PREFIX + "/meta/driver", "", retain=True, qos=2)
+    mqtt.publish(MQTT_PREFIX + "/controls/status/meta", "", retain=True, qos=2)
+    mqtt.publish(MQTT_PREFIX + "/controls/activation_link/meta", "", retain=True, qos=2)
+    mqtt.publish(MQTT_PREFIX + "/controls/status", "", retain=True, qos=2)
+    mqtt.publish(MQTT_PREFIX + "/controls/activation_link", "", retain=True, qos=2)
 
 
 def publish_ctrl(mqtt, ctrl, value):
@@ -165,23 +177,26 @@ def main():
     mqtt.start()
     publish_vdev(mqtt)
 
-    client = ConvenientHTTPClient()
-    while True:
-        start = time.perf_counter()
+    with ExitStack() as stack:
+        stack.callback(remove_vdev, mqtt)
 
-        try:
-            make_request(client, mqtt)
-        except Exception as ex:
-            print(datetime.now(), "Error:", ex)
-            publish_ctrl(mqtt, "status", "error:" + str(ex))
-        else:
-            publish_ctrl(mqtt, "status", "ok")
+        client = ConvenientHTTPClient()
+        while True:
+            start = time.perf_counter()
 
-        request_time = time.perf_counter() - start
+            try:
+                make_request(client, mqtt)
+            except Exception as ex:
+                print(datetime.now(), "Error:", ex)
+                publish_ctrl(mqtt, "status", "error:" + str(ex))
+            else:
+                publish_ctrl(mqtt, "status", "ok")
 
-        print(datetime.now(), "Done in:", int(request_time * 1000), "ms", flush=True)
+            request_time = time.perf_counter() - start
 
-        time.sleep(WIRENBOARD_REQUEST_PERIOD_SECONDS)
+            print(datetime.now(), "Done in:", int(request_time * 1000), "ms", flush=True)
+
+            time.sleep(WIRENBOARD_REQUEST_PERIOD_SECONDS)
 
 
 if __name__ == "__main__":
