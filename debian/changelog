@@ -1,3 +1,9 @@
+wb-cloud-agent (1.2.1) stable; urgency=low
+
+  * Agent communicates via curl instead of Nginx proxy
+
+ -- kazqvaizer <kazqvaizer@kazqvaizer-ThinkPad>  Fri, 24 Nov 2023 23:36:19 +1000
+
 wb-cloud-agent (1.0.0) stable; urgency=low
 
   * Initial release
