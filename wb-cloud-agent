@@ -15,18 +15,12 @@ HTTP_204_NO_CONTENT = 204
 
 CONF_FILE = "/mnt/data/etc/wb-cloud-agent.conf"
 
-CLIENT_CERT_FILE = os.getenv(
-    "WIRENBOARD_CLIENT_CERT_FILE", "/var/lib/wb-cloud-agent/device_bundle.crt.pem"
-)
+CLIENT_CERT_FILE = os.getenv("WIRENBOARD_CLIENT_CERT_FILE", "/var/lib/wb-cloud-agent/device_bundle.crt.pem")
 CLIENT_CERT_ENGINE_KEY = os.getenv("WIRENBOARD_CLIENT_CERT_ENGINE_KEY", "")
 
-CLOUD_URL = os.getenv(
-    "WIRENBOARD_CLOUD_URL", "https://agent.wirenboard.cloud/api-agent/v1/"
-)
+CLOUD_URL = os.getenv("WIRENBOARD_CLOUD_URL", "https://agent.wirenboard.cloud/api-agent/v1/")
 FRP_CONFIG = os.getenv("WIRENBOARD_FRP_CONFIG", "/var/lib/wb-cloud-agent/frpc.conf")
-TELEGRAF_CONFIG = os.getenv(
-    "WIRENBOARD_TELEGRAF_CONFIG", "/var/lib/wb-cloud-agent/telegraf.conf"
-)
+TELEGRAF_CONFIG = os.getenv("WIRENBOARD_TELEGRAF_CONFIG", "/var/lib/wb-cloud-agent/telegraf.conf")
 ACTIVATION_LINK_CONFIG = os.getenv(
     "WIRENBOARD_ACTIVATION_LINK_CONFIG", "/var/lib/wb-cloud-agent/activation_link.conf"
 )
@@ -121,12 +115,8 @@ def update_metrics_config(payload, mqtt):
     with open(TELEGRAF_CONFIG, "w") as file:
         file.write(payload["config"])
 
-    subprocess.run(
-        ["systemctl", "enable", "wb-cloud-agent-telegraf.service"], check=True
-    )
-    subprocess.run(
-        ["systemctl", "restart", "wb-cloud-agent-telegraf.service"], check=True
-    )
+    subprocess.run(["systemctl", "enable", "wb-cloud-agent-telegraf.service"], check=True)
+    subprocess.run(["systemctl", "restart", "wb-cloud-agent-telegraf.service"], check=True)
     publish_ctrl(mqtt, "activation_link", "unknown")
 
 
@@ -153,9 +143,7 @@ def publish_vdev(mqtt):
         qos=2,
     )
     mqtt.publish(MQTT_PREFIX + "/controls/status", "disconnected", retain=True, qos=2)
-    mqtt.publish(
-        MQTT_PREFIX + "/controls/activation_link", "unknown", retain=True, qos=2
-    )
+    mqtt.publish(MQTT_PREFIX + "/controls/activation_link", "unknown", retain=True, qos=2)
 
 
 def remove_vdev(mqtt):
@@ -194,14 +182,10 @@ def make_request(mqtt):
     handler(payload, mqtt)
     print(datetime.now(), "Event handled successfully:", event_id)
 
-    _, confirmation_status = do_curl(
-        method="post", endpoint="events/" + event_id + "/confirm/"
-    )
+    _, confirmation_status = do_curl(method="post", endpoint="events/" + event_id + "/confirm/")
 
     if confirmation_status != HTTP_204_NO_CONTENT:
-        raise ValueError(
-            "Not a 20X status on event confirmation: " + confirmation_status
-        )
+        raise ValueError("Not a 20X status on event confirmation: " + confirmation_status)
 
 
 def main():
@@ -225,9 +209,7 @@ def main():
 
             request_time = time.perf_counter() - start
 
-            print(
-                datetime.now(), "Done in:", int(request_time * 1000), "ms", flush=True
-            )
+            print(datetime.now(), "Done in:", int(request_time * 1000), "ms", flush=True)
 
             time.sleep(REQUEST_PERIOD_SECONDS)
 
