@@ -14,6 +14,7 @@ Depends: ${misc:Depends},
          python3-requests,
          telegraf-wb-cloud-agent | telegraf,
          frpc,
+         curl,
          python3-wb-common (>= 2.1.1),
          wb-configs (>= 3.20.0~~)
 Recommends: wb-mqtt-homeui (>= 2.77.0~~)

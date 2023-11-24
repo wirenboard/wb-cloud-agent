@@ -13,12 +13,12 @@ from wb_common.mqtt_client import MQTTClient
 HTTP_200_OK = 204
 HTTP_204_NO_CONTENT = 204
 
+CONF_FILE = "/mnt/data/etc/wb-cloud-agent.conf"
+
 CLIENT_CERT_FILE = os.getenv(
     "WIRENBOARD_CLIENT_CERT_FILE", "/var/lib/wb-cloud-agent/device_bundle.crt.pem"
 )
-CLIENT_CERT_ENGINE_KEY = os.getenv(
-    "WIRENBOARD_CLIENT_CERT_ENGINE_KEY", "ATECCx08:00:02:C0:00"
-)
+CLIENT_CERT_ENGINE_KEY = os.getenv("WIRENBOARD_CLIENT_CERT_ENGINE_KEY", "")
 
 CLOUD_URL = os.getenv(
     "WIRENBOARD_CLOUD_URL", "https://agent.wirenboard.cloud/api-agent/v1/"
@@ -34,6 +34,22 @@ ACTIVATION_LINK_CONFIG = os.getenv(
 REQUEST_PERIOD_SECONDS = int(os.getenv("WIRENBOARD_REQUEST_PERIOD_SECONDS", "3"))
 
 MQTT_PREFIX = "/devices/system__wb-cloud-agent"
+
+
+def read_conf():
+    with open(CONF_FILE, "r") as file:
+        conf = file.read()
+
+    try:
+        conf = json.loads(conf)
+    except JSONDecodeError:
+        raise ValueError("Invalid config file at " + TELEGRAF_CONFIG)
+
+    global CLIENT_CERT_ENGINE_KEY
+    CLIENT_CERT_ENGINE_KEY = conf.get("CERT_ENGINE_KEY", "")
+
+
+read_conf()
 
 
 def do_curl(method="get", endpoint=""):
@@ -105,8 +121,12 @@ def update_metrics_config(payload, mqtt):
     with open(TELEGRAF_CONFIG, "w") as file:
         file.write(payload["config"])
 
-    subprocess.run(["systemctl", "enable", "wb-cloud-agent-telegraf.service"], check=True)
-    subprocess.run(["systemctl", "restart", "wb-cloud-agent-telegraf.service"], check=True)
+    subprocess.run(
+        ["systemctl", "enable", "wb-cloud-agent-telegraf.service"], check=True
+    )
+    subprocess.run(
+        ["systemctl", "restart", "wb-cloud-agent-telegraf.service"], check=True
+    )
     publish_ctrl(mqtt, "activation_link", "unknown")
 
 

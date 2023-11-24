@@ -1,2 +1,2 @@
 wb-cloud-agent /usr/bin/
-system/nginx/wb-cloud-agent /etc/nginx/sites-available/
+wb-cloud-agent.conf /mnt/data/etc/

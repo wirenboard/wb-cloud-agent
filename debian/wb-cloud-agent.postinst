@@ -20,7 +20,7 @@ fi
 
 mkdir -p /var/lib/wb-cloud-agent
 
-# create correct certificate for nginx to use
+# create correct certificate for agent to use
 if [ ! -f "$TARGET_CERT" ] || ! cert_is_valid "$TARGET_CERT"; then
     if cert_is_valid "$ORIGINAL_CERT"; then
         echo "Device cert is OK, reusing it"
@@ -33,24 +33,14 @@ if [ ! -f "$TARGET_CERT" ] || ! cert_is_valid "$TARGET_CERT"; then
     fi
 fi
 
-# fix Nginx config (ATECC path according to device version)
+# fix agent config (ATECC path according to device version)
 . /usr/lib/wb-utils/wb_env.sh
 wb_source of
 
 if of_machine_match "wirenboard,wirenboard-720"; then
-    sed -i 's/ATECCx08:00:../ATECCx08:00:02/g' /etc/nginx/sites-available/wb-cloud-agent
+    sed -i 's/ATECCx08:00:../ATECCx08:00:02/g' /mnt/data/etc/wb-cloud-agent.conf
 elif of_machine_match "contactless,imx6ul-wirenboard60"; then
-    sed -i 's/ATECCx08:00:../ATECCx08:00:04/g' /etc/nginx/sites-available/wb-cloud-agent
-fi
-
-# try Nginx config
-ln -sf /etc/nginx/sites-available/wb-cloud-agent /etc/nginx/sites-enabled/wb-cloud-agent
-if nginx -tq; then
-    deb-systemd-invoke restart nginx.service
-else
-    echo "Nginx config check failed, something is wrong"
-    rm -f /etc/nginx/sites-enabled/wb-cloud-agent
-    exit 1
+    sed -i 's/ATECCx08:00:../ATECCx08:00:04/g' /mnt/data/etc/wb-cloud-agent.conf
 fi
 
 #DEBHELPER#
