@@ -1,106 +1,112 @@
 #!/usr/bin/env python3
-
+import json
 import os
 import subprocess
 import sys
 import time
 from contextlib import ExitStack
-from dataclasses import dataclass
 from datetime import datetime
-from functools import cached_property
 from json import JSONDecodeError
-from typing import Optional
-from urllib.parse import urljoin
 
-from requests import Session
 from wb_common.mqtt_client import MQTTClient
 
 HTTP_200_OK = 204
 HTTP_204_NO_CONTENT = 204
 
-WIRENBOARD_CLOUD_URL = os.getenv("WIRENBOARD_CLOUD_URL", "http://localhost:7000/api-agent/v1/")
-WIRENBOARD_FRP_CONFIG = os.getenv("WIRENBOARD_FRP_CONFIG", "/var/lib/wb-cloud-agent/frpc.conf")
-WIRENBOARD_TELEGRAF_CONFIG = os.getenv("WIRENBOARD_TELEGRAF_CONFIG", "/var/lib/wb-cloud-agent/telegraf.conf")
-WIRENBOARD_ACTIVATION_LINK_CONFIG = os.getenv(
+CLIENT_CERT_FILE = os.getenv(
+    "WIRENBOARD_CLIENT_CERT_FILE", "/var/lib/wb-cloud-agent/device_bundle.crt.pem"
+)
+CLIENT_CERT_ENGINE_KEY = os.getenv(
+    "WIRENBOARD_CLIENT_CERT_ENGINE_KEY", "ATECCx08:00:02:C0:00"
+)
+
+CLOUD_URL = os.getenv(
+    "WIRENBOARD_CLOUD_URL", "https://agent.wirenboard.cloud/api-agent/v1/"
+)
+FRP_CONFIG = os.getenv("WIRENBOARD_FRP_CONFIG", "/var/lib/wb-cloud-agent/frpc.conf")
+TELEGRAF_CONFIG = os.getenv(
+    "WIRENBOARD_TELEGRAF_CONFIG", "/var/lib/wb-cloud-agent/telegraf.conf"
+)
+ACTIVATION_LINK_CONFIG = os.getenv(
     "WIRENBOARD_ACTIVATION_LINK_CONFIG", "/var/lib/wb-cloud-agent/activation_link.conf"
 )
 
-WIRENBOARD_REQUEST_PERIOD_SECONDS = int(os.getenv("WIRENBOARD_REQUEST_PERIOD_SECONDS", "3"))
+REQUEST_PERIOD_SECONDS = int(os.getenv("WIRENBOARD_REQUEST_PERIOD_SECONDS", "3"))
 
 MQTT_PREFIX = "/devices/system__wb-cloud-agent"
 
 
-@dataclass
-class ConvenientHTTPClient:
-    base_url: str = WIRENBOARD_CLOUD_URL
+def do_curl(method="get", endpoint=""):
+    data_delimiter = "|||"
+    output_format = data_delimiter + '{"code":"%{response_code}"}'
 
-    def __post_init__(self) -> None:
-        self.session: Session = Session()
+    if method == "get":
+        command = ["curl"]
+    elif method == "post":
+        command = ["curl", "-X", "POST"]
+    else:
+        raise ValueError("Invalid method: " + method)
 
-    def request(
-        self,
-        *,
-        method: str,
-        endpoint: str,
-        data: Optional[dict] = None,
-        raise_for_status: bool = False,
-    ) -> tuple[dict, int]:
-        response = getattr(self.session, method)(
-            self._join_url(path=endpoint),
-            headers=self._get_headers(),
-            json=data,
-        )
+    url = CLOUD_URL + endpoint
 
-        if raise_for_status:
-            response.raise_for_status()
+    command += [
+        "--connect-timeout",
+        "45",
+        "--cert",
+        CLIENT_CERT_FILE,
+        "--key",
+        CLIENT_CERT_ENGINE_KEY,
+        "--engine",
+        "ateccx08",
+        "--key-type",
+        "ENG",
+        "-w",
+        output_format,
+        url,
+    ]
 
-        try:
-            serialized_response = response.json()
-        except JSONDecodeError:
-            serialized_response = {}
+    result = subprocess.run(command, timeout=60, check=True, capture_output=True)
 
-        return serialized_response, response.status_code
+    decoded_result = result.stdout.decode("utf-8")
+    split_result = decoded_result.split(data_delimiter)
+    if len(split_result) != 2:
+        raise ValueError("Invalid data in response: " + str(split_result))
 
-    @staticmethod
-    def _get_headers() -> dict:
-        return {
-            "Accept": "application/json",
-            "Content-Type": "application/json",
-        }
+    try:
+        data = json.loads(split_result[0])
+    except JSONDecodeError:
+        data = {}
 
-    def _join_url(self, *, path: str) -> str:
-        return urljoin(self.cleaned_base_url, f"{path}")
+    try:
+        status = int(json.loads(split_result[1])["code"])
+    except (KeyError, TypeError, ValueError, JSONDecodeError):
+        raise ValueError("Invalid data in response: " + str(split_result))
 
-    @cached_property
-    def cleaned_base_url(self) -> str:
-        if self.base_url.endswith("/"):
-            return self.base_url
-
-        return f"{self.base_url}/"
+    return data, status
 
 
 def update_activation_link(payload, mqtt):
-    with open(WIRENBOARD_ACTIVATION_LINK_CONFIG, "w") as file:
+    with open(ACTIVATION_LINK_CONFIG, "w") as file:
         file.write(payload["activationLink"])
 
     publish_ctrl(mqtt, "activation_link", payload["activationLink"])
 
 
 def update_tunnel_config(payload, mqtt):
-    with open(WIRENBOARD_FRP_CONFIG, "w") as file:
+    with open(FRP_CONFIG, "w") as file:
         file.write(payload["config"])
 
-    subprocess.run(["systemctl", "enable", "wb-cloud-agent-frpc.service"])
-    subprocess.run(["systemctl", "restart", "wb-cloud-agent-frpc.service"])
+    subprocess.run(["systemctl", "enable", "wb-cloud-agent-frpc.service"], check=True)
+    subprocess.run(["systemctl", "restart", "wb-cloud-agent-frpc.service"], check=True)
     publish_ctrl(mqtt, "activation_link", "unknown")
 
 
 def update_metrics_config(payload, mqtt):
-    with open(WIRENBOARD_TELEGRAF_CONFIG, "w") as file:
+    with open(TELEGRAF_CONFIG, "w") as file:
         file.write(payload["config"])
 
-    subprocess.run(["systemctl", "enable", "wb-cloud-agent-telegraf.service"])
-    subprocess.run(["systemctl", "restart", "wb-cloud-agent-telegraf.service"])
+    subprocess.run(["systemctl", "enable", "wb-cloud-agent-telegraf.service"], check=True)
+    subprocess.run(["systemctl", "restart", "wb-cloud-agent-telegraf.service"], check=True)
     publish_ctrl(mqtt, "activation_link", "unknown")
 
 
@@ -127,7 +133,9 @@ def publish_vdev(mqtt):
         qos=2,
     )
     mqtt.publish(MQTT_PREFIX + "/controls/status", "disconnected", retain=True, qos=2)
-    mqtt.publish(MQTT_PREFIX + "/controls/activation_link", "unknown", retain=True, qos=2)
+    mqtt.publish(
+        MQTT_PREFIX + "/controls/activation_link", "unknown", retain=True, qos=2
+    )
 
 
 def remove_vdev(mqtt):
@@ -143,8 +151,8 @@ def publish_ctrl(mqtt, ctrl, value):
     mqtt.publish(MQTT_PREFIX + f"/controls/{ctrl}", value, retain=True, qos=2)
 
 
-def make_request(client, mqtt):
-    event_data, event_status = client.request(method="get", endpoint="events/")
+def make_request(mqtt):
+    event_data, event_status = do_curl(method="get", endpoint="events/")
     print(datetime.now(), event_status, event_data)
 
     if event_status == HTTP_204_NO_CONTENT:
@@ -166,10 +174,14 @@ def make_request(client, mqtt):
     handler(payload, mqtt)
     print(datetime.now(), "Event handled successfully:", event_id)
 
-    _, confirmation_status = client.request(method="post", endpoint="events/" + event_id + "/confirm/")
+    _, confirmation_status = do_curl(
+        method="post", endpoint="events/" + event_id + "/confirm/"
+    )
 
     if confirmation_status != HTTP_204_NO_CONTENT:
-        raise ValueError("Not a 20X status on event confirmation: " + confirmation_status)
+        raise ValueError(
+            "Not a 20X status on event confirmation: " + confirmation_status
+        )
 
 
 def main():
@@ -180,12 +192,11 @@ def main():
     with ExitStack() as stack:
         stack.callback(remove_vdev, mqtt)
 
-        client = ConvenientHTTPClient()
         while True:
             start = time.perf_counter()
 
             try:
-                make_request(client, mqtt)
+                make_request(mqtt)
             except Exception as ex:
                 print(datetime.now(), "Error:", ex)
                 publish_ctrl(mqtt, "status", "error:" + str(ex))
@@ -194,9 +205,11 @@ def main():
 
             request_time = time.perf_counter() - start
 
-            print(datetime.now(), "Done in:", int(request_time * 1000), "ms", flush=True)
+            print(
+                datetime.now(), "Done in:", int(request_time * 1000), "ms", flush=True
+            )
 
-            time.sleep(WIRENBOARD_REQUEST_PERIOD_SECONDS)
+            time.sleep(REQUEST_PERIOD_SECONDS)
 
 
 if __name__ == "__main__":
