@@ -1,0 +1,11 @@
+#!/bin/bash
+
+set -e
+
+dpkg-maintscript-helper rm_conffile /etc/nginx/sites-available/wb-cloud-agent 1.0.0 wb-cloud-agent -- "$@"
+
+if [ -L  /etc/nginx/sites-enabled/wb-cloud-agent ]; then
+    rm  /etc/nginx/sites-available/wb-cloud-agent
+fi
+
+#DEBHELPER#

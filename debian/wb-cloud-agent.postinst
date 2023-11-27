@@ -43,4 +43,10 @@ elif of_machine_match "contactless,imx6ul-wirenboard60"; then
     sed -i 's/ATECCx08:00:../ATECCx08:00:04/g' /mnt/data/etc/wb-cloud-agent.conf
 fi
 
+dpkg-maintscript-helper rm_conffile /etc/nginx/sites-available/wb-cloud-agent 1.0.0 wb-cloud-agent -- "$@"
+
+if [ -L  /etc/nginx/sites-enabled/wb-cloud-agent ]; then
+    rm  /etc/nginx/sites-available/wb-cloud-agent
+fi
+
 #DEBHELPER#
