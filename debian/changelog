@@ -1,4 +1,4 @@
-wb-cloud-agent (1.2.1) stable; urgency=low
+wb-cloud-agent (1.0.1) stable; urgency=low
 
   * Agent communicates via curl instead of Nginx proxy
 
