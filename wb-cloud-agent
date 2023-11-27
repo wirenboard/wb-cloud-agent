@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 import json
-import os
 import subprocess
 import sys
 import time
 from contextlib import ExitStack
+from dataclasses import dataclass
 from datetime import datetime
 from json import JSONDecodeError
 
@@ -12,38 +12,59 @@ from wb_common.mqtt_client import MQTTClient
 
 HTTP_200_OK = 204
 HTTP_204_NO_CONTENT = 204
-
-CONF_FILE = "/mnt/data/etc/wb-cloud-agent.conf"
-
-CLIENT_CERT_FILE = os.getenv("WIRENBOARD_CLIENT_CERT_FILE", "/var/lib/wb-cloud-agent/device_bundle.crt.pem")
-CLIENT_CERT_ENGINE_KEY = os.getenv("WIRENBOARD_CLIENT_CERT_ENGINE_KEY", "")
-
-CLOUD_URL = os.getenv("WIRENBOARD_CLOUD_URL", "https://agent.wirenboard.cloud/api-agent/v1/")
-FRP_CONFIG = os.getenv("WIRENBOARD_FRP_CONFIG", "/var/lib/wb-cloud-agent/frpc.conf")
-TELEGRAF_CONFIG = os.getenv("WIRENBOARD_TELEGRAF_CONFIG", "/var/lib/wb-cloud-agent/telegraf.conf")
-ACTIVATION_LINK_CONFIG = os.getenv(
-    "WIRENBOARD_ACTIVATION_LINK_CONFIG", "/var/lib/wb-cloud-agent/activation_link.conf"
-)
-
-REQUEST_PERIOD_SECONDS = int(os.getenv("WIRENBOARD_REQUEST_PERIOD_SECONDS", "3"))
-
-MQTT_PREFIX = "/devices/system__wb-cloud-agent"
+DEFAULT_CONF_FILE = "/mnt/data/etc/wb-cloud-agent.conf"
 
 
-def read_conf():
-    with open(CONF_FILE, "r") as file:
-        conf = file.read()
+@dataclass
+class AppSettings:
+    """
+    Simple settings configurator.
 
-    try:
-        conf = json.loads(conf)
-    except JSONDecodeError:
-        raise ValueError("Invalid config file at " + TELEGRAF_CONFIG)
+    To rewrite parameters just add them to wb-cloud-agent config.
 
-    global CLIENT_CERT_ENGINE_KEY
-    CLIENT_CERT_ENGINE_KEY = conf.get("CERT_ENGINE_KEY", "")
+    An example of config at /mnt/data/etc/wb-cloud-agent.conf:
+
+    {
+        "CLIENT_CERT_ENGINE_KEY": "ATECCx08:00:04:C0:00",
+    }
+
+    """
+
+    CLIENT_CERT_ENGINE_KEY: str = "ATECCx08:00:02:C0:00"
+    CLIENT_CERT_FILE: str = "/var/lib/wb-cloud-agent/device_bundle.crt.pem"
+    CLOUD_URL: str = "https://agent.wirenboard.cloud/api-agent/v1/"
+    REQUEST_PERIOD_SECONDS: int = 3
+
+    FRP_SERVICE: str = "wb-cloud-agent-frpc.service"
+    FRP_CONFIG: str = "/var/lib/wb-cloud-agent/frpc.conf"
+
+    TELEGRAF_SERVICE: str = "wb-cloud-agent-telegraf.service"
+    TELEGRAF_CONFIG: str = "/var/lib/wb-cloud-agent/telegraf.conf"
+
+    ACTIVATION_LINK_CONFIG: str = "/var/lib/wb-cloud-agent/activation_link.conf"
+
+    MQTT_PREFIX: str = "/devices/system__wb-cloud-agent"
+
+    @classmethod
+    def update_from_json_file(cls, conf_file=None):
+        if not conf_file:
+            return cls()
+
+        try:
+            with open(conf_file, "r") as file:
+                conf = file.read()
+        except (FileNotFoundError, OSError):
+            raise ValueError("Cannot read config file at: " + conf_file)
+
+        try:
+            conf = json.loads(conf)
+        except JSONDecodeError:
+            raise ValueError("Invalid config file format (must be valid json) at: " + conf_file)
+
+        return cls(**conf)
 
 
-read_conf()
+settings = AppSettings.update_from_json_file(DEFAULT_CONF_FILE)
 
 
 def do_curl(method="get", endpoint=""):
@@ -57,15 +78,15 @@ def do_curl(method="get", endpoint=""):
     else:
         raise ValueError("Invalid method: " + method)
 
-    url = CLOUD_URL + endpoint
+    url = settings.CLOUD_URL + endpoint
 
     command += [
         "--connect-timeout",
         "45",
         "--cert",
-        CLIENT_CERT_FILE,
+        settings.CLIENT_CERT_FILE,
         "--key",
-        CLIENT_CERT_ENGINE_KEY,
+        settings.CLIENT_CERT_ENGINE_KEY,
         "--engine",
         "ateccx08",
         "--key-type",
@@ -96,27 +117,27 @@ def do_curl(method="get", endpoint=""):
 
 
 def update_activation_link(payload, mqtt):
-    with open(ACTIVATION_LINK_CONFIG, "w") as file:
+    with open(settings.ACTIVATION_LINK_CONFIG, "w") as file:
         file.write(payload["activationLink"])
 
     publish_ctrl(mqtt, "activation_link", payload["activationLink"])
 
 
 def update_tunnel_config(payload, mqtt):
-    with open(FRP_CONFIG, "w") as file:
+    with open(settings.FRP_CONFIG, "w") as file:
         file.write(payload["config"])
 
-    subprocess.run(["systemctl", "enable", "wb-cloud-agent-frpc.service"], check=True)
-    subprocess.run(["systemctl", "restart", "wb-cloud-agent-frpc.service"], check=True)
+    subprocess.run(["systemctl", "enable", settings.FRP_SERVICE], check=True)
+    subprocess.run(["systemctl", "restart", settings.FRP_SERVICE], check=True)
     publish_ctrl(mqtt, "activation_link", "unknown")
 
 
 def update_metrics_config(payload, mqtt):
-    with open(TELEGRAF_CONFIG, "w") as file:
+    with open(settings.TELEGRAF_CONFIG, "w") as file:
         file.write(payload["config"])
 
-    subprocess.run(["systemctl", "enable", "wb-cloud-agent-telegraf.service"], check=True)
-    subprocess.run(["systemctl", "restart", "wb-cloud-agent-telegraf.service"], check=True)
+    subprocess.run(["systemctl", "enable", settings.TELEGRAF_SERVICE], check=True)
+    subprocess.run(["systemctl", "restart", settings.TELEGRAF_SERVICE], check=True)
     publish_ctrl(mqtt, "activation_link", "unknown")
 
 
@@ -128,35 +149,35 @@ HANDLERS = {
 
 
 def publish_vdev(mqtt):
-    mqtt.publish(MQTT_PREFIX + "/meta/name", "cloud status", retain=True, qos=2)
-    mqtt.publish(MQTT_PREFIX + "/meta/driver", "wb-cloud-agent", retain=True, qos=2)
+    mqtt.publish(settings.MQTT_PREFIX + "/meta/name", "cloud status", retain=True, qos=2)
+    mqtt.publish(settings.MQTT_PREFIX + "/meta/driver", "wb-cloud-agent", retain=True, qos=2)
     mqtt.publish(
-        MQTT_PREFIX + "/controls/status/meta",
+        settings.MQTT_PREFIX + "/controls/status/meta",
         '{"type": "text", "readonly": true, "name": "status", "order": 1, "title": {"en": "Status"}}',
         retain=True,
         qos=2,
     )
     mqtt.publish(
-        MQTT_PREFIX + "/controls/activation_link/meta",
+        settings.MQTT_PREFIX + "/controls/activation_link/meta",
         '{"type": "text", "readonly": true, "name": "activation_link", "order": 2, "title": {"en": "Link"}}',
         retain=True,
         qos=2,
     )
-    mqtt.publish(MQTT_PREFIX + "/controls/status", "disconnected", retain=True, qos=2)
-    mqtt.publish(MQTT_PREFIX + "/controls/activation_link", "unknown", retain=True, qos=2)
+    mqtt.publish(settings.MQTT_PREFIX + "/controls/status", "disconnected", retain=True, qos=2)
+    mqtt.publish(settings.MQTT_PREFIX + "/controls/activation_link", "unknown", retain=True, qos=2)
 
 
 def remove_vdev(mqtt):
-    mqtt.publish(MQTT_PREFIX + "/meta/name", "", retain=True, qos=2)
-    mqtt.publish(MQTT_PREFIX + "/meta/driver", "", retain=True, qos=2)
-    mqtt.publish(MQTT_PREFIX + "/controls/status/meta", "", retain=True, qos=2)
-    mqtt.publish(MQTT_PREFIX + "/controls/activation_link/meta", "", retain=True, qos=2)
-    mqtt.publish(MQTT_PREFIX + "/controls/status", "", retain=True, qos=2)
-    mqtt.publish(MQTT_PREFIX + "/controls/activation_link", "", retain=True, qos=2)
+    mqtt.publish(settings.MQTT_PREFIX + "/meta/name", "", retain=True, qos=2)
+    mqtt.publish(settings.MQTT_PREFIX + "/meta/driver", "", retain=True, qos=2)
+    mqtt.publish(settings.MQTT_PREFIX + "/controls/status/meta", "", retain=True, qos=2)
+    mqtt.publish(settings.MQTT_PREFIX + "/controls/activation_link/meta", "", retain=True, qos=2)
+    mqtt.publish(settings.MQTT_PREFIX + "/controls/status", "", retain=True, qos=2)
+    mqtt.publish(settings.MQTT_PREFIX + "/controls/activation_link", "", retain=True, qos=2)
 
 
 def publish_ctrl(mqtt, ctrl, value):
-    mqtt.publish(MQTT_PREFIX + f"/controls/{ctrl}", value, retain=True, qos=2)
+    mqtt.publish(settings.MQTT_PREFIX + f"/controls/{ctrl}", value, retain=True, qos=2)
 
 
 def make_request(mqtt):
@@ -185,7 +206,7 @@ def make_request(mqtt):
     _, confirmation_status = do_curl(method="post", endpoint="events/" + event_id + "/confirm/")
 
     if confirmation_status != HTTP_204_NO_CONTENT:
-        raise ValueError("Not a 20X status on event confirmation: " + confirmation_status)
+        raise ValueError("Not a 20X status on event confirmation: " + str(confirmation_status))
 
 
 def main():
@@ -211,7 +232,7 @@ def main():
 
             print(datetime.now(), "Done in:", int(request_time * 1000), "ms", flush=True)
 
-            time.sleep(REQUEST_PERIOD_SECONDS)
+            time.sleep(settings.REQUEST_PERIOD_SECONDS)
 
 
 if __name__ == "__main__":
