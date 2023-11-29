@@ -74,9 +74,7 @@ def setup_log():
     if not isinstance(numeric_level, int):
         raise ValueError("Invalid log level: %s" % settings.LOG_LEVEL)
 
-    logging.basicConfig(
-        level=numeric_level, encoding="utf-8", format="%(asctime)s %(message)s", datefmt="%Y.%m.%d %H:%M:%S"
-    )
+    logging.basicConfig(level=numeric_level, encoding="utf-8", format="%(message)s")
 
 
 def do_curl(method="get", endpoint=""):
@@ -95,6 +93,11 @@ def do_curl(method="get", endpoint=""):
     command += [
         "--connect-timeout",
         "45",
+        "--retry",
+        "8",
+        "--retry-max-time",
+        "300",
+        "--retry-all-errors",
         "--cert",
         settings.CLIENT_CERT_FILE,
         "--key",
@@ -108,7 +111,7 @@ def do_curl(method="get", endpoint=""):
         url,
     ]
 
-    result = subprocess.run(command, timeout=60, check=True, capture_output=True)
+    result = subprocess.run(command, timeout=360, check=True, capture_output=True)
 
     decoded_result = result.stdout.decode("utf-8")
     split_result = decoded_result.split(data_delimiter)
