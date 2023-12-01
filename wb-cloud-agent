@@ -8,7 +8,7 @@ from contextlib import ExitStack
 from dataclasses import dataclass
 from json import JSONDecodeError
 
-from wb_common.mqtt_client import MQTTClient
+from paho.mqtt.client import Client as MQTTClient
 
 HTTP_200_OK = 204
 HTTP_204_NO_CONTENT = 204
@@ -228,7 +228,8 @@ def main():
     setup_log()
 
     mqtt = MQTTClient("wb-cloud-agent")
-    mqtt.start()
+    mqtt.connect("localhost", 1883)
+    mqtt.loop_start()
     publish_vdev(mqtt)
 
     with ExitStack() as stack:
