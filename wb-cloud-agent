@@ -110,7 +110,6 @@ def do_curl(method="get", endpoint=""):
         "8",
         "--retry-max-time",
         "300",
-        "--retry-all-errors",
         "--cert",
         settings.CLIENT_CERT_FILE,
         "--key",
@@ -124,7 +123,7 @@ def do_curl(method="get", endpoint=""):
         url,
     ]
 
-    result = subprocess.run(command, timeout=360, check=True, capture_output=True)
+    result = subprocess.run(command, timeout=360, check=True, stdout=subprocess.PIPE)
 
     decoded_result = result.stdout.decode("utf-8")
     split_result = decoded_result.split(data_delimiter)
