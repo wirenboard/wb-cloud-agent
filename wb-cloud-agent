@@ -4,8 +4,8 @@ import logging
 import subprocess
 import sys
 import time
+from collections import namedtuple
 from contextlib import ExitStack
-from dataclasses import dataclass
 from json import JSONDecodeError
 
 from paho.mqtt.client import Client as MQTTClient
@@ -15,58 +15,56 @@ HTTP_204_NO_CONTENT = 204
 DEFAULT_CONF_FILE = "/mnt/data/etc/wb-cloud-agent.conf"
 
 
-@dataclass
-class AppSettings:
-    """
-    Simple settings configurator.
-
-    To rewrite parameters just add them to wb-cloud-agent config.
-
-    An example of config at /mnt/data/etc/wb-cloud-agent.conf:
-
-    {
-        "CLIENT_CERT_ENGINE_KEY": "ATECCx08:00:04:C0:00",
-    }
-
-    """
-
-    LOG_LEVEL: str = "INFO"
-
-    CLIENT_CERT_ENGINE_KEY: str = "ATECCx08:00:02:C0:00"
-    CLIENT_CERT_FILE: str = "/var/lib/wb-cloud-agent/device_bundle.crt.pem"
-    CLOUD_URL: str = "https://agent.wirenboard.cloud/api-agent/v1/"
-    REQUEST_PERIOD_SECONDS: int = 3
-
-    FRP_SERVICE: str = "wb-cloud-agent-frpc.service"
-    FRP_CONFIG: str = "/var/lib/wb-cloud-agent/frpc.conf"
-
-    TELEGRAF_SERVICE: str = "wb-cloud-agent-telegraf.service"
-    TELEGRAF_CONFIG: str = "/var/lib/wb-cloud-agent/telegraf.conf"
-
-    ACTIVATION_LINK_CONFIG: str = "/var/lib/wb-cloud-agent/activation_link.conf"
-
-    MQTT_PREFIX: str = "/devices/system__wb-cloud-agent"
-
-    @classmethod
-    def update_from_json_file(cls, conf_file=None):
-        if not conf_file:
-            return cls()
-
-        try:
-            with open(conf_file, "r") as file:
-                conf = file.read()
-        except (FileNotFoundError, OSError):
-            raise ValueError("Cannot read config file at: " + conf_file)
-
-        try:
-            conf = json.loads(conf)
-        except JSONDecodeError:
-            raise ValueError("Invalid config file format (must be valid json) at: " + conf_file)
-
-        return cls(**conf)
+AppSettingsTuple = namedtuple(
+    "AppSettingsTuple",
+    [
+        "LOG_LEVEL",
+        "CLIENT_CERT_ENGINE_KEY",
+        "CLIENT_CERT_FILE",
+        "CLOUD_URL",
+        "REQUEST_PERIOD_SECONDS",
+        "FRP_SERVICE",
+        "FRP_CONFIG",
+        "TELEGRAF_SERVICE",
+        "TELEGRAF_CONFIG",
+        "ACTIVATION_LINK_CONFIG",
+        "MQTT_PREFIX",
+    ],
+    defaults=[
+        "INFO",
+        "ATECCx08:00:02:C0:00",
+        "/var/lib/wb-cloud-agent/device_bundle.crt.pem",
+        "https://agent.wirenboard.cloud/api-agent/v1/",
+        3,
+        "wb-cloud-agent-frpc.service",
+        "/var/lib/wb-cloud-agent/frpc.conf",
+        "wb-cloud-agent-telegraf.service",
+        "/var/lib/wb-cloud-agent/telegraf.conf",
+        "/var/lib/wb-cloud-agent/activation_link.conf",
+        "/devices/system__wb-cloud-agent",
+    ],
+)
 
 
-settings = AppSettings.update_from_json_file(DEFAULT_CONF_FILE)
+def config_from_json_file(conf_file=None):
+    if not conf_file:
+        return AppSettingsTuple
+
+    try:
+        with open(conf_file, "r") as file:
+            conf = file.read()
+    except (FileNotFoundError, OSError):
+        raise ValueError("Cannot read config file at: " + conf_file)
+
+    try:
+        conf = json.loads(conf)
+    except JSONDecodeError:
+        raise ValueError("Invalid config file format (must be valid json) at: " + conf_file)
+
+    return AppSettingsTuple(**conf)
+
+
+settings = config_from_json_file(DEFAULT_CONF_FILE)
 
 
 def setup_log():
