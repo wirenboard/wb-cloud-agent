@@ -4,69 +4,82 @@ import logging
 import subprocess
 import sys
 import time
+from collections import namedtuple
 from contextlib import ExitStack
-from dataclasses import dataclass
 from json import JSONDecodeError
 
-from wb_common.mqtt_client import MQTTClient
+from paho.mqtt.client import Client as MQTTClient
 
 HTTP_200_OK = 204
 HTTP_204_NO_CONTENT = 204
 DEFAULT_CONF_FILE = "/mnt/data/etc/wb-cloud-agent.conf"
 
 
-@dataclass
-class AppSettings:
-    """
-    Simple settings configurator.
-
-    To rewrite parameters just add them to wb-cloud-agent config.
-
-    An example of config at /mnt/data/etc/wb-cloud-agent.conf:
-
-    {
-        "CLIENT_CERT_ENGINE_KEY": "ATECCx08:00:04:C0:00",
-    }
-
-    """
-
-    LOG_LEVEL: str = "INFO"
-
-    CLIENT_CERT_ENGINE_KEY: str = "ATECCx08:00:02:C0:00"
-    CLIENT_CERT_FILE: str = "/var/lib/wb-cloud-agent/device_bundle.crt.pem"
-    CLOUD_URL: str = "https://agent.wirenboard.cloud/api-agent/v1/"
-    REQUEST_PERIOD_SECONDS: int = 3
-
-    FRP_SERVICE: str = "wb-cloud-agent-frpc.service"
-    FRP_CONFIG: str = "/var/lib/wb-cloud-agent/frpc.conf"
-
-    TELEGRAF_SERVICE: str = "wb-cloud-agent-telegraf.service"
-    TELEGRAF_CONFIG: str = "/var/lib/wb-cloud-agent/telegraf.conf"
-
-    ACTIVATION_LINK_CONFIG: str = "/var/lib/wb-cloud-agent/activation_link.conf"
-
-    MQTT_PREFIX: str = "/devices/system__wb-cloud-agent"
-
-    @classmethod
-    def update_from_json_file(cls, conf_file=None):
-        if not conf_file:
-            return cls()
-
-        try:
-            with open(conf_file, "r") as file:
-                conf = file.read()
-        except (FileNotFoundError, OSError):
-            raise ValueError("Cannot read config file at: " + conf_file)
-
-        try:
-            conf = json.loads(conf)
-        except JSONDecodeError:
-            raise ValueError("Invalid config file format (must be valid json) at: " + conf_file)
-
-        return cls(**conf)
+AppSettingsTuple = namedtuple(
+    "AppSettingsTuple",
+    [
+        "LOG_LEVEL",
+        "CLIENT_CERT_ENGINE_KEY",
+        "CLIENT_CERT_FILE",
+        "CLOUD_URL",
+        "REQUEST_PERIOD_SECONDS",
+        "FRP_SERVICE",
+        "FRP_CONFIG",
+        "TELEGRAF_SERVICE",
+        "TELEGRAF_CONFIG",
+        "ACTIVATION_LINK_CONFIG",
+        "MQTT_PREFIX",
+    ],
+)
 
 
-settings = AppSettings.update_from_json_file(DEFAULT_CONF_FILE)
+def AppSettingsBuilder(
+    LOG_LEVEL="INFO",
+    CLIENT_CERT_ENGINE_KEY="ATECCx08:00:02:C0:00",
+    CLIENT_CERT_FILE="/var/lib/wb-cloud-agent/device_bundle.crt.pem",
+    CLOUD_URL="https://agent.wirenboard.cloud/api-agent/v1/",
+    REQUEST_PERIOD_SECONDS=3,
+    FRP_SERVICE="wb-cloud-agent-frpc.service",
+    FRP_CONFIG="/var/lib/wb-cloud-agent/frpc.conf",
+    TELEGRAF_SERVICE="wb-cloud-agent-telegraf.service",
+    TELEGRAF_CONFIG="/var/lib/wb-cloud-agent/telegraf.conf",
+    ACTIVATION_LINK_CONFIG="/var/lib/wb-cloud-agent/activation_link.conf",
+    MQTT_PREFIX="/devices/system__wb-cloud-agent",
+):
+    return AppSettingsTuple(
+        LOG_LEVEL,
+        CLIENT_CERT_ENGINE_KEY,
+        CLIENT_CERT_FILE,
+        CLOUD_URL,
+        REQUEST_PERIOD_SECONDS,
+        FRP_SERVICE,
+        FRP_CONFIG,
+        TELEGRAF_SERVICE,
+        TELEGRAF_CONFIG,
+        ACTIVATION_LINK_CONFIG,
+        MQTT_PREFIX,
+    )
+
+
+def config_from_json_file(conf_file=None):
+    if not conf_file:
+        return AppSettingsBuilder()
+
+    try:
+        with open(conf_file, "r") as file:
+            conf = file.read()
+    except (FileNotFoundError, OSError):
+        raise ValueError("Cannot read config file at: " + conf_file)
+
+    try:
+        conf = json.loads(conf)
+    except JSONDecodeError:
+        raise ValueError("Invalid config file format (must be valid json) at: " + conf_file)
+
+    return AppSettingsBuilder(**conf)
+
+
+settings = config_from_json_file(DEFAULT_CONF_FILE)
 
 
 def setup_log():
@@ -74,17 +87,19 @@ def setup_log():
     if not isinstance(numeric_level, int):
         raise ValueError("Invalid log level: %s" % settings.LOG_LEVEL)
 
-    logging.basicConfig(level=numeric_level, encoding="utf-8", format="%(message)s")
+    logging.basicConfig(level=numeric_level, format="%(message)s")
 
 
 def do_curl(method="get", endpoint=""):
+    CURL_BIN = "/usr/lib/wb-cloud-agent/curl-ssl1.1/curl.sh"
+
     data_delimiter = "|||"
     output_format = data_delimiter + '{"code":"%{response_code}"}'
 
     if method == "get":
-        command = ["curl"]
+        command = [CURL_BIN]
     elif method == "post":
-        command = ["curl", "-X", "POST"]
+        command = [CURL_BIN, "-X", "POST"]
     else:
         raise ValueError("Invalid method: " + method)
 
@@ -97,7 +112,6 @@ def do_curl(method="get", endpoint=""):
         "8",
         "--retry-max-time",
         "300",
-        "--retry-all-errors",
         "--cert",
         settings.CLIENT_CERT_FILE,
         "--key",
@@ -111,7 +125,7 @@ def do_curl(method="get", endpoint=""):
         url,
     ]
 
-    result = subprocess.run(command, timeout=360, check=True, capture_output=True)
+    result = subprocess.run(command, timeout=360, check=True, stdout=subprocess.PIPE)
 
     decoded_result = result.stdout.decode("utf-8")
     split_result = decoded_result.split(data_delimiter)
@@ -192,7 +206,7 @@ def remove_vdev(mqtt):
 
 
 def publish_ctrl(mqtt, ctrl, value):
-    mqtt.publish(settings.MQTT_PREFIX + f"/controls/{ctrl}", value, retain=True, qos=2)
+    mqtt.publish(settings.MQTT_PREFIX + "/controls/" + ctrl, value, retain=True, qos=2)
 
 
 def make_request(mqtt):
@@ -228,7 +242,8 @@ def main():
     setup_log()
 
     mqtt = MQTTClient("wb-cloud-agent")
-    mqtt.start()
+    mqtt.connect("localhost", 1883)
+    mqtt.loop_start()
     publish_vdev(mqtt)
 
     with ExitStack() as stack:
