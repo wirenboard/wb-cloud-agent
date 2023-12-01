@@ -30,25 +30,40 @@ AppSettingsTuple = namedtuple(
         "ACTIVATION_LINK_CONFIG",
         "MQTT_PREFIX",
     ],
-    defaults=[
-        "INFO",
-        "ATECCx08:00:02:C0:00",
-        "/var/lib/wb-cloud-agent/device_bundle.crt.pem",
-        "https://agent.wirenboard.cloud/api-agent/v1/",
-        3,
-        "wb-cloud-agent-frpc.service",
-        "/var/lib/wb-cloud-agent/frpc.conf",
-        "wb-cloud-agent-telegraf.service",
-        "/var/lib/wb-cloud-agent/telegraf.conf",
-        "/var/lib/wb-cloud-agent/activation_link.conf",
-        "/devices/system__wb-cloud-agent",
-    ],
 )
+
+
+def AppSettingsBuilder(
+    LOG_LEVEL="INFO",
+    CLIENT_CERT_ENGINE_KEY="ATECCx08:00:02:C0:00",
+    CLIENT_CERT_FILE="/var/lib/wb-cloud-agent/device_bundle.crt.pem",
+    CLOUD_URL="https://agent.wirenboard.cloud/api-agent/v1/",
+    REQUEST_PERIOD_SECONDS=3,
+    FRP_SERVICE="wb-cloud-agent-frpc.service",
+    FRP_CONFIG="/var/lib/wb-cloud-agent/frpc.conf",
+    TELEGRAF_SERVICE="wb-cloud-agent-telegraf.service",
+    TELEGRAF_CONFIG="/var/lib/wb-cloud-agent/telegraf.conf",
+    ACTIVATION_LINK_CONFIG="/var/lib/wb-cloud-agent/activation_link.conf",
+    MQTT_PREFIX="/devices/system__wb-cloud-agent",
+):
+    return AppSettingsTuple(
+        LOG_LEVEL,
+        CLIENT_CERT_ENGINE_KEY,
+        CLIENT_CERT_FILE,
+        CLOUD_URL,
+        REQUEST_PERIOD_SECONDS,
+        FRP_SERVICE,
+        FRP_CONFIG,
+        TELEGRAF_SERVICE,
+        TELEGRAF_CONFIG,
+        ACTIVATION_LINK_CONFIG,
+        MQTT_PREFIX,
+    )
 
 
 def config_from_json_file(conf_file=None):
     if not conf_file:
-        return AppSettingsTuple
+        return AppSettingsBuilder()
 
     try:
         with open(conf_file, "r") as file:
@@ -61,7 +76,7 @@ def config_from_json_file(conf_file=None):
     except JSONDecodeError:
         raise ValueError("Invalid config file format (must be valid json) at: " + conf_file)
 
-    return AppSettingsTuple(**conf)
+    return AppSettingsBuilder(**conf)
 
 
 settings = config_from_json_file(DEFAULT_CONF_FILE)
