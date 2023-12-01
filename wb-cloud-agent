@@ -87,7 +87,7 @@ def setup_log():
     if not isinstance(numeric_level, int):
         raise ValueError("Invalid log level: %s" % settings.LOG_LEVEL)
 
-    logging.basicConfig(level=numeric_level, encoding="utf-8", format="%(message)s")
+    logging.basicConfig(level=numeric_level, format="%(message)s")
 
 
 def do_curl(method="get", endpoint=""):
