@@ -1,3 +1,9 @@
+wb-cloud-agent (1.2.5-wb100) stable; urgency=medium
+
+  * wb-2207 backport
+
+ -- Nikita Maslov <nikita.maslov@wirenboard.ru>  Thu, 07 Dec 2023 13:37:15 +0600
+
 wb-cloud-agent (1.2.5) stable; urgency=medium
 
   * Fix upgrade procedure after 1.2.2; no functional changes
