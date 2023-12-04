@@ -8,6 +8,7 @@ if [ "$1" = "upgrade" ]; then
     if dpkg --compare-versions "$2" lt "1.2.4~~" && dpkg --compare-versions "$2" gt "1.2.2~~"; then
         # make old broken postrm script happy
         rm -f /etc/nginx/sites-enabled/wb-cloud-agent
+        deb-systemd-invoke restart nginx.service || true
     fi
 fi
 
