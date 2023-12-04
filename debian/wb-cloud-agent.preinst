@@ -4,4 +4,11 @@ set -e
 
 dpkg-maintscript-helper rm_conffile /etc/nginx/sites-available/wb-cloud-agent 1.0.0 wb-cloud-agent -- "$@"
 
+if [ "$1" = "upgrade" ]; then
+    if dpkg --compare-versions "$2" lt "1.2.4~~" && dpkg --compare-versions "$2" gt "1.2.2~~"; then
+        # make old broken postrm script happy
+        rm -f /etc/nginx/sites-enabled/wb-cloud-agent
+    fi
+fi
+
 #DEBHELPER#
