@@ -2,7 +2,16 @@ Source: wb-cloud-agent
 Section: misc
 Priority: optional
 Maintainer: Nikita Maslov <nikita.maslov@wirenboard.ru>
-Build-Depends: debhelper-compat (= 13)
+Build-Depends: debhelper-compat (= 13),
+ libnghttp2-dev,
+ libnss3-dev,
+ libpsl-dev,
+ librtmp-dev (>= 2.4+20131018.git79459a2-3~),
+ libssh2-1-dev,
+ libldap2-dev,
+ libkrb5-dev,
+ libssl-dev (>= 1.1.0),
+ zlib1g-dev
 Standards-Version: 4.6.1
 Homepage: https://github.com/wirenboard/wb-cloud-agent/
 Rules-Requires-Root: no
@@ -24,6 +33,7 @@ Description: Wiren Board Cloud agent
 Package: wb-cloud-agent-curl
 Architecture: armhf
 Depends: ${misc:Depends},
+         ${shlibs:Depends},
          libssl1.1,
          libateccssl1.1
 Description: Wiren Board Cloud agent curl (wb-2207 backport for armhf)
