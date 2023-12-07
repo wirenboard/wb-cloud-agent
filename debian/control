@@ -24,6 +24,17 @@ Description: Wiren Board Cloud agent
 Package: wb-cloud-agent-curl
 Architecture: armhf
 Depends: ${misc:Depends},
+         libc6 (>= 2.17),
+         zlib1g (>= 1:1.1.4),
+         libcomerr2 (>= 1.01),
+         libgssapi-krb5-2 (>= 1.14+dfsg),
+         libidn2-0 (>= 0.6),
+         libk5crypto3 (>= 1.6.dfsg.2),
+         libkrb5-3 (>= 1.6.dfsg.2),
+         libldap-2.4-2 (>= 2.4.7),
+         libnghttp2-14 (>= 1.12.0),
+         libpsl5 (>= 0.13.0),
+         librtmp1 (>= 2.4+20131018.git79459a2-3~),
          libssl1.1,
          libateccssl1.1
 Description: Wiren Board Cloud agent curl (wb-2207 backport for armhf)
