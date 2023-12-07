@@ -1,2 +1,2 @@
-buildDebSbuild defaultTargets: "stretch-armhf",
+buildDebSbuild defaultTargets: "bullseye-armhf",
                defaultRunPythonChecks: true
