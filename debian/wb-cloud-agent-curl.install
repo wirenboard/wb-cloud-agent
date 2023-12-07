@@ -1,0 +1,3 @@
+curl/curl /usr/lib/wb-cloud-agent/curl-ssl1.1/
+curl/curl.sh /usr/lib/wb-cloud-agent/curl-ssl1.1/
+curl/libcurl.so.4 /usr/lib/wb-cloud-agent/curl-ssl1.1/

@@ -91,13 +91,15 @@ def setup_log():
 
 
 def do_curl(method="get", endpoint=""):
+    CURL_BIN = "/usr/lib/wb-cloud-agent/curl-ssl1.1/curl.sh"
+
     data_delimiter = "|||"
     output_format = data_delimiter + '{"code":"%{response_code}"}'
 
     if method == "get":
-        command = ["curl"]
+        command = [CURL_BIN]
     elif method == "post":
-        command = ["curl", "-X", "POST"]
+        command = [CURL_BIN, "-X", "POST"]
     else:
         raise ValueError("Invalid method: " + method)
 
