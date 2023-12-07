@@ -2,7 +2,7 @@ Source: wb-cloud-agent
 Section: misc
 Priority: optional
 Maintainer: Nikita Maslov <nikita.maslov@wirenboard.ru>
-Build-Depends: debhelper (>= 9),
+Build-Depends: debhelper-compat (= 13),
  libnghttp2-dev,
  libnss3-dev,
  libpsl-dev,
