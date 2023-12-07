@@ -10,13 +10,32 @@ Rules-Requires-Root: no
 Package: wb-cloud-agent
 Architecture: all
 Depends: ${misc:Depends},
+         wb-cloud-agent-curl (= ${binary:Version}),
          python3-all,
          python3-requests,
          telegraf-wb-cloud-agent | telegraf,
          frpc,
-         curl,
-         python3-wb-common (>= 2.1.1),
-         wb-configs (>= 3.20.0~~)
-Recommends: wb-mqtt-homeui (>= 2.77.0~~)
+         python3-paho-mqtt
+Recommends: wb-mqtt-homeui (>= 2.44.4-wb101~~)
 Description: Wiren Board Cloud agent
  This package provides Wiren Board Cloud agent service.
+
+Package: wb-cloud-agent-curl
+Architecture: armhf
+Depends: ${misc:Depends},
+         libc6 (>= 2.17),
+         zlib1g (>= 1:1.1.4),
+         libcomerr2 (>= 1.01),
+         libgssapi-krb5-2 (>= 1.14+dfsg),
+         libidn2-0 (>= 0.6),
+         libk5crypto3 (>= 1.6.dfsg.2),
+         libkrb5-3 (>= 1.6.dfsg.2),
+         libldap-2.4-2 (>= 2.4.7),
+         libnghttp2-14 (>= 1.12.0),
+         libpsl5 (>= 0.13.0),
+         librtmp1 (>= 2.4+20131018.git79459a2-3~),
+         libssl1.1,
+         libateccssl1.1
+Description: Wiren Board Cloud agent curl (wb-2207 backport for armhf)
+ This package provides Wiren Board Cloud agent curl with openssl1.1 support
+ which is missing in Debian Stretch.
