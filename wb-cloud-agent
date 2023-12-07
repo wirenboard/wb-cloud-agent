@@ -106,7 +106,6 @@ def do_curl(method="get", endpoint=""):
     url = settings.CLOUD_URL + endpoint
 
     command += [
-        "-s",
         "--connect-timeout",
         "45",
         "--retry",
