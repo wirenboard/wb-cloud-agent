@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import argparse
 import json
 import logging
 import subprocess
@@ -131,11 +132,21 @@ def do_curl(method="get", endpoint=""):
     return data, status
 
 
-def update_activation_link(payload, mqtt):
+def write_activation_link(link, mqtt):
     with open(settings.ACTIVATION_LINK_CONFIG, "w") as file:
-        file.write(payload["activationLink"])
+        file.write(link)
 
-    publish_ctrl(mqtt, "activation_link", payload["activationLink"])
+    publish_ctrl(mqtt, "activation_link", link)
+
+
+def read_activation_link():
+    with open(settings.ACTIVATION_LINK_CONFIG, "r") as file:
+        link = file.readline()
+        return None if link == "unknown" else link
+
+
+def update_activation_link(payload, mqtt):
+    write_activation_link(payload["activationLink"], mqtt)
 
 
 def update_tunnel_config(payload, mqtt):
@@ -144,7 +155,7 @@ def update_tunnel_config(payload, mqtt):
 
     subprocess.run(["systemctl", "enable", settings.FRP_SERVICE], check=True)
     subprocess.run(["systemctl", "restart", settings.FRP_SERVICE], check=True)
-    publish_ctrl(mqtt, "activation_link", "unknown")
+    write_activation_link("unknown", mqtt)
 
 
 def update_metrics_config(payload, mqtt):
@@ -153,7 +164,7 @@ def update_metrics_config(payload, mqtt):
 
     subprocess.run(["systemctl", "enable", settings.TELEGRAF_SERVICE], check=True)
     subprocess.run(["systemctl", "restart", settings.TELEGRAF_SERVICE], check=True)
-    publish_ctrl(mqtt, "activation_link", "unknown")
+    write_activation_link("unknown", mqtt)
 
 
 HANDLERS = {
@@ -229,6 +240,19 @@ def main():
 
     mqtt = MQTTClient("wb-cloud-agent")
     mqtt.start()
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--link", action="store_true", help="Get a link to connect controller to cloud")
+    options = parser.parse_args()
+
+    if options.link:
+        link = read_activation_link()
+        if link:
+            print(f"👉 {link}")
+        else:
+            print("No active link. Controller may be already connected")
+        return
+
     publish_vdev(mqtt)
 
     with ExitStack() as stack:
