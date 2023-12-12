@@ -141,8 +141,7 @@ def write_activation_link(link, mqtt):
 
 def read_activation_link():
     with open(settings.ACTIVATION_LINK_CONFIG, "r") as file:
-        link = file.readline()
-        return None if link == "unknown" else link
+        return file.readline()
 
 
 def update_activation_link(payload, mqtt):
@@ -190,7 +189,9 @@ def publish_vdev(mqtt):
         qos=2,
     )
     mqtt.publish(settings.MQTT_PREFIX + "/controls/status", "disconnected", retain=True, qos=2)
-    mqtt.publish(settings.MQTT_PREFIX + "/controls/activation_link", "unknown", retain=True, qos=2)
+    mqtt.publish(
+        settings.MQTT_PREFIX + "/controls/activation_link", read_activation_link(), retain=True, qos=2
+    )
 
 
 def remove_vdev(mqtt):
@@ -247,7 +248,7 @@ def main():
 
     if options.link:
         link = read_activation_link()
-        if link:
+        if link != "unknown":
             print(f"👉 {link}")
         else:
             print("No active link. Controller may be already connected")
