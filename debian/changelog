@@ -1,3 +1,10 @@
+wb-cloud-agent (1.2.6) stable; urgency=medium
+
+  * Add daemon mode 
+  * Fix initial value in activation link topic
+
+ -- Ekaterina Volkova <ekaterina.volkova@wirenboard.ru>  Wed, 13 Dec 2023 12:54:53 +0300
+
 wb-cloud-agent (1.2.5) stable; urgency=medium
 
   * Fix upgrade procedure after 1.2.2; no functional changes
