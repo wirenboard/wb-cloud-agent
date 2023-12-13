@@ -2,6 +2,7 @@
 import argparse
 import json
 import logging
+import os
 import subprocess
 import sys
 import time
@@ -140,6 +141,9 @@ def write_activation_link(link, mqtt):
 
 
 def read_activation_link():
+    if not os.path.exists(settings.ACTIVATION_LINK_CONFIG):
+        return "unknown"
+
     with open(settings.ACTIVATION_LINK_CONFIG, "r") as file:
         return file.readline()
 
