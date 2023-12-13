@@ -243,10 +243,10 @@ def main():
     mqtt.start()
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--link", action="store_true", help="Get a link to connect controller to cloud")
+    parser.add_argument("--daemon", action="store_true", help="Run cloud agent in daemon mode")
     options = parser.parse_args()
 
-    if options.link:
+    if not options.daemon:
         link = read_activation_link()
         if link != "unknown":
             print(f"👉 {link}")
