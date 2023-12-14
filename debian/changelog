@@ -1,3 +1,9 @@
+wb-cloud-agent (1.2.8) stable; urgency=medium
+
+  * remove unused dependency on wb-configs, no functional changes
+
+ -- Nikita Maslov <nikita.maslov@wirenboard.ru>  Thu, 14 Dec 2023 18:31:17 +0600
+
 wb-cloud-agent (1.2.7) stable; urgency=medium
 
   * Remove stall activation link after update from <= 1.2.6; no functional
