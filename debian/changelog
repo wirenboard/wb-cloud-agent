@@ -1,3 +1,10 @@
+wb-cloud-agent (1.2.7) stable; urgency=medium
+
+  * Remove stall activation link after update from <= 1.2.6; no functional
+    changes
+
+ -- Nikita Maslov <nikita.maslov@wirenboard.ru>  Wed, 13 Dec 2023 21:52:25 +0600
+
 wb-cloud-agent (1.2.6) stable; urgency=medium
 
   * Add daemon mode 
