@@ -33,6 +33,14 @@ if [ ! -f "$TARGET_CERT" ] || ! cert_is_valid "$TARGET_CERT"; then
     fi
 fi
 
+# remove stall activation link file if updated from <=1.2.6
+if [ "$1" = "configure" ] && dpkg --compare-versions "$2" lt "1.2.7~~"; then
+    if [ -e "/var/lib/wb-cloud-agent/telegraf.conf" ] && [ -e "/var/lib/wb-cloud-agent/activation_link.conf" ]; then
+        echo "Controller seems to be in the cloud already, removing stall activation link"
+        echo "unknown" > "/var/lib/wb-cloud-agent/activation_link.conf"
+    fi
+fi
+
 # fix agent config (ATECC path according to device version)
 . /usr/lib/wb-utils/wb_env.sh
 wb_source of

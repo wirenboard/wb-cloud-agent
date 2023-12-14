@@ -2,6 +2,8 @@ wb-cloud-agent (1.2.5-wb101) stable; urgency=medium
 
   * Add daemon mode
   * Fix initial value in activation link topic
+  * Remove stall activation link after update from <= 1.2.6; no functional
+    changes
 
  -- Nikita Maslov <nikita.maslov@wirenboard.ru>  Tue, 16 Jan 2024 19:07:33 +0600
 
