@@ -148,11 +148,11 @@ def read_activation_link():
         return file.readline()
 
 
-def update_activation_link(payload, mqtt):
+def update_activation_link_event_handler(payload, mqtt):
     write_activation_link(payload["activationLink"], mqtt)
 
 
-def update_tunnel_config(payload, mqtt):
+def update_tunnel_config_event_handler(payload, mqtt):
     with open(settings.FRP_CONFIG, "w") as file:
         file.write(payload["config"])
 
@@ -161,7 +161,7 @@ def update_tunnel_config(payload, mqtt):
     write_activation_link("unknown", mqtt)
 
 
-def update_metrics_config(payload, mqtt):
+def update_metrics_config_event_handler(payload, mqtt):
     with open(settings.TELEGRAF_CONFIG, "w") as file:
         file.write(payload["config"])
 
@@ -170,10 +170,14 @@ def update_metrics_config(payload, mqtt):
     write_activation_link("unknown", mqtt)
 
 
+def default_event_handler(*args, **kwargs):
+    logging.debug("Received unknown event! Doing nothing...")
+
+
 HANDLERS = {
-    "update_activation_link": update_activation_link,
-    "update_tunnel_config": update_tunnel_config,
-    "update_metrics_config": update_metrics_config,
+    "update_activation_link": update_activation_link_event_handler,
+    "update_tunnel_config": update_tunnel_config_event_handler,
+    "update_metrics_config": update_metrics_config_event_handler,
 }
 
 
@@ -211,33 +215,32 @@ def publish_ctrl(mqtt, ctrl, value):
     mqtt.publish(settings.MQTT_PREFIX + f"/controls/{ctrl}", value, retain=True, qos=2)
 
 
-def make_request(mqtt):
+def confirm_event(event_id):
+    if not event_id:
+        return
+
+    _, confirmation_status = do_curl(method="post", endpoint="events/" + event_id + "/confirm/")
+
+    if confirmation_status != HTTP_204_NO_CONTENT:
+        raise ValueError("Not a 20X status on event confirmation: " + str(confirmation_status))
+
+
+def make_event_request(mqtt):
     event_data, event_status = do_curl(method="get", endpoint="events/")
     logging.debug("Checked for new events. Status " + str(event_status) + ". Data: " + str(event_data))
 
     if event_status == HTTP_204_NO_CONTENT:
         return
 
-    code = event_data.get("code", "")
-    handler = HANDLERS.get(code)
-    if not handler:
-        raise ValueError("Unknown event code: " + str(code))
+    event_code = event_data.get("code", "")
+    event_id = event_data.get("id", "")
+    payload = event_data.get("payload", {})
 
-    event_id = event_data.get("id")
-    if not handler:
-        raise ValueError("Unknown event id: " + str(event_id))
-
-    payload = event_data.get("payload")
-    if not payload:
-        raise ValueError("Empty payload")
-
+    handler = HANDLERS.get(event_code, default_event_handler)
     handler(payload, mqtt)
-    logging.info("Event '" + code + "' handled successfully, event id " + str(event_id))
+    logging.info("Event '" + event_code + "' handled successfully, event id " + str(event_id))
 
-    _, confirmation_status = do_curl(method="post", endpoint="events/" + event_id + "/confirm/")
-
-    if confirmation_status != HTTP_204_NO_CONTENT:
-        raise ValueError("Not a 20X status on event confirmation: " + str(confirmation_status))
+    confirm_event(event_id)
 
 
 def main():
@@ -267,7 +270,7 @@ def main():
             start = time.perf_counter()
 
             try:
-                make_request(mqtt)
+                make_event_request(mqtt)
             except Exception as ex:
                 logging.exception("Error making request to cloud!")
                 publish_ctrl(mqtt, "status", "error:" + str(ex))
