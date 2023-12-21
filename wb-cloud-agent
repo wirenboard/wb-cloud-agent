@@ -170,6 +170,10 @@ def update_metrics_config_event_handler(payload, mqtt):
     write_activation_link("unknown", mqtt)
 
 
+def current_status_info_event_handler(payload, mqtt):
+    logging.info("Received current status information.")
+
+
 def default_event_handler(*args, **kwargs):
     logging.debug("Received unknown event! Doing nothing...")
 
@@ -178,6 +182,7 @@ HANDLERS = {
     "update_activation_link": update_activation_link_event_handler,
     "update_tunnel_config": update_tunnel_config_event_handler,
     "update_metrics_config": update_metrics_config_event_handler,
+    "current_status_info": current_status_info_event_handler,
 }
 
 
