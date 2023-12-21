@@ -79,9 +79,13 @@ def setup_log():
     logging.basicConfig(level=numeric_level, encoding="utf-8", format="%(message)s")
 
 
-def do_curl(method="get", endpoint=""):
+def do_curl(method="get", endpoint="", is_init_request=False):
     data_delimiter = "|||"
     output_format = data_delimiter + '{"code":"%{response_code}"}'
+    headers = {}
+
+    if is_init_request:
+        headers["X-Init-Request"] = "True"
 
     if method == "get":
         command = ["curl"]
@@ -91,6 +95,12 @@ def do_curl(method="get", endpoint=""):
         raise ValueError("Invalid method: " + method)
 
     url = settings.CLOUD_URL + endpoint
+
+    for header, value in headers.items():
+        command += [
+            "-H",
+            ":".join((header, value)),
+        ]
 
     command += [
         "--connect-timeout",
@@ -230,8 +240,8 @@ def confirm_event(event_id):
         raise ValueError("Not a 20X status on event confirmation: " + str(confirmation_status))
 
 
-def make_event_request(mqtt):
-    event_data, event_status = do_curl(method="get", endpoint="events/")
+def make_event_request(mqtt, is_init_request):
+    event_data, event_status = do_curl(method="get", endpoint="events/", is_init_request=is_init_request)
     logging.debug("Checked for new events. Status " + str(event_status) + ". Data: " + str(event_data))
 
     if event_status == HTTP_204_NO_CONTENT:
@@ -268,6 +278,8 @@ def main():
 
     publish_vdev(mqtt)
 
+    is_init_request = True
+
     with ExitStack() as stack:
         stack.callback(remove_vdev, mqtt)
 
@@ -275,7 +287,7 @@ def main():
             start = time.perf_counter()
 
             try:
-                make_event_request(mqtt)
+                make_event_request(mqtt, is_init_request)
             except Exception as ex:
                 logging.exception("Error making request to cloud!")
                 publish_ctrl(mqtt, "status", "error:" + str(ex))
@@ -286,6 +298,7 @@ def main():
 
             logging.debug("Done in: " + str(int(request_time * 1000)) + " ms.")
 
+            is_init_request = False
             time.sleep(settings.REQUEST_PERIOD_SECONDS)
 
 
