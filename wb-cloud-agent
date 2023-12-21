@@ -16,6 +16,8 @@ HTTP_200_OK = 204
 HTTP_204_NO_CONTENT = 204
 DEFAULT_CONF_FILE = "/mnt/data/etc/wb-cloud-agent.conf"
 
+AGENT_VERSION = "1.3.0"
+
 
 @dataclass
 class AppSettings:
@@ -82,7 +84,9 @@ def setup_log():
 def do_curl(method="get", endpoint="", is_init_request=False):
     data_delimiter = "|||"
     output_format = data_delimiter + '{"code":"%{response_code}"}'
-    headers = {}
+    headers = {
+        "X-Agent-Version": AGENT_VERSION,
+    }
 
     if is_init_request:
         headers["X-Init-Request"] = "True"
