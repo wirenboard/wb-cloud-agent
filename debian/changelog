@@ -1,3 +1,12 @@
+wb-cloud-agent (1.3.0) UNRELEASED; urgency=medium
+
+  * Send agent version in headers
+  * Send init request header before polling
+  * Added new current status info event handler
+  * Fixed bug when unknown event could break the agent 
+
+ -- kazqvaizer <kazqvaizer@kazqvaizer-ThinkPad>  Thu, 21 Dec 2023 12:47:29 +1000
+
 wb-cloud-agent (1.2.8) stable; urgency=medium
 
   * remove unused dependency on wb-configs, no functional changes
