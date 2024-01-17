@@ -269,7 +269,7 @@ def main():
     if not options.daemon:
         link = read_activation_link()
         if link != "unknown":
-            print(f"👉 {link}")
+            print("👉 {}".format(link))
         else:
             print("No active link. Controller may be already connected")
         return
