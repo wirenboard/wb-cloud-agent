@@ -211,7 +211,7 @@ def publish_ctrl(mqtt, ctrl, value):
     mqtt.publish(settings.MQTT_PREFIX + f"/controls/{ctrl}", value, retain=True, qos=2)
 
 
-def make_request(mqtt):
+def make_event_request(mqtt):
     event_data, event_status = do_curl(method="get", endpoint="events/")
     logging.debug("Checked for new events. Status " + str(event_status) + ". Data: " + str(event_data))
 
@@ -221,10 +221,11 @@ def make_request(mqtt):
     code = event_data.get("code", "")
     handler = HANDLERS.get(code)
     if not handler:
-        raise ValueError("Unknown event code: " + str(code))
+        logging.warning("Got an unknown event '" + code + "'. Try to update wb-cloud-agent package.")
+        return
 
     event_id = event_data.get("id")
-    if not handler:
+    if not event_id:
         raise ValueError("Unknown event id: " + str(event_id))
 
     payload = event_data.get("payload")
@@ -267,7 +268,7 @@ def main():
             start = time.perf_counter()
 
             try:
-                make_request(mqtt)
+                make_event_request(mqtt)
             except Exception as ex:
                 logging.exception("Error making request to cloud!")
                 publish_ctrl(mqtt, "status", "error:" + str(ex))
