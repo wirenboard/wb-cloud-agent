@@ -12,7 +12,7 @@ from json import JSONDecodeError
 
 from wb_common.mqtt_client import MQTTClient
 
-HTTP_200_OK = 204
+HTTP_200_OK = 200
 HTTP_204_NO_CONTENT = 204
 DEFAULT_CONF_FILE = "/mnt/data/etc/wb-cloud-agent.conf"
 
@@ -212,11 +212,14 @@ def publish_ctrl(mqtt, ctrl, value):
 
 
 def make_event_request(mqtt):
-    event_data, event_status = do_curl(method="get", endpoint="events/")
-    logging.debug("Checked for new events. Status " + str(event_status) + ". Data: " + str(event_data))
+    event_data, http_status = do_curl(method="get", endpoint="events/")
+    logging.debug("Checked for new events. Status " + str(http_status) + ". Data: " + str(event_data))
 
-    if event_status == HTTP_204_NO_CONTENT:
+    if http_status == HTTP_204_NO_CONTENT:
         return
+
+    if http_status != HTTP_200_OK:
+        raise ValueError("Not a 200 status while retrieving event: " + str(http_status))
 
     code = event_data.get("code", "")
     handler = HANDLERS.get(code)
@@ -235,10 +238,29 @@ def make_event_request(mqtt):
     handler(payload, mqtt)
     logging.info("Event '" + code + "' handled successfully, event id " + str(event_id))
 
-    _, confirmation_status = do_curl(method="post", endpoint="events/" + event_id + "/confirm/")
+    _, http_status = do_curl(method="post", endpoint="events/" + event_id + "/confirm/")
 
-    if confirmation_status != HTTP_204_NO_CONTENT:
-        raise ValueError("Not a 20X status on event confirmation: " + str(confirmation_status))
+    if http_status != HTTP_204_NO_CONTENT:
+        raise ValueError("Not a 204 status on event confirmation: " + str(http_status))
+
+
+def make_start_up_request(mqtt):
+    status_data, http_status = do_curl(method="get", endpoint="agent-start-up/")
+    if http_status != HTTP_200_OK:
+        raise ValueError("Not a 200 status while making start up request: " + str(http_status))
+    
+    if "activated" not in status_data or "activationLink" not in status_data:
+        raise ValueError("Invalid response data while making start up request: " + str(status_data))
+
+    activated = status_data["activated"]
+    activation_link = status_data["activationLink"]
+
+    if activated or not activation_link:
+        write_activation_link("unknown", mqtt)
+    else:
+        write_activation_link(activation_link, mqtt)
+
+    return status_data
 
 
 def main():
@@ -250,6 +272,8 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--daemon", action="store_true", help="Run cloud agent in daemon mode")
     options = parser.parse_args()
+
+    make_start_up_request(mqtt)
 
     if not options.daemon:
         link = read_activation_link()
