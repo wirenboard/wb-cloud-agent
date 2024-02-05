@@ -248,7 +248,7 @@ def make_start_up_request(mqtt):
     status_data, http_status = do_curl(method="get", endpoint="agent-start-up/")
     if http_status != HTTP_200_OK:
         raise ValueError("Not a 200 status while making start up request: " + str(http_status))
-    
+
     if "activated" not in status_data or "activationLink" not in status_data:
         raise ValueError("Invalid response data while making start up request: " + str(status_data))
 
