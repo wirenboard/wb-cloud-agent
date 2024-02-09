@@ -1,3 +1,9 @@
+wb-cloud-agent (1.2.5-wb102) stable; urgency=medium
+
+  * Console mode fix
+
+ -- Aleksandr Kazadaev <aleksandr.kazadaev@wirenboard.com>  Fri, 9 Feb 2024 14:31:17 +0600
+
 wb-cloud-agent (1.2.5-wb101) stable; urgency=medium
 
   * Add daemon mode
