@@ -79,14 +79,21 @@ def setup_log():
     logging.basicConfig(level=numeric_level, encoding="utf-8", format="%(message)s")
 
 
-def do_curl(method="get", endpoint=""):
+def do_curl(method="get", endpoint="", body=None):
     data_delimiter = "|||"
     output_format = data_delimiter + '{"code":"%{response_code}"}'
 
     if method == "get":
         command = ["curl"]
-    elif method == "post":
-        command = ["curl", "-X", "POST"]
+    elif method in ("post", "put"):
+        command = ["curl", "-X", method.upper()]
+        if body:
+            command += [
+                "-H",
+                "Content-Type: application/json",
+                "-d",
+                json.dumps(body)
+            ]
     else:
         raise ValueError("Invalid method: " + method)
 
@@ -263,10 +270,30 @@ def make_start_up_request(mqtt):
     return status_data
 
 
+def on_connect(client, _, flags, reason_code, properties):
+    if reason_code.is_failure:
+        logging.error(f"Failed to connect: {reason_code}. loop_forever() will retry connection")
+    else:
+        client.subscribe("/devices/system/controls/HW Revision", qos=2)
+
+
+def on_message(client, userdata, message):
+    client.unsubscribe("/devices/system/controls/HW Revision")
+    status_data, http_status = do_curl(
+        method="put",
+        endpoint="update_hw_revision/",
+        body={"hardware_revision": str(message.payload, 'utf-8')},
+    )
+    if http_status != HTTP_200_OK:
+        raise ValueError("Not a 200 status while making start up request: " + str(http_status))
+
+
 def main():
     setup_log()
 
     mqtt = MQTTClient("wb-cloud-agent")
+    mqtt.on_connect = on_connect
+    mqtt.on_message = on_message
     mqtt.start()
 
     parser = argparse.ArgumentParser()
