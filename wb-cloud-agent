@@ -281,7 +281,7 @@ def on_message(client, userdata, message):
     client.unsubscribe("/devices/system/controls/HW Revision")
     status_data, http_status = do_curl(
         method="put",
-        endpoint="update_hw_revision/",
+        endpoint="update_device_data/",
         body={"hardware_revision": str(message.payload, 'utf-8')},
     )
     if http_status != HTTP_200_OK:
