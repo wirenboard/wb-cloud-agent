@@ -270,8 +270,9 @@ def make_start_up_request(mqtt):
     return status_data
 
 
-def on_connect(client, _, flags, reason_code, properties):
-    if reason_code.is_failure:
+def on_connect(client, _, flags, reason_code, properties=None):
+    # 0: Connection successful
+    if reason_code != 0:
         logging.error(f"Failed to connect: {reason_code}. loop_forever() will retry connection")
     else:
         client.subscribe("/devices/system/controls/HW Revision", qos=2)
