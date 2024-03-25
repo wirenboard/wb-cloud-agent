@@ -88,12 +88,7 @@ def do_curl(method="get", endpoint="", body=None):
     elif method in ("post", "put"):
         command = ["curl", "-X", method.upper()]
         if body:
-            command += [
-                "-H",
-                "Content-Type: application/json",
-                "-d",
-                json.dumps(body)
-            ]
+            command += ["-H", "Content-Type: application/json", "-d", json.dumps(body)]
     else:
         raise ValueError("Invalid method: " + method)
 
@@ -283,7 +278,7 @@ def on_message(client, userdata, message):
     status_data, http_status = do_curl(
         method="put",
         endpoint="update_device_data/",
-        body={"hardware_revision": str(message.payload, 'utf-8')},
+        body={"hardware_revision": str(message.payload, "utf-8")},
     )
     if http_status != HTTP_200_OK:
         raise ValueError("Not a 200 status while making start up request: " + str(http_status))
