@@ -1,4 +1,3 @@
-
 wb-cloud-agent (1.3.3) stable; urgency=medium
 
   * Confirm unknown events without handling
