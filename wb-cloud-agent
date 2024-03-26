@@ -225,9 +225,6 @@ def make_event_request(mqtt):
 
     code = event_data.get("code", "")
     handler = HANDLERS.get(code)
-    if not handler:
-        logging.warning("Got an unknown event '" + code + "'. Try to update wb-cloud-agent package.")
-        return
 
     event_id = event_data.get("id")
     if not event_id:
@@ -237,7 +234,11 @@ def make_event_request(mqtt):
     if not payload:
         raise ValueError("Empty payload")
 
-    handler(payload, mqtt)
+    if handler:
+        handler(payload, mqtt)
+    else:
+        logging.warning("Got an unknown event '" + code + "'. Try to update wb-cloud-agent package.")
+
     logging.info("Event '" + code + "' handled successfully, event id " + str(event_id))
 
     _, http_status = do_curl(method="post", endpoint="events/" + event_id + "/confirm/")
