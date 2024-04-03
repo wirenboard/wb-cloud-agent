@@ -4,6 +4,8 @@
 	dh $@
 
 override_dh_installsystemd:
-	dh_installsystemd --name=wb-cloud-agent@default
-	dh_installsystemd --name=wb-cloud-agent-telegraf@default --no-start --no-enable
-	dh_installsystemd --name=wb-cloud-agent-frpc@default --no-start --no-enable
+	dh_installsystemd --name=wb-cloud-agent@ --no-start --no-enable
+	dh_installsystemd --name=wb-cloud-agent-telegraf@ --no-start --no-enable
+	dh_installsystemd --name=wb-cloud-agent-frpc@ --no-start --no-enable
+    systemctl enable wb-cloud-agent@default.service
+    systemctl start wb-cloud-agent@default.service
