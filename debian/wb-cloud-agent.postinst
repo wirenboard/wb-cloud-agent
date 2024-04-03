@@ -83,4 +83,7 @@ elif of_machine_match "contactless,imx6ul-wirenboard60"; then
     sed -i 's/ATECCx08:00:../ATECCx08:00:04/g' "$AGENT_CONFIG"
 fi
 
+systemctl enable wb-cloud-agent@default.service
+systemctl start wb-cloud-agent@default.service
+
 #DEBHELPER#
