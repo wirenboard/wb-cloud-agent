@@ -11,11 +11,11 @@ cert_is_valid() {
 }
 
 maybe_remove_service() {
-    if [ -e "/etc/systemd/system/$1" ]; then
+    if [ -e "/usr/lib/systemd/system/$1" ]; then
 	echo "Stopping old $1 service and remove it"
 	systemctl stop "$1"
 	systemctl disable "$1"
-	rm -f "/etc/systemd/system/$1"
+	rm -f "/usr/lib/systemd/system/$1"
     fi
 }
 
