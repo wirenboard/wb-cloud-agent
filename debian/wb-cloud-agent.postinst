@@ -33,7 +33,7 @@ OLD_ETC_PATH=/mnt/data/etc
 NEW_ETC_PATH=/mnt/data/etc/wb-cloud-agent/providers/default
 OLD_LIB_PATH=/var/lib/wb-cloud-agent
 NEW_LIB_PATH=/var/lib/wb-cloud-agent/providers/default
-AGENT_CONFIG="${NEW_ETC_PATH}/mnt/data/etc/wb-cloud-agent/providers/default/wb-cloud-agent.conf"
+AGENT_CONFIG="${NEW_ETC_PATH}/wb-cloud-agent.conf"
 
 if [ ! -f "$ORIGINAL_CERT" ]; then
     echo "Can't find device certificate!"
