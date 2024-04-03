@@ -4,7 +4,7 @@ StartLimitIntervalSec=3600
 StartLimitBurst=100
 
 [Service]
-ExecStart=/usr/bin/wb-cloud-agent --daemon
+ExecStart=/usr/bin/wb-cloud-agent --daemon --provider %i
 Restart=always
 RestartSec=10
 

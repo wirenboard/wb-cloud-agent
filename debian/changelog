@@ -1,3 +1,9 @@
+wb-cloud-agent (1.4.0) stable; urgency=medium
+
+  * Add multi-provider support
+
+ -- Aleksandr Kazadaev <aleksandr.kazadaev@wirenboard.com>  Tue, 2 Apr 2024 15:49:17 +0500
+
 wb-cloud-agent (1.3.3) stable; urgency=medium
 
   * Confirm unknown events without handling
