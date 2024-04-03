@@ -69,8 +69,9 @@ maybe_remove_service wb-cloud-agent.service
 maybe_remove_service wb-cloud-agent-frpc.service
 maybe_remove_service wb-cloud-agent-telegraf.service
 maybe_move_config wb-cloud-agent.conf "$OLD_ETC_PATH" "$NEW_ETC_PATH"
-maybe_move_config wb-cloud-agent-telegraf.conf "$OLD_LIB_PATH" "$NEW_LIB_PATH"
-maybe_move_config wb-cloud-agent-frpc.conf "$OLD_LIB_PATH" "$NEW_LIB_PATH"
+maybe_move_config telegraf.conf "$OLD_LIB_PATH" "$NEW_LIB_PATH"
+maybe_move_config frpc.conf "$OLD_LIB_PATH" "$NEW_LIB_PATH"
+maybe_move_config activation_link.conf "$OLD_LIB_PATH" "$NEW_LIB_PATH"
 
 # fix agent config (ATECC path according to device version)
 . /usr/lib/wb-utils/wb_env.sh
