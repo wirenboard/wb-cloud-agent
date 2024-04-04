@@ -295,12 +295,12 @@ def add_provider(options):
     url = options.provider_url
     if not url.startswith("http://") and not url.startswith("https://"):
         url = f"https://{url}/api-agent/v1/"
-    with open(config_file_path('default'), 'r') as config_file:
+    with open(config_file_path("default"), "r") as config_file:
         conf = json.load(config_file)
-    conf['CLOUD_URL'] = url
+    conf["CLOUD_URL"] = url
     if not os.path.exists(os.path.join(PROVIDERS_CONF_DIR, options.provider_name)):
         os.makedirs(os.path.join(PROVIDERS_CONF_DIR, options.provider_name))
-    with open(config_file_path(options.provider_name), 'w') as config_file:
+    with open(config_file_path(options.provider_name), "w") as config_file:
         json.dump(conf, config_file, indent=4)
     provider_service = f"wb-cloud-agent@{options.provider_name}.service"
     subprocess.run(["systemctl", "enable", provider_service], check=True)
