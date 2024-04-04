@@ -37,7 +37,7 @@ class AppSettings:
     REQUEST_PERIOD_SECONDS: int = 3
 
     def __init__(self, provider: str, conf_file=None):
-        if provider == 'default':
+        if provider == "default":
             self.FRP_SERVICE: str = "wb-cloud-agent-frpc.service"
             self.TELEGRAF_SERVICE: str = "wb-cloud-agent-telegraf.service"
         else:
