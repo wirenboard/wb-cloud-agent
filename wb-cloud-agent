@@ -37,9 +37,13 @@ class AppSettings:
     REQUEST_PERIOD_SECONDS: int = 3
 
     def __init__(self, provider: str, conf_file=None):
-        self.FRP_SERVICE: str = f"wb-cloud-agent-frpc@{provider}.service"
+        if provider == 'default':
+            self.FRP_SERVICE: str = "wb-cloud-agent-frpc.service"
+            self.TELEGRAF_SERVICE: str = "wb-cloud-agent-telegraf.service"
+        else:
+            self.FRP_SERVICE: str = f"wb-cloud-agent-frpc@{provider}.service"
+            self.TELEGRAF_SERVICE: str = f"wb-cloud-agent-telegraf@{provider}.service"
         self.FRP_CONFIG: str = f"/var/lib/wb-cloud-agent/providers/{provider}/frpc.conf"
-        self.TELEGRAF_SERVICE: str = f"wb-cloud-agent-telegraf@{provider}.service"
         self.TELEGRAF_CONFIG: str = f"/var/lib/wb-cloud-agent/providers/{provider}/telegraf.conf"
         self.ACTIVATION_LINK_CONFIG: str = (
             f"/var/lib/wb-cloud-agent/providers/{provider}/activation_link.conf"
