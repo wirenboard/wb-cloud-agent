@@ -14,6 +14,8 @@ from wb_common.mqtt_client import MQTTClient
 HTTP_200_OK = 200
 HTTP_204_NO_CONTENT = 204
 
+PROVIDERS_CONF_DIR = "/mnt/data/etc/wb-cloud-agent/providers"
+
 
 class AppSettings:
     """
@@ -64,6 +66,10 @@ class AppSettings:
             raise ValueError("Invalid config file format (must be valid json) at: " + conf_file)
         for key in conf:
             setattr(self, key, conf[key])
+
+
+def config_file_path(provider: str):
+    return f"{PROVIDERS_CONF_DIR}/{provider}/wb-cloud-agent.conf"
 
 
 def setup_log(settings: AppSettings):
@@ -281,15 +287,47 @@ def on_message(client, userdata, message):
         raise ValueError("Not a 200 status while making start up request: " + str(http_status))
 
 
+def add_provider(options):
+    if os.path.exists(config_file_path(options.provider_name)):
+        print("Provider " + options.provider_name + " already exists")
+        return 1
+    print("Adding provider " + options.provider_name)
+    url = options.provider_url
+    if not url.startswith("http://") and not url.startswith("https://"):
+        url = f"https://{url}/api-agent/v1/"
+    with open(config_file_path('default'), 'r') as config_file:
+        conf = json.load(config_file)
+    conf['CLOUD_URL'] = url
+    if not os.path.exists(os.path.join(PROVIDERS_CONF_DIR, options.provider_name)):
+        os.makedirs(os.path.join(PROVIDERS_CONF_DIR, options.provider_name))
+    with open(config_file_path(options.provider_name), 'w') as config_file:
+        json.dump(conf, config_file, indent=4)
+    provider_service = f"wb-cloud-agent@{options.provider_name}.service"
+    subprocess.run(["systemctl", "enable", provider_service], check=True)
+    subprocess.run(["systemctl", "start", provider_service], check=True)
+    return 0
+
+
 def main():
 
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--daemon", action="store_true", help="Run cloud agent in daemon mode")
-    parser.add_argument("--provider", help="Provider name to use", default="default")
-    options = parser.parse_args()
+    main_parser = argparse.ArgumentParser()
+    main_parser.add_argument("--daemon", action="store_true", help="Run cloud agent in daemon mode")
+    main_parser.add_argument("--provider", help="Provider name to use", default="default")
+
+    subparsers = main_parser.add_subparsers(title="Actions", help="Choose mode:\n", required=False)
+
+    add_provider_parser = subparsers.add_parser("add-provider", help="Add new cloud service provider")
+    add_provider_parser.add_argument("provider_name", help="Cloud Provider name to add")
+    add_provider_parser.add_argument("provider_url", help="Cloud Provider endpoint URL")
+    add_provider_parser.set_defaults(func=add_provider)
+
+    options = main_parser.parse_args()
+
+    if hasattr(options, "func"):
+        return options.func(options)
 
     cloud_provider = options.provider
-    conf_file = "/mnt/data/etc/wb-cloud-agent/providers/{}/wb-cloud-agent.conf".format(cloud_provider)
+    conf_file = config_file_path(cloud_provider)
     settings = AppSettings(provider=cloud_provider, conf_file=conf_file)
 
     setup_log(settings)
