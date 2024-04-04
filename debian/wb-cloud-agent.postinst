@@ -10,15 +10,6 @@ cert_is_valid() {
     (openssl x509 -in "$1" -noout -subject || true) | grep -q "Production"
 }
 
-maybe_remove_service() {
-    if [ -e "/usr/lib/systemd/system/$1" ]; then
-	echo "Stopping old $1 service and remove it"
-	systemctl stop "$1"
-	systemctl disable "$1"
-	rm -f "/usr/lib/systemd/system/$1"
-    fi
-}
-
 # arguments: filename, old path, new path
 maybe_move_config() {
     if [ -e "$2/$1" ]; then
@@ -65,9 +56,6 @@ if [ "$1" = "configure" ] && dpkg --compare-versions "$2" lt "1.2.7~~"; then
 fi
 
 # migrate from single-tenancy to multi-tenancy
-maybe_remove_service wb-cloud-agent.service
-maybe_remove_service wb-cloud-agent-frpc.service
-maybe_remove_service wb-cloud-agent-telegraf.service
 maybe_move_config wb-cloud-agent.conf "$OLD_ETC_PATH" "$NEW_ETC_PATH"
 maybe_move_config telegraf.conf "$OLD_LIB_PATH" "$NEW_LIB_PATH"
 maybe_move_config frpc.conf "$OLD_LIB_PATH" "$NEW_LIB_PATH"
@@ -82,8 +70,5 @@ if of_machine_match "wirenboard,wirenboard-720"; then
 elif of_machine_match "contactless,imx6ul-wirenboard60"; then
     sed -i 's/ATECCx08:00:../ATECCx08:00:04/g' "$AGENT_CONFIG"
 fi
-
-systemctl enable wb-cloud-agent@default.service
-systemctl start wb-cloud-agent@default.service
 
 #DEBHELPER#

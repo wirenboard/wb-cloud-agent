@@ -1,10 +1,10 @@
 [Unit]
-Description=Wiren Board Cloud Agent (%i)
+Description=Wiren Board Cloud Agent (default)
 StartLimitIntervalSec=3600
 StartLimitBurst=100
 
 [Service]
-ExecStart=/usr/bin/wb-cloud-agent --daemon --provider %i
+ExecStart=/usr/bin/wb-cloud-agent --daemon --provider default
 Restart=always
 RestartSec=10
 
