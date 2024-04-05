@@ -39,6 +39,7 @@ class AppSettings:
     REQUEST_PERIOD_SECONDS: int = 3
 
     def __init__(self, provider: str, conf_file=None):
+        self.PROVIDER = provider
         if provider == "default":
             self.FRP_SERVICE: str = "wb-cloud-agent-frpc.service"
             self.TELEGRAF_SERVICE: str = "wb-cloud-agent-telegraf.service"
@@ -50,7 +51,8 @@ class AppSettings:
         self.ACTIVATION_LINK_CONFIG: str = (
             f"/var/lib/wb-cloud-agent/providers/{provider}/activation_link.conf"
         )
-        self.MQTT_PREFIX: str = f"/devices/system__wb-cloud-agent__{provider}"
+        self.MQTT_ROOT_PREFIX: str = f"/devices/system__wb-cloud-agent"
+        self.MQTT_PREFIX: str = f"/{self.MQTT_ROOT_PREFIX}__{provider}"
         if conf_file:
             self.apply_conf_file(conf_file)
 
@@ -89,6 +91,16 @@ def setup_log(settings: AppSettings):
     if not isinstance(numeric_level, int):
         raise ValueError("Invalid log level: %s" % settings.LOG_LEVEL)
     logging.basicConfig(level=numeric_level, encoding="utf-8", format="%(message)s")
+
+
+def update_providers_list(settings: AppSettings, mqtt, omit=None):
+    if not os.path.exists(PROVIDERS_CONF_DIR):
+        providers = []
+    else:
+        providers = os.listdir(PROVIDERS_CONF_DIR)
+    if omit:
+        providers = [p for p in providers if p != omit]
+    mqtt.publish(settings.MQTT_ROOT_PREFIX + "/providers", ",".join(providers), retain=True, qos=2)
 
 
 def do_curl(settings: AppSettings, method="get", endpoint="", body=None):
@@ -213,6 +225,7 @@ def remove_vdev(settings: AppSettings, mqtt):
     mqtt.publish(settings.MQTT_PREFIX + "/controls/activation_link/meta", "", retain=True, qos=2)
     mqtt.publish(settings.MQTT_PREFIX + "/controls/status", "", retain=True, qos=2)
     mqtt.publish(settings.MQTT_PREFIX + "/controls/activation_link", "", retain=True, qos=2)
+    update_providers_list(settings, mqtt, omit=settings.PROVIDER)
 
 
 def publish_ctrl(settings: AppSettings, mqtt, ctrl, value):
@@ -306,7 +319,7 @@ def parse_args():
     return options
 
 
-def add_provider(options):
+def add_provider(options, settings, mqtt):
     if os.path.exists(config_file_path(options.provider_name)):
         print("Provider " + options.provider_name + " already exists")
         return 1
@@ -323,7 +336,8 @@ def add_provider(options):
     if not os.path.exists(f"/var/lib/wb-cloud-agent/providers/{options.provider_name}"):
         os.makedirs(f"/var/lib/wb-cloud-agent/providers/{options.provider_name}")
     start_service(f"wb-cloud-agent@{options.provider_name}.service")
-    return 0
+    update_providers_list(settings, mqtt)
+    return
 
 
 def show_activation_link(settings):
@@ -355,10 +369,6 @@ def run_daemon(mqtt, settings):
 
 def main():
     options = parse_args()
-
-    if hasattr(options, "func"):
-        return options.func(options)
-
     cloud_provider = options.provider
     conf_file = config_file_path(cloud_provider)
     settings = AppSettings(provider=cloud_provider, conf_file=conf_file)
@@ -370,6 +380,10 @@ def main():
     mqtt.on_message = on_message
     mqtt.start()
 
+    if hasattr(options, "func"):
+        return options.func(options, settings, mqtt)
+
+    update_providers_list(settings, mqtt)
     make_start_up_request(settings, mqtt)
 
     if not options.daemon:
