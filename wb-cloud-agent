@@ -55,17 +55,29 @@ class AppSettings:
             self.apply_conf_file(conf_file)
 
     def apply_conf_file(self, conf_file):
-        try:
-            with open(conf_file, "r") as file:
-                conf = file.read()
-        except (FileNotFoundError, OSError):
-            raise ValueError("Cannot read config file at: " + conf_file)
-        try:
-            conf = json.loads(conf)
-        except JSONDecodeError:
-            raise ValueError("Invalid config file format (must be valid json) at: " + conf_file)
+        conf = read_json_file(conf_file)
         for key in conf:
             setattr(self, key, conf[key])
+
+
+def read_json_file(file_path):
+    try:
+        with open(file_path, "r") as file:
+            return json.load(file)
+    except (FileNotFoundError, OSError, JSONDecodeError):
+        raise ValueError("Cannot read config file at: " + file_path)
+    except JSONDecodeError:
+        raise ValueError("Invalid config file format (must be valid json) at: " + file_path)
+
+
+def start_service(service: str, restart=False):
+    subprocess.run(["systemctl", "enable", service], check=True)
+    if restart:
+        print(f"Restarting service {service}")
+        subprocess.run(["systemctl", "restart", service], check=True)
+    else:
+        print(f"Starting service {service}")
+        subprocess.run(["systemctl", "start", service], check=True)
 
 
 def config_file_path(provider: str):
@@ -76,7 +88,6 @@ def setup_log(settings: AppSettings):
     numeric_level = getattr(logging, settings.LOG_LEVEL.upper(), None)
     if not isinstance(numeric_level, int):
         raise ValueError("Invalid log level: %s" % settings.LOG_LEVEL)
-
     logging.basicConfig(level=numeric_level, encoding="utf-8", format="%(message)s")
 
 
@@ -139,14 +150,12 @@ def do_curl(settings: AppSettings, method="get", endpoint="", body=None):
 def write_activation_link(settings: AppSettings, link, mqtt):
     with open(settings.ACTIVATION_LINK_CONFIG, "w") as file:
         file.write(link)
-
     publish_ctrl(settings, mqtt, "activation_link", link)
 
 
 def read_activation_link(settings: AppSettings):
     if not os.path.exists(settings.ACTIVATION_LINK_CONFIG):
         return "unknown"
-
     with open(settings.ACTIVATION_LINK_CONFIG, "r") as file:
         return file.readline()
 
@@ -158,18 +167,14 @@ def update_activation_link(settings: AppSettings, payload, mqtt):
 def update_tunnel_config(settings: AppSettings, payload, mqtt):
     with open(settings.FRP_CONFIG, "w") as file:
         file.write(payload["config"])
-
-    subprocess.run(["systemctl", "enable", settings.FRP_SERVICE], check=True)
-    subprocess.run(["systemctl", "restart", settings.FRP_SERVICE], check=True)
+    start_service(settings.FRP_SERVICE, restart=True)
     write_activation_link(settings, "unknown", mqtt)
 
 
 def update_metrics_config(settings: AppSettings, payload, mqtt):
     with open(settings.TELEGRAF_CONFIG, "w") as file:
         file.write(payload["config"])
-
-    subprocess.run(["systemctl", "enable", settings.TELEGRAF_SERVICE], check=True)
-    subprocess.run(["systemctl", "restart", settings.TELEGRAF_SERVICE], check=True)
+    start_service(settings.TELEGRAF_SERVICE, restart=True)
     write_activation_link(settings, "unknown", mqtt)
 
 
@@ -276,6 +281,7 @@ def on_connect(client, _, flags, reason_code, properties=None):
 
 
 def on_message(client, userdata, message):
+    assert "settings" in userdata, "No settings in userdata"
     client.unsubscribe("/devices/system/controls/HW Revision")
     status_data, http_status = do_curl(
         userdata.get("settings"),
@@ -287,6 +293,19 @@ def on_message(client, userdata, message):
         raise ValueError("Not a 200 status while making start up request: " + str(http_status))
 
 
+def parse_args():
+    main_parser = argparse.ArgumentParser()
+    main_parser.add_argument("--daemon", action="store_true", help="Run cloud agent in daemon mode")
+    main_parser.add_argument("--provider", help="Provider name to use", default="default")
+    subparsers = main_parser.add_subparsers(title="Actions", help="Choose mode:\n", required=False)
+    add_provider_parser = subparsers.add_parser("add-provider", help="Add new cloud service provider")
+    add_provider_parser.add_argument("provider_name", help="Cloud Provider name to add")
+    add_provider_parser.add_argument("provider_url", help="Cloud Provider endpoint URL")
+    add_provider_parser.set_defaults(func=add_provider)
+    options = main_parser.parse_args()
+    return options
+
+
 def add_provider(options):
     if os.path.exists(config_file_path(options.provider_name)):
         print("Provider " + options.provider_name + " already exists")
@@ -295,8 +314,7 @@ def add_provider(options):
     url = options.provider_url
     if not url.startswith("http://") and not url.startswith("https://"):
         url = f"https://{url}/api-agent/v1/"
-    with open(config_file_path("default"), "r") as config_file:
-        conf = json.load(config_file)
+    conf = read_json_file(config_file_path("default"))
     conf["CLOUD_URL"] = url
     if not os.path.exists(os.path.join(PROVIDERS_CONF_DIR, options.provider_name)):
         os.makedirs(os.path.join(PROVIDERS_CONF_DIR, options.provider_name))
@@ -304,26 +322,39 @@ def add_provider(options):
         json.dump(conf, config_file, indent=4)
     if not os.path.exists(f"/var/lib/wb-cloud-agent/providers/{options.provider_name}"):
         os.makedirs(f"/var/lib/wb-cloud-agent/providers/{options.provider_name}")
-    provider_service = f"wb-cloud-agent@{options.provider_name}.service"
-    subprocess.run(["systemctl", "enable", provider_service], check=True)
-    subprocess.run(["systemctl", "start", provider_service], check=True)
+    start_service(f"wb-cloud-agent@{options.provider_name}.service")
     return 0
 
 
+def show_activation_link(settings):
+    link = read_activation_link(settings)
+    if link != "unknown":
+        print(f">> {link}")
+    else:
+        print("No active link. Controller may be already connected")
+    return
+
+
+def run_daemon(mqtt, settings):
+    publish_vdev(settings, mqtt)
+    with ExitStack() as stack:
+        stack.callback(remove_vdev, mqtt)
+        while True:
+            start = time.perf_counter()
+            try:
+                make_event_request(settings, mqtt)
+            except Exception as ex:
+                logging.exception("Error making request to cloud!")
+                publish_ctrl(settings, mqtt, "status", "error:" + str(ex))
+            else:
+                publish_ctrl(settings, mqtt, "status", "ok")
+            request_time = time.perf_counter() - start
+            logging.debug("Done in: " + str(int(request_time * 1000)) + " ms.")
+            time.sleep(settings.REQUEST_PERIOD_SECONDS)
+
+
 def main():
-
-    main_parser = argparse.ArgumentParser()
-    main_parser.add_argument("--daemon", action="store_true", help="Run cloud agent in daemon mode")
-    main_parser.add_argument("--provider", help="Provider name to use", default="default")
-
-    subparsers = main_parser.add_subparsers(title="Actions", help="Choose mode:\n", required=False)
-
-    add_provider_parser = subparsers.add_parser("add-provider", help="Add new cloud service provider")
-    add_provider_parser.add_argument("provider_name", help="Cloud Provider name to add")
-    add_provider_parser.add_argument("provider_url", help="Cloud Provider endpoint URL")
-    add_provider_parser.set_defaults(func=add_provider)
-
-    options = main_parser.parse_args()
+    options = parse_args()
 
     if hasattr(options, "func"):
         return options.func(options)
@@ -342,34 +373,9 @@ def main():
     make_start_up_request(settings, mqtt)
 
     if not options.daemon:
-        link = read_activation_link(settings)
-        if link != "unknown":
-            print(f">> {link}")
-        else:
-            print("No active link. Controller may be already connected")
-        return
+        return show_activation_link(settings)
 
-    publish_vdev(settings, mqtt)
-
-    with ExitStack() as stack:
-        stack.callback(remove_vdev, mqtt)
-
-        while True:
-            start = time.perf_counter()
-
-            try:
-                make_event_request(settings, mqtt)
-            except Exception as ex:
-                logging.exception("Error making request to cloud!")
-                publish_ctrl(settings, mqtt, "status", "error:" + str(ex))
-            else:
-                publish_ctrl(settings, mqtt, "status", "ok")
-
-            request_time = time.perf_counter() - start
-
-            logging.debug("Done in: " + str(int(request_time * 1000)) + " ms.")
-
-            time.sleep(settings.REQUEST_PERIOD_SECONDS)
+    run_daemon(mqtt, settings)
 
 
 if __name__ == "__main__":
