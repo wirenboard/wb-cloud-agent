@@ -1,2 +1,2 @@
 # Overwritten during Debian packaging build
-package_version="unknown"
+package_version = "unknown"
