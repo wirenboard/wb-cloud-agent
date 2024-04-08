@@ -212,10 +212,17 @@ def publish_vdev(settings: AppSettings, mqtt):
         retain=True,
         qos=2,
     )
+    mqtt.publish(
+        settings.MQTT_PREFIX + "/controls/cloud_url/meta",
+        '{"type": "text", "readonly": true, "name": "cloud_url", "order": 3, "title": {"en": "URL"}}',
+        retain=True,
+        qos=2,
+    )
     mqtt.publish(settings.MQTT_PREFIX + "/controls/status", "disconnected", retain=True, qos=2)
     mqtt.publish(
         settings.MQTT_PREFIX + "/controls/activation_link", read_activation_link(settings), retain=True, qos=2
     )
+    mqtt.publish(settings.MQTT_PREFIX + "/controls/cloud_url", settings.CLOUD_URL, retain=True, qos=2)
 
 
 def remove_vdev(settings: AppSettings, mqtt):
@@ -223,9 +230,10 @@ def remove_vdev(settings: AppSettings, mqtt):
     mqtt.publish(settings.MQTT_PREFIX + "/meta/driver", "", retain=True, qos=2)
     mqtt.publish(settings.MQTT_PREFIX + "/controls/status/meta", "", retain=True, qos=2)
     mqtt.publish(settings.MQTT_PREFIX + "/controls/activation_link/meta", "", retain=True, qos=2)
+    mqtt.publish(settings.MQTT_PREFIX + "/controls/cloud_url/meta", "", retain=True, qos=2)
     mqtt.publish(settings.MQTT_PREFIX + "/controls/status", "", retain=True, qos=2)
     mqtt.publish(settings.MQTT_PREFIX + "/controls/activation_link", "", retain=True, qos=2)
-    update_providers_list(settings, mqtt, omit=settings.PROVIDER)
+    mqtt.publish(settings.MQTT_PREFIX + "/controls/cloud_url", "", retain=True, qos=2)
 
 
 def publish_ctrl(settings: AppSettings, mqtt, ctrl, value):
