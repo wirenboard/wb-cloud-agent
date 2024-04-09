@@ -52,7 +52,7 @@ class AppSettings:
             f"/var/lib/wb-cloud-agent/providers/{provider}/activation_link.conf"
         )
         self.MQTT_ROOT_PREFIX: str = f"/devices/system__wb-cloud-agent"
-        self.MQTT_PREFIX: str = f"/{self.MQTT_ROOT_PREFIX}__{provider}"
+        self.MQTT_PREFIX: str = f"{self.MQTT_ROOT_PREFIX}__{provider}"
         if conf_file:
             self.apply_conf_file(conf_file)
 
