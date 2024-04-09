@@ -35,7 +35,8 @@ class AppSettings:
 
     CLIENT_CERT_ENGINE_KEY: str = "ATECCx08:00:02:C0:00"
     CLIENT_CERT_FILE: str = "/var/lib/wb-cloud-agent/device_bundle.crt.pem"
-    CLOUD_URL: str = "https://agent.wirenboard.cloud/api-agent/v1/"
+    CLOUD_BASE_URL: str = "https://wirenboard.cloud"
+    CLOUD_AGENT_URL: str = "https://agent.wirenboard.cloud/api-agent/v1/"
     REQUEST_PERIOD_SECONDS: int = 3
 
     def __init__(self, provider: str, conf_file=None):
@@ -213,7 +214,7 @@ def publish_vdev(settings: AppSettings, mqtt):
         qos=2,
     )
     mqtt.publish(
-        settings.MQTT_PREFIX + "/controls/cloud_url/meta",
+        settings.MQTT_PREFIX + "/controls/cloud_base_url/meta",
         '{"type": "text", "readonly": true, "name": "cloud_url", "order": 3, "title": {"en": "URL"}}',
         retain=True,
         qos=2,
@@ -222,7 +223,9 @@ def publish_vdev(settings: AppSettings, mqtt):
     mqtt.publish(
         settings.MQTT_PREFIX + "/controls/activation_link", read_activation_link(settings), retain=True, qos=2
     )
-    mqtt.publish(settings.MQTT_PREFIX + "/controls/cloud_url", settings.CLOUD_URL, retain=True, qos=2)
+    mqtt.publish(
+        settings.MQTT_PREFIX + "/controls/cloud_base_url", settings.CLOUD_BASE_URL, retain=True, qos=2
+    )
 
 
 def remove_vdev(settings: AppSettings, mqtt):
@@ -230,10 +233,10 @@ def remove_vdev(settings: AppSettings, mqtt):
     mqtt.publish(settings.MQTT_PREFIX + "/meta/driver", "", retain=True, qos=2)
     mqtt.publish(settings.MQTT_PREFIX + "/controls/status/meta", "", retain=True, qos=2)
     mqtt.publish(settings.MQTT_PREFIX + "/controls/activation_link/meta", "", retain=True, qos=2)
-    mqtt.publish(settings.MQTT_PREFIX + "/controls/cloud_url/meta", "", retain=True, qos=2)
+    mqtt.publish(settings.MQTT_PREFIX + "/controls/cloud_base_url/meta", "", retain=True, qos=2)
     mqtt.publish(settings.MQTT_PREFIX + "/controls/status", "", retain=True, qos=2)
     mqtt.publish(settings.MQTT_PREFIX + "/controls/activation_link", "", retain=True, qos=2)
-    mqtt.publish(settings.MQTT_PREFIX + "/controls/cloud_url", "", retain=True, qos=2)
+    mqtt.publish(settings.MQTT_PREFIX + "/controls/cloud_base_url", "", retain=True, qos=2)
 
 
 def publish_ctrl(settings: AppSettings, mqtt, ctrl, value):
@@ -321,7 +324,12 @@ def parse_args():
     subparsers = main_parser.add_subparsers(title="Actions", help="Choose mode:\n", required=False)
     add_provider_parser = subparsers.add_parser("add-provider", help="Add new cloud service provider")
     add_provider_parser.add_argument("provider_name", help="Cloud Provider name to add")
-    add_provider_parser.add_argument("provider_url", help="Cloud Provider endpoint URL")
+    add_provider_parser.add_argument(
+        "base_url", help="Cloud Provider base URL, e.g. https://wirenboard.cloud"
+    )
+    add_provider_parser.add_argument(
+        "agent_url", help="Cloud Provider Agent URL, e.g. https://agent.wirenboard.cloud/api-agent/v1/"
+    )
     add_provider_parser.set_defaults(func=add_provider)
     options = main_parser.parse_args()
     return options
@@ -332,11 +340,9 @@ def add_provider(options, settings, mqtt):
         print("Provider " + options.provider_name + " already exists")
         return 1
     print("Adding provider " + options.provider_name)
-    url = options.provider_url
-    if not url.startswith("http://") and not url.startswith("https://"):
-        url = f"https://{url}/api-agent/v1/"
     conf = read_json_file(config_file_path("default"))
-    conf["CLOUD_URL"] = url
+    conf["CLOUD_BASE_URL"] = options.base_url
+    conf["CLOUD_AGENT_URL"] = options.agent_url
     if not os.path.exists(os.path.join(PROVIDERS_CONF_DIR, options.provider_name)):
         os.makedirs(os.path.join(PROVIDERS_CONF_DIR, options.provider_name))
     with open(config_file_path(options.provider_name), "w") as config_file:
