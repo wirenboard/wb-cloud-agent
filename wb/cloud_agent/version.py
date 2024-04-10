@@ -1,2 +1,3 @@
-# Overwritten during Debian packaging build
-package_version = "unknown"
+from importlib.metadata import version
+
+package_version = version('wb-cloud-agent')
