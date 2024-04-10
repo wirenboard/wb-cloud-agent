@@ -185,7 +185,7 @@ def publish_vdev(mqtt):
     mqtt.publish(settings.MQTT_PREFIX + "/meta/driver", "wb-cloud-agent", retain=True, qos=2)
     mqtt.publish(
         settings.MQTT_PREFIX + "/controls/status/meta",
-        '{"type": "text", "readonly": true, "name": "status", "order": 1, "title": {"en": "Status"}}',
+        '{"type": "text", "readonly": true, "order": 1, "title": {"en": "Status"}}',
         retain=True,
         qos=2,
     )
