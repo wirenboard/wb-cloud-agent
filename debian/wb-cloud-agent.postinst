@@ -10,29 +10,17 @@ cert_is_valid() {
     (openssl x509 -in "$1" -noout -subject || true) | grep -q "Production"
 }
 
-# arguments: filename, old path, new path
-maybe_move_config() {
-    if [ -e "$2/$1" ]; then
-	echo "Moving old $1 to new location"
-	mv "$2/$1" "$3/$1"
-    fi
-}
-
 ORIGINAL_CERT=/etc/ssl/certs/device_bundle.crt.pem
 TARGET_CERT=/var/lib/wb-cloud-agent/device_bundle.crt.pem
-OLD_ETC_PATH=/mnt/data/etc
-NEW_ETC_PATH=/mnt/data/etc/wb-cloud-agent/providers/default
-OLD_LIB_PATH=/var/lib/wb-cloud-agent
-NEW_LIB_PATH=/var/lib/wb-cloud-agent/providers/default
-AGENT_CONFIG="${NEW_ETC_PATH}/wb-cloud-agent.conf"
+AGENT_CONFIG="/mnt/data/etc/wb-cloud-agent.conf"
 
 if [ ! -f "$ORIGINAL_CERT" ]; then
     echo "Can't find device certificate!"
     exit 1
 fi
 
-mkdir -p "$NEW_LIB_PATH"
-mkdir -p "$NEW_ETC_PATH"
+mkdir -p /var/lib/wb-cloud-agent/providers
+mkdir -p /mnt/data/etc/wb-cloud-agent/providers
 
 # create correct certificate for agent to use
 if [ ! -f "$TARGET_CERT" ] || ! cert_is_valid "$TARGET_CERT"; then
@@ -54,12 +42,6 @@ if [ "$1" = "configure" ] && dpkg --compare-versions "$2" lt "1.2.7~~"; then
         echo "unknown" > "/var/lib/wb-cloud-agent/activation_link.conf"
     fi
 fi
-
-# migrate from single-tenancy to multi-tenancy
-maybe_move_config wb-cloud-agent.conf "$OLD_ETC_PATH" "$NEW_ETC_PATH"
-maybe_move_config telegraf.conf "$OLD_LIB_PATH" "$NEW_LIB_PATH"
-maybe_move_config frpc.conf "$OLD_LIB_PATH" "$NEW_LIB_PATH"
-maybe_move_config activation_link.conf "$OLD_LIB_PATH" "$NEW_LIB_PATH"
 
 # fix agent config (ATECC path according to device version)
 . /usr/lib/wb-utils/wb_env.sh

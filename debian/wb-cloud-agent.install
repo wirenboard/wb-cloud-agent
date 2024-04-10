@@ -1,2 +1,2 @@
 wb-cloud-agent /usr/bin/
-wb-cloud-agent.conf /mnt/data/etc/wb-cloud-agent/providers/default/
+wb-cloud-agent.conf /mnt/data/etc/
