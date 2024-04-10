@@ -56,8 +56,7 @@ class AppSettings:
             self.ACTIVATION_LINK_CONFIG: str = (
                 f"/var/lib/wb-cloud-agent/providers/{provider}/activation_link.conf"
             )
-        self.MQTT_ROOT_PREFIX: str = f"/devices/system__wb-cloud-agent"
-        self.MQTT_PREFIX: str = f"{self.MQTT_ROOT_PREFIX}__{provider}"
+        self.MQTT_PREFIX: str = f"/devices/system__wb-cloud-agent__{provider}"
         if conf_file:
             self.apply_conf_file(conf_file)
 
@@ -100,14 +99,15 @@ def setup_log(settings: AppSettings):
     logging.basicConfig(level=numeric_level, encoding="utf-8", format="%(message)s")
 
 
-def update_providers_list(settings: AppSettings, mqtt, omit=None):
+def update_providers_list(settings: AppSettings, mqtt):
+    #  FIXME: Find a better way to update providers list (services enabled? services running?).
+    providers = ["default"]
     if not os.path.exists(PROVIDERS_CONF_DIR):
-        providers = []
-    else:
-        providers = os.listdir(PROVIDERS_CONF_DIR)
-    if omit:
-        providers = [p for p in providers if p != omit]
-    mqtt.publish(settings.MQTT_ROOT_PREFIX + "/providers", ",".join(providers), retain=True, qos=2)
+        return providers
+    providers += [
+        d for d in os.listdir(PROVIDERS_CONF_DIR) if os.path.isdir(os.path.join(PROVIDERS_CONF_DIR, d))
+    ]
+    mqtt.publish("/wb-cloud-agent/providers", ",".join(providers), retain=True, qos=2)
 
 
 def do_curl(settings: AppSettings, method="get", endpoint="", body=None):
