@@ -274,7 +274,7 @@ def send_agent_version():
         body={"agent_version": package_version},
     )
     if http_status != HTTP_200_OK:
-        raise ValueError("Not a 200 status while making send_agent_version request: " + str(http_status))
+        logging.error("Not a 200 status while making send_agent_version request: " + str(http_status))
 
 
 def on_connect(client, _, flags, reason_code, properties=None):
