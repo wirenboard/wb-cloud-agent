@@ -191,7 +191,7 @@ def publish_vdev(mqtt):
     )
     mqtt.publish(
         settings.MQTT_PREFIX + "/controls/activation_link/meta",
-        '{"type": "text", "readonly": true, "name": "activation_link", "order": 2, "title": {"en": "Link"}}',
+        '{"type": "text", "readonly": true, "order": 2, "title": {"en": "Link"}}',
         retain=True,
         qos=2,
     )
