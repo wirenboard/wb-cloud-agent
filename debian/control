@@ -17,7 +17,7 @@ Depends: ${misc:Depends},
          telegraf-wb-cloud-agent | telegraf,
          frpc,
          curl,
-         python3-wb-common (>= 2.1.1)
-Recommends: wb-mqtt-homeui (>= 2.77.0~~)
+         python3-wb-common (>= 2.1.3)
+Recommends: wb-mqtt-homeui (>= 2.82.5~~)
 Description: Wiren Board Cloud agent
  This package provides Wiren Board Cloud agent service.
