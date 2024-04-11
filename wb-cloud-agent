@@ -123,7 +123,7 @@ def do_curl(settings: AppSettings, method="get", endpoint="", body=None):
     else:
         raise ValueError("Invalid method: " + method)
 
-    url = settings.CLOUD_URL + endpoint
+    url = settings.CLOUD_AGENT_URL + endpoint
 
     command += [
         "--connect-timeout",
