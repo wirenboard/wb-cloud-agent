@@ -398,6 +398,7 @@ def main():
     mqtt = MQTTClient(f"wb-cloud-agent@{cloud_provider}", userdata={"settings": settings})
     mqtt.on_connect = on_connect
     mqtt.on_message = on_message
+    mqtt.will_set(settings.MQTT_PREFIX + "/controls/status", "stopped", retain=True, qos=2)
     mqtt.start()
 
     if hasattr(options, "func"):
