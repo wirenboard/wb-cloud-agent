@@ -225,7 +225,7 @@ def publish_vdev(settings: AppSettings, mqtt):
         retain=True,
         qos=2,
     )
-    mqtt.publish(settings.MQTT_PREFIX + "/controls/status", "disconnected", retain=True, qos=2)
+    mqtt.publish(settings.MQTT_PREFIX + "/controls/status", "connecting", retain=True, qos=2)
     mqtt.publish(
         settings.MQTT_PREFIX + "/controls/activation_link", read_activation_link(settings), retain=True, qos=2
     )
