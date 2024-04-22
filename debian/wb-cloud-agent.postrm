@@ -6,4 +6,23 @@ if [ -L  /etc/nginx/sites-enabled/wb-cloud-agent ]; then
     rm  /etc/nginx/sites-enabled/wb-cloud-agent
 fi
 
+mqtt_delete_device() {
+    mqtt-delete-retained "$1/meta/name"
+    mqtt-delete-retained "$1/meta/driver"
+    mqtt-delete-retained "$1/controls/status/meta"
+    mqtt-delete-retained "$1/controls/activation_link/meta"
+    mqtt-delete-retained "$1/controls/activation_link"
+    mqtt-delete-retained "$1/controls/cloud_base_url/meta"
+    mqtt-delete-retained "$1/controls/cloud_base_url"
+    mqtt-delete-retained "$1/controls/status"
+}
+
+mqtt-delete-retained /wb-cloud-agent/providers
+mqtt_delete_device "/devices/system__wb-cloud-agent__default"
+for provider in $(ls /mnt/data/etc/wb-cloud-agent/providers); do
+    mqtt_delete_device "/devices/system__wb-cloud-agent__$provider"
+done
+
+mosquitto_pub -t /wb-cloud-agent/providers -m ""
+
 #DEBHELPER#
