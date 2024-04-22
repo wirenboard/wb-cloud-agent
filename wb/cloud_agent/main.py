@@ -226,7 +226,7 @@ def publish_vdev(settings: AppSettings, mqtt):
         retain=True,
         qos=2,
     )
-    mqtt.publish(settings.MQTT_PREFIX + "/controls/status", "disconnected", retain=True, qos=2)
+    mqtt.publish(settings.MQTT_PREFIX + "/controls/status", "connecting", retain=True, qos=2)
     mqtt.publish(
         settings.MQTT_PREFIX + "/controls/activation_link", read_activation_link(settings), retain=True, qos=2
     )
@@ -391,7 +391,7 @@ def run_daemon(mqtt, settings):
                 make_event_request(settings, mqtt)
             except Exception as ex:
                 logging.exception("Error making request to cloud!")
-                publish_ctrl(settings, mqtt, "status", "error:" + str(ex))
+                publish_ctrl(settings, mqtt, "status", "error: " + str(ex))
             else:
                 publish_ctrl(settings, mqtt, "status", "ok")
             request_time = time.perf_counter() - start
@@ -410,16 +410,21 @@ def main():
     mqtt = MQTTClient(f"wb-cloud-agent@{cloud_provider}", userdata={"settings": settings})
     mqtt.on_connect = on_connect
     mqtt.on_message = on_message
-    mqtt.start()
 
     if hasattr(options, "func"):
+        mqtt.start()
         return options.func(options, settings, mqtt)
 
-    update_providers_list(settings, mqtt)
+    if not options.daemon:
+        mqtt.start()
+        make_start_up_request(settings, mqtt)
+        return show_activation_link(settings)
+
+    mqtt.will_set(settings.MQTT_PREFIX + "/controls/status", "stopped", retain=True, qos=2)
+    mqtt.start()
+    publish_ctrl(settings, mqtt, "status", "starting")
     make_start_up_request(settings, mqtt)
     send_agent_version(settings)
-
-    if not options.daemon:
-        return show_activation_link(settings)
+    update_providers_list(settings, mqtt)
 
     run_daemon(mqtt, settings)
