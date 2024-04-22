@@ -384,7 +384,7 @@ def show_activation_link(settings):
 def run_daemon(mqtt, settings):
     publish_vdev(settings, mqtt)
     with ExitStack() as stack:
-        stack.callback(remove_vdev, mqtt)
+        stack.callback(remove_vdev, settings, mqtt)
         while True:
             start = time.perf_counter()
             try:
@@ -420,7 +420,7 @@ def main():
         make_start_up_request(settings, mqtt)
         return show_activation_link(settings)
 
-    mqtt.will_set(settings.MQTT_PREFIX + "/controls/status", "stopped", retain=True, qos=2)
+    mqtt.will_set(settings.MQTT_PREFIX + "/controls/status", "", retain=True, qos=2)
     mqtt.start()
     publish_ctrl(settings, mqtt, "status", "starting")
     make_start_up_request(settings, mqtt)
