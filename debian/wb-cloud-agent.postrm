@@ -17,6 +17,7 @@ mqtt_delete_device() {
     mqtt-delete-retained "$1/controls/status"
 }
 
+echo "Removing wb-cloud-agent devices from MQTT"
 mqtt-delete-retained /wb-cloud-agent/providers
 mqtt_delete_device "/devices/system__wb-cloud-agent__default"
 for provider in $(ls /mnt/data/etc/wb-cloud-agent/providers); do
