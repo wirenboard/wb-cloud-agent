@@ -420,7 +420,7 @@ def main():
         make_start_up_request(settings, mqtt)
         return show_activation_link(settings)
 
-    mqtt.will_set(settings.MQTT_PREFIX + "/controls/status", "", retain=True, qos=2)
+    mqtt.will_set(settings.MQTT_PREFIX + "/controls/status", None, retain=True, qos=2)
     mqtt.start()
     publish_ctrl(settings, mqtt, "status", "starting")
     make_start_up_request(settings, mqtt)
