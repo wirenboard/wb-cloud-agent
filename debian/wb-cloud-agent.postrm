@@ -7,23 +7,23 @@ if [ -L  /etc/nginx/sites-enabled/wb-cloud-agent ]; then
 fi
 
 mqtt_delete_device() {
-    mqtt-delete-retained "$1/meta/name"
-    mqtt-delete-retained "$1/meta/driver"
-    mqtt-delete-retained "$1/controls/status/meta"
-    mqtt-delete-retained "$1/controls/activation_link/meta"
-    mqtt-delete-retained "$1/controls/activation_link"
-    mqtt-delete-retained "$1/controls/cloud_base_url/meta"
-    mqtt-delete-retained "$1/controls/cloud_base_url"
-    mqtt-delete-retained "$1/controls/status"
+    mqtt-delete-retained "$1/meta/name" >/dev/null 2>/dev/null
+    mqtt-delete-retained "$1/meta/driver" >/dev/null 2>/dev/null
+    mqtt-delete-retained "$1/controls/status/meta" >/dev/null 2>/dev/null
+    mqtt-delete-retained "$1/controls/activation_link/meta" >/dev/null 2>/dev/null
+    mqtt-delete-retained "$1/controls/activation_link" >/dev/null 2>/dev/null
+    mqtt-delete-retained "$1/controls/cloud_base_url/meta" >/dev/null 2>/dev/null
+    mqtt-delete-retained "$1/controls/cloud_base_url" >/dev/null 2>/dev/null
+    mqtt-delete-retained "$1/controls/status" >/dev/null 2>/dev/null
 }
 
-echo "Removing wb-cloud-agent devices from MQTT"
-mqtt-delete-retained /wb-cloud-agent/providers
-mqtt_delete_device "/devices/system__wb-cloud-agent__default"
-for provider in $(ls /mnt/data/etc/wb-cloud-agent/providers); do
-    mqtt_delete_device "/devices/system__wb-cloud-agent__$provider"
-done
-
-mosquitto_pub -t /wb-cloud-agent/providers -m ""
+if [ "$1" = "remove" ]; then
+    echo "Removing wb-cloud-agent devices from MQTT"
+    mqtt-delete-retained /wb-cloud-agent/providers >/dev/null 2>/dev/null
+    mqtt_delete_device "/devices/system__wb-cloud-agent__default"
+    for provider in $(ls /mnt/data/etc/wb-cloud-agent/providers); do
+        mqtt_delete_device "/devices/system__wb-cloud-agent__$provider"
+    done
+fi
 
 #DEBHELPER#
