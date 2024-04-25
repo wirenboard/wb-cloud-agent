@@ -1,6 +1,6 @@
 wb-cloud-agent (1.4.3) stable; urgency=medium
 
-  * Fixes around cloud connection status, no functional changes
+  * Fixes around cloud connection status
 
  -- Aleksandr Kazadaev <aleksandr.kazadaev@wirenboard.com>  Mon, 22 Apr 2024 16:30:17 +0500
 
