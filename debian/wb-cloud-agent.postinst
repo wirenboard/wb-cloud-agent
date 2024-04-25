@@ -15,9 +15,9 @@ fi
 wb_source of
 
 if of_machine_match "wirenboard,wirenboard-720"; then
-    sed -i 's/ATECCx08:00:../ATECCx08:00:02/g' /mnt/data/etc/wb-cloud-agent.conf
+    sed -i 's/ATECCx08:00:../ATECCx08:00:02/g' "$AGENT_CONFIG"
 elif of_machine_match "contactless,imx6ul-wirenboard60"; then
-    sed -i 's/ATECCx08:00:../ATECCx08:00:04/g' /mnt/data/etc/wb-cloud-agent.conf
+    sed -i 's/ATECCx08:00:../ATECCx08:00:04/g' "$AGENT_CONFIG"
 fi
 
 #DEBHELPER#
