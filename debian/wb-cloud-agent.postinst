@@ -10,4 +10,6 @@ if [ "$1" = "configure" ] && dpkg --compare-versions "$2" lt "1.2.7~~"; then
     fi
 fi
 
+grep -qF "+update-from-cloud " /var/lib/wb-image-update/firmware-compatible || echo -n "+update-from-cloud " >> /var/lib/wb-image-update/firmware-compatible
+
 #DEBHELPER#

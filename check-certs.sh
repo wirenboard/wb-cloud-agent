@@ -2,10 +2,10 @@
 
 set -e
 
-AGENT_CONFIG="/mnt/data/etc/wb-cloud-agent.conf"
+AGENT_CONFIG="/etc/wb-cloud-agent.conf"
 
 print_bundle_part() {
-    awk -v "req_part=$1" 'BEGIN { c = 0; } /BEGIN CERT/{c++} c == req_part { print }'
+    awk -v "req_part=$1" '/BEGIN CERT/{c++} c == req_part { print }'
 }
 
 cert_is_valid() {
@@ -39,8 +39,9 @@ fi
 . /usr/lib/wb-utils/wb_env.sh
 wb_source of
 
-if of_machine_match "wirenboard,wirenboard-720"; then
-    sed -i 's/ATECCx08:00:../ATECCx08:00:02/g' "$AGENT_CONFIG"
-elif of_machine_match "contactless,imx6ul-wirenboard60"; then
+if of_machine_match "contactless,imx6ul-wirenboard60"; then
     sed -i 's/ATECCx08:00:../ATECCx08:00:04/g' "$AGENT_CONFIG"
+else
+    # Both WB7, WB8 have atecc on i2c2
+    sed -i 's/ATECCx08:00:../ATECCx08:00:02/g' "$AGENT_CONFIG"
 fi
