@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 import argparse
+import glob
 import json
 import logging
 import os
 import subprocess
+import threading
 import time
 from contextlib import ExitStack
 from json import JSONDecodeError
@@ -17,6 +19,7 @@ HTTP_204_NO_CONTENT = 204
 
 DEFAULT_CONF_DIR = "/mnt/data/etc"
 PROVIDERS_CONF_DIR = "/mnt/data/etc/wb-cloud-agent/providers"
+DIAGNOSTIC_DIR = "/var/www/diag"
 
 
 class AppSettings:
@@ -111,7 +114,7 @@ def update_providers_list(settings: AppSettings, mqtt):
     mqtt.publish("/wb-cloud-agent/providers", ",".join(providers), retain=True, qos=2)
 
 
-def do_curl(settings: AppSettings, method="get", endpoint="", body=None):
+def do_curl(settings: AppSettings, method="get", endpoint="", params=None):
     data_delimiter = "|||"
     output_format = data_delimiter + '{"code":"%{response_code}"}'
 
@@ -119,8 +122,10 @@ def do_curl(settings: AppSettings, method="get", endpoint="", body=None):
         command = ["curl"]
     elif method in ("post", "put"):
         command = ["curl", "-X", method.upper()]
-        if body:
-            command += ["-H", "Content-Type: application/json", "-d", json.dumps(body)]
+        if params:
+            command += ["-H", "Content-Type: application/json", "-d", json.dumps(params)]
+    elif method == "multipart-post":
+        command = ["curl", "-X", "POST", "-F", f"file=@{params}"]
     else:
         raise ValueError("Invalid method: " + method)
 
@@ -198,10 +203,48 @@ def update_metrics_config(settings: AppSettings, payload, mqtt):
     write_activation_link(settings, "unknown", mqtt)
 
 
+def callback(settings: AppSettings):
+    files = sorted(glob.glob(os.path.join(DIAGNOSTIC_DIR, "diag_*.zip")), key=os.path.getmtime)
+    if not files:
+        logging.error("No diagnostics collected")
+        return
+
+    last_diagnostic = files[-1]
+    logging.info(f"Diagnostics collected: {last_diagnostic}")
+    data, http_status = do_curl(
+        settings=settings, method="multipart-post", endpoint="upload_diagnostic/", params=last_diagnostic
+    )
+    if http_status != HTTP_200_OK:
+        logging.error("Not a 200 status while making upload_diagnostic request: " + str(http_status))
+
+
+def fetch_diagnostics(settings: AppSettings, payload, mqtt):
+    try:
+        subprocess.run(f"rm {DIAGNOSTIC_DIR}/diag_*.zip", shell=True)
+    except OSError:
+        logging.warning(f"Erase diagnostic files failed")
+
+    process = subprocess.Popen(
+        "wb-diag-collect diag",
+        cwd=DIAGNOSTIC_DIR,
+        shell=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+    )
+
+    def process_waiter(p, callback):
+        p.wait()
+        callback(settings)
+
+    thread = threading.Thread(target=process_waiter, args=(process, callback))
+    thread.start()
+
+
 HANDLERS = {
     "update_activation_link": update_activation_link,
     "update_tunnel_config": update_tunnel_config,
     "update_metrics_config": update_metrics_config,
+    "fetch_diagnostics": fetch_diagnostics,
 }
 
 
@@ -308,7 +351,7 @@ def send_agent_version(settings: AppSettings):
         settings=settings,
         method="put",
         endpoint="update_device_data/",
-        body={"agent_version": package_version},
+        params={"agent_version": package_version},
     )
     if http_status != HTTP_200_OK:
         logging.error("Not a 200 status while making send_agent_version request: " + str(http_status))
@@ -329,7 +372,7 @@ def on_message(client, userdata, message):
         userdata.get("settings"),
         method="put",
         endpoint="update_device_data/",
-        body={"hardware_revision": str(message.payload, "utf-8")},
+        params={"hardware_revision": str(message.payload, "utf-8")},
     )
     if http_status != HTTP_200_OK:
         raise ValueError("Not a 200 status while making start up request: " + str(http_status))
