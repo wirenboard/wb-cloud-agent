@@ -10,7 +10,7 @@ from contextlib import ExitStack
 from dataclasses import dataclass
 from json import JSONDecodeError
 
-from wb_common.mqtt_client import MQTTClient
+from wb_common.mqtt_client import DEFAULT_BROKER_URL, MQTTClient
 
 HTTP_200_OK = 200
 HTTP_204_NO_CONTENT = 204
@@ -33,6 +33,7 @@ class AppSettings:
     """
 
     LOG_LEVEL: str = "INFO"
+    BROKER_URL: str = DEFAULT_BROKER_URL
 
     CLIENT_CERT_ENGINE_KEY: str = "ATECCx08:00:02:C0:00"
     CLIENT_CERT_FILE: str = "/var/lib/wb-cloud-agent/device_bundle.crt.pem"
@@ -288,14 +289,17 @@ def on_message(client, userdata, message):
 def main():
     setup_log()
 
-    mqtt = MQTTClient("wb-cloud-agent")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--daemon", action="store_true", help="Run cloud agent in daemon mode")
+    parser.add_argument("--broker", help="MQTT broker url")
+    options = parser.parse_args()
+
+    options.broker = options.broker or settings.BROKER_URL
+
+    mqtt = MQTTClient("wb-cloud-agent", options.broker)
     mqtt.on_connect = on_connect
     mqtt.on_message = on_message
     mqtt.start()
-
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--daemon", action="store_true", help="Run cloud agent in daemon mode")
-    options = parser.parse_args()
 
     make_start_up_request(mqtt)
 
