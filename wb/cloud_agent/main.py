@@ -16,7 +16,7 @@ HTTP_200_OK = 200
 HTTP_204_NO_CONTENT = 204
 
 DEFAULT_CONF_DIR = "/mnt/data/etc"
-PROVIDERS_CONF_DIR = "/mnt/data/etc/wb-cloud-agent/providers"
+PROVIDERS_CONF_DIR = "/etc/wb-cloud-agent/providers"
 
 
 class AppSettings:

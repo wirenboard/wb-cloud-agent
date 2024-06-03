@@ -40,8 +40,8 @@ fi
 wb_source of
 
 if of_machine_match "contactless,imx6ul-wirenboard60"; then
-    sed -i 's/ATECCx08:00:../ATECCx08:00:04/g' "$AGENT_CONFIG"
+    sed -i --follow-symlinks 's/ATECCx08:00:../ATECCx08:00:04/g' "$AGENT_CONFIG"
 else
     # Both WB7, WB8 have atecc on i2c2
-    sed -i 's/ATECCx08:00:../ATECCx08:00:02/g' "$AGENT_CONFIG"
+    sed -i --follow-symlinks 's/ATECCx08:00:../ATECCx08:00:02/g' "$AGENT_CONFIG"
 fi
