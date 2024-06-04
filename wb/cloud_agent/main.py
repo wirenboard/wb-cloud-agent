@@ -10,7 +10,7 @@ import time
 from contextlib import ExitStack
 from json import JSONDecodeError
 
-from wb_common.mqtt_client import MQTTClient
+from wb_common.mqtt_client import DEFAULT_BROKER_URL, MQTTClient
 
 from wb.cloud_agent.version import package_version
 
@@ -37,6 +37,7 @@ class AppSettings:
     """
 
     LOG_LEVEL: str = "INFO"
+    BROKER_URL: str = DEFAULT_BROKER_URL
 
     CLIENT_CERT_ENGINE_KEY: str = "ATECCx08:00:02:C0:00"
     CLIENT_CERT_FILE: str = "/var/lib/wb-cloud-agent/device_bundle.crt.pem"
@@ -382,6 +383,7 @@ def parse_args():
     main_parser = argparse.ArgumentParser()
     main_parser.add_argument("--daemon", action="store_true", help="Run cloud agent in daemon mode")
     main_parser.add_argument("--provider", help="Provider name to use", default="default")
+    main_parser.add_argument("--broker", help="MQTT broker url")
     subparsers = main_parser.add_subparsers(title="Actions", help="Choose mode:\n", required=False)
     add_provider_parser = subparsers.add_parser("add-provider", help="Add new cloud service provider")
     add_provider_parser.add_argument("provider_name", help="Cloud Provider name to add")
@@ -450,7 +452,9 @@ def main():
 
     setup_log(settings)
 
-    mqtt = MQTTClient(f"wb-cloud-agent@{cloud_provider}", userdata={"settings": settings})
+    options.broker = options.broker or settings.BROKER_URL
+
+    mqtt = MQTTClient(f"wb-cloud-agent@{cloud_provider}", options.broker, userdata={"settings": settings})
     mqtt.on_connect = on_connect
     mqtt.on_message = on_message
 
