@@ -1,3 +1,9 @@
+wb-cloud-agent (1.4.6) stable; urgency=medium
+
+  * Send diagnostics to the cloud backend by request
+
+ -- Dmitry Fedichkin <dmitrii.fedichkin@wirenboard.com>  Tue, 04 Jun 2024 17:10:17 +0200
+
 wb-cloud-agent (1.4.5) stable; urgency=medium
 
   * Fix service unit

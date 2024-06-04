@@ -208,12 +208,17 @@ def callback(settings: AppSettings):
     files = sorted(glob.glob(os.path.join(DIAGNOSTIC_DIR, "diag_*.zip")), key=os.path.getmtime)
     if not files:
         logging.error("No diagnostics collected")
+        _, http_status = do_curl(
+            settings=settings, method="put", endpoint="diagnostic-status/", params={"status": "error"}
+        )
+        if http_status != HTTP_200_OK:
+            logging.error("Not a 200 status while updating diagnostic status: " + str(http_status))
         return
 
     last_diagnostic = files[-1]
     logging.info(f"Diagnostics collected: {last_diagnostic}")
     data, http_status = do_curl(
-        settings=settings, method="multipart-post", endpoint="upload_diagnostic/", params=last_diagnostic
+        settings=settings, method="multipart-post", endpoint="upload-diagnostic/", params=last_diagnostic
     )
     if http_status != HTTP_200_OK:
         logging.error("Not a 200 status while making upload_diagnostic request: " + str(http_status))
