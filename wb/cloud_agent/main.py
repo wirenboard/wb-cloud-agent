@@ -19,7 +19,7 @@ HTTP_204_NO_CONTENT = 204
 
 DEFAULT_CONF_DIR = "/mnt/data/etc"
 PROVIDERS_CONF_DIR = "/mnt/data/etc/wb-cloud-agent/providers"
-DIAGNOSTIC_DIR = "/var/www/diag"
+DIAGNOSTIC_DIR = "/tmp"
 
 
 class AppSettings:
@@ -204,7 +204,7 @@ def update_metrics_config(settings: AppSettings, payload, mqtt):
     write_activation_link(settings, "unknown", mqtt)
 
 
-def callback(settings: AppSettings):
+def upload_diagnostic(settings: AppSettings):
     files = sorted(glob.glob(os.path.join(DIAGNOSTIC_DIR, "diag_*.zip")), key=os.path.getmtime)
     if not files:
         logging.error("No diagnostics collected")
@@ -222,6 +222,8 @@ def callback(settings: AppSettings):
     )
     if http_status != HTTP_200_OK:
         logging.error("Not a 200 status while making upload_diagnostic request: " + str(http_status))
+
+    subprocess.run(f"rm {last_diagnostic}", shell=True)
 
 
 def fetch_diagnostics(settings: AppSettings, payload, mqtt):
@@ -242,7 +244,7 @@ def fetch_diagnostics(settings: AppSettings, payload, mqtt):
         p.wait()
         callback(settings)
 
-    thread = threading.Thread(target=process_waiter, args=(process, callback))
+    thread = threading.Thread(target=process_waiter, args=(process, upload_diagnostic))
     thread.start()
 
 

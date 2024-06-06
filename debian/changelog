@@ -1,4 +1,4 @@
-wb-cloud-agent (1.4.6) stable; urgency=medium
+wb-cloud-agent (1.5.0) stable; urgency=medium
 
   * Send diagnostics to the cloud backend by request
 
