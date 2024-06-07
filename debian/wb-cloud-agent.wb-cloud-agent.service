@@ -1,5 +1,7 @@
 [Unit]
 Description=Wiren Board Cloud Agent (default)
+Wants=mosquitto.service
+After=network.target mosquitto.service
 StartLimitIntervalSec=3600
 StartLimitBurst=100
 
