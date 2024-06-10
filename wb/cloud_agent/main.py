@@ -168,9 +168,14 @@ def do_curl(settings: AppSettings, method="get", endpoint="", body=None):
     return data, status
 
 
+def write_to_file(fpath: str, contents: str):
+    os.makedirs(os.path.dirname(fpath), exist_ok=True)
+    with open(fpath, mode="w") as file:
+        file.write(contents)
+
+
 def write_activation_link(settings: AppSettings, link, mqtt):
-    with open(settings.ACTIVATION_LINK_CONFIG, "w") as file:
-        file.write(link)
+    write_to_file(fpath=settings.ACTIVATION_LINK_CONFIG, contents=link)
     publish_ctrl(settings, mqtt, "activation_link", link)
 
 
@@ -186,15 +191,13 @@ def update_activation_link(settings: AppSettings, payload, mqtt):
 
 
 def update_tunnel_config(settings: AppSettings, payload, mqtt):
-    with open(settings.FRP_CONFIG, "w") as file:
-        file.write(payload["config"])
+    write_to_file(fpath=settings.FRP_CONFIG, contents=payload["config"])
     start_service(settings.FRP_SERVICE, restart=True)
     write_activation_link(settings, "unknown", mqtt)
 
 
 def update_metrics_config(settings: AppSettings, payload, mqtt):
-    with open(settings.TELEGRAF_CONFIG, "w") as file:
-        file.write(payload["config"])
+    write_to_file(fpath=settings.TELEGRAF_CONFIG, contents=payload["config"])
     start_service(settings.TELEGRAF_SERVICE, restart=True)
     write_activation_link(settings, "unknown", mqtt)
 
@@ -367,8 +370,6 @@ def add_provider(options, settings, mqtt):
         os.makedirs(os.path.join(PROVIDERS_CONF_DIR, options.provider_name))
     with open(config_file_path(options.provider_name), "w") as config_file:
         json.dump(conf, config_file, indent=4)
-    if not os.path.exists(f"/var/lib/wb-cloud-agent/providers/{options.provider_name}"):
-        os.makedirs(f"/var/lib/wb-cloud-agent/providers/{options.provider_name}")
     start_service(f"wb-cloud-agent@{options.provider_name}.service")
     update_providers_list(settings, mqtt)
     return
