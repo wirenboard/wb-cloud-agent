@@ -8,6 +8,7 @@ StartLimitBurst=100
 [Service]
 ExecStart=/usr/bin/wb-cloud-agent --daemon --provider default
 ExecStartPre=/usr/lib/wb-cloud-agent/check-certs.sh
+ExecStartPre=/usr/lib/wb-cloud-agent/activate-providers.sh
 Restart=always
 RestartSec=10
 
