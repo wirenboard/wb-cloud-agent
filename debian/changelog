@@ -1,4 +1,4 @@
-wb-cloud-agent (1.4.6) stable; urgency=medium
+wb-cloud-agent (1.4.7) stable; urgency=medium
 
   * Move device certs check to ExecStartPre (instead of postinst)
   * Backup config via wb-configs
