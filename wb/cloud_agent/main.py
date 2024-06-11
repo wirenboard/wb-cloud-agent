@@ -223,14 +223,16 @@ def upload_diagnostic(settings: AppSettings):
     if http_status != HTTP_200_OK:
         logging.error("Not a 200 status while making upload_diagnostic request: " + str(http_status))
 
-    subprocess.run(f"rm {last_diagnostic}", shell=True)
+    os.remove(last_diagnostic)
 
 
 def fetch_diagnostics(settings: AppSettings, payload, mqtt):
+    # remove old diagnostics
     try:
-        subprocess.run(f"rm {DIAGNOSTIC_DIR}/diag_*.zip", shell=True)
-    except OSError:
-        logging.warning(f"Erase diagnostic files failed")
+        for fname in glob.glob(f"{DIAGNOSTIC_DIR}/diag_*.zip"):
+            os.remove(fname)
+    except OSError as e:
+        logging.warning(f"Erase diagnostic files failed: {e.strerror}")
 
     process = subprocess.Popen(
         "wb-diag-collect diag",
