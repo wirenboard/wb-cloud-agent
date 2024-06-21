@@ -1,3 +1,10 @@
+wb-cloud-agent (1.5.1) stable; urgency=medium
+
+  * Move device certs check to ExecStartPre (instead of postinst)
+  * Backup config via wb-configs
+
+ -- Vladimir Romanov <v.romanov@wirenboard.com>  Thu, 20 Jun 2024 12:34:21 +0300
+
 wb-cloud-agent (1.5.0) stable; urgency=medium
 
   * Send diagnostics to the cloud backend by request
