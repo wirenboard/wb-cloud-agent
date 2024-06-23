@@ -205,7 +205,7 @@ def update_tunnel_config(settings: AppSettings, payload, mqtt):
 def update_metrics_config(settings: AppSettings, payload, mqtt):
     write_to_file(
         fpath=settings.TELEGRAF_CONFIG,
-        contents=Template(payload["config"]).safe_substitute(BROKER_URL=settings.BROKER_URL)
+        contents=Template(payload["config"]).safe_substitute(BROKER_URL=settings.BROKER_URL),
     )
     start_service(settings.TELEGRAF_SERVICE, restart=True)
     write_activation_link(settings, "unknown", mqtt)
