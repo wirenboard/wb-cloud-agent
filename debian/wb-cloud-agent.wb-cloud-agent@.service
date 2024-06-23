@@ -4,9 +4,12 @@ Wants=mosquitto.service
 After=network.target mosquitto.service
 StartLimitIntervalSec=3600
 StartLimitBurst=100
+ConditionPathExistsGlob=/mnt/data/etc/wb-cloud-agent/providers/%i/*.conf
 
 [Service]
 ExecStart=/usr/bin/wb-cloud-agent --daemon --provider %i
+ExecStartPre=/usr/lib/wb-cloud-agent/check-certs.sh
+ExecStartPre=/usr/lib/wb-cloud-agent/activate-providers.sh
 Restart=always
 RestartSec=10
 

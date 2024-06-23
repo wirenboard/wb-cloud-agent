@@ -1,0 +1,2 @@
+wb_move /etc/wb-cloud-agent.conf
+wb_move /etc/wb-cloud-agent
