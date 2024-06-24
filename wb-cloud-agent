@@ -9,6 +9,7 @@ import time
 from contextlib import ExitStack
 from dataclasses import dataclass
 from json import JSONDecodeError
+from string import Template
 
 from wb_common.mqtt_client import DEFAULT_BROKER_URL, MQTTClient
 
@@ -166,7 +167,7 @@ def update_tunnel_config(payload, mqtt):
 
 def update_metrics_config(payload, mqtt):
     with open(settings.TELEGRAF_CONFIG, "w") as file:
-        file.write(payload["config"])
+        file.write(Template(payload["config"]).safe_substitute(BROKER_URL=settings.BROKER_URL))
 
     subprocess.run(["systemctl", "enable", settings.TELEGRAF_SERVICE], check=True)
     subprocess.run(["systemctl", "restart", settings.TELEGRAF_SERVICE], check=True)
@@ -294,9 +295,9 @@ def main():
     parser.add_argument("--broker", help="MQTT broker url")
     options = parser.parse_args()
 
-    options.broker = options.broker or settings.BROKER_URL
+    settings.BROKER_URL = options.broker or settings.BROKER_URL
 
-    mqtt = MQTTClient("wb-cloud-agent", options.broker)
+    mqtt = MQTTClient("wb-cloud-agent", settings.BROKER_URL)
     mqtt.on_connect = on_connect
     mqtt.on_message = on_message
     mqtt.start()
