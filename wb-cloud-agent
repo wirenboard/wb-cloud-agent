@@ -9,12 +9,14 @@ import time
 from contextlib import ExitStack
 from dataclasses import dataclass
 from json import JSONDecodeError
+from string import Template
 
-from wb_common.mqtt_client import MQTTClient
+from wb_common.mqtt_client import DEFAULT_BROKER_URL, MQTTClient
 
 HTTP_200_OK = 200
 HTTP_204_NO_CONTENT = 204
 DEFAULT_CONF_FILE = "/mnt/data/etc/wb-cloud-agent.conf"
+PACKAGE_VERSION = "1.3.3-wb102"
 
 
 @dataclass
@@ -33,6 +35,7 @@ class AppSettings:
     """
 
     LOG_LEVEL: str = "INFO"
+    BROKER_URL: str = DEFAULT_BROKER_URL
 
     CLIENT_CERT_ENGINE_KEY: str = "ATECCx08:00:02:C0:00"
     CLIENT_CERT_FILE: str = "/var/lib/wb-cloud-agent/device_bundle.crt.pem"
@@ -165,7 +168,7 @@ def update_tunnel_config(payload, mqtt):
 
 def update_metrics_config(payload, mqtt):
     with open(settings.TELEGRAF_CONFIG, "w") as file:
-        file.write(payload["config"])
+        file.write(Template(payload["config"]).safe_substitute(BROKER_URL=settings.BROKER_URL))
 
     subprocess.run(["systemctl", "enable", settings.TELEGRAF_SERVICE], check=True)
     subprocess.run(["systemctl", "restart", settings.TELEGRAF_SERVICE], check=True)
@@ -266,6 +269,16 @@ def make_start_up_request(mqtt):
     return status_data
 
 
+def send_agent_version():
+    status_data, http_status = do_curl(
+        method="put",
+        endpoint="update_device_data/",
+        body={"agent_version": PACKAGE_VERSION},
+    )
+    if http_status != HTTP_200_OK:
+        logging.error("Not a 200 status while making send_agent_version request: " + str(http_status))
+
+
 def on_connect(client, _, flags, reason_code, properties=None):
     # 0: Connection successful
     if reason_code != 0:
@@ -288,16 +301,20 @@ def on_message(client, userdata, message):
 def main():
     setup_log()
 
-    mqtt = MQTTClient("wb-cloud-agent")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--daemon", action="store_true", help="Run cloud agent in daemon mode")
+    parser.add_argument("--broker", help="MQTT broker url")
+    options = parser.parse_args()
+
+    settings.BROKER_URL = options.broker or settings.BROKER_URL
+
+    mqtt = MQTTClient("wb-cloud-agent", settings.BROKER_URL)
     mqtt.on_connect = on_connect
     mqtt.on_message = on_message
     mqtt.start()
 
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--daemon", action="store_true", help="Run cloud agent in daemon mode")
-    options = parser.parse_args()
-
     make_start_up_request(mqtt)
+    send_agent_version()
 
     if not options.daemon:
         link = read_activation_link()
