@@ -2,7 +2,7 @@
 
 Очень простой агент с использованием аппаратной подписи для получения обновлений с wirenboard.cloud
 
-1. Периодически ринимает события с эндпоинта https://agent.wirenboard.cloud/api-agent/v1/events/
+1. Периодически принимает события с эндпоинта https://agent.wirenboard.cloud/api-agent/v1/events/
 2. Обновляет файлы конфигурации и перезапускает необходимые службы (frpc.service или telegraf.service)
 3. Подтверждает события по эндпоинту https://agent.wirenboard.cloud/api-agent/v1/events/{id}/confirm/ 
                                                                            
@@ -31,7 +31,7 @@ docker rm -v $id
 
 ## Зависимости
 
-Пакет измеет в зависимостях только python-requests
+Пакет имеет в зависимостях только python-requests
                             
 ```
 apt install python3-requests
