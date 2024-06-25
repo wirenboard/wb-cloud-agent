@@ -31,7 +31,7 @@ docker rm -v $id
 
 ## Зависимости
 
-Пакет измеет в зависимостях только python-requests
+Пакет имеет в зависимостях только python-requests
                             
 ```
 apt install python3-requests
