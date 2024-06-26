@@ -2,17 +2,22 @@
 
 set -e
 
-if [ -L  /etc/nginx/sites-enabled/wb-cloud-agent ]; then
-    rm  /etc/nginx/sites-enabled/wb-cloud-agent
+if [ -L /etc/nginx/sites-enabled/wb-cloud-agent ]; then
+    rm /etc/nginx/sites-enabled/wb-cloud-agent
 fi
 
 if [ "$1" = "remove" ]; then
     echo "Removing wb-cloud-agent devices from MQTT"
     mqtt-delete-retained "/wb-cloud-agent/#" >/dev/null 2>/dev/null
     mqtt-delete-retained "/devices/system__wb-cloud-agent__default/#" >/dev/null 2>/dev/null
-    for provider in $(ls /mnt/data/etc/wb-cloud-agent/providers); do
+    for provider in $(ls /etc/wb-cloud-agent/providers); do
         mqtt-delete-retained "/devices/system__wb-cloud-agent__$provider/#" >/dev/null 2>/dev/null
     done
+fi
+
+if [ "$1" = "purge" ]; then
+    rm -f /etc/wb-cloud-agent.conf
+    rm -fr /etc/wb-cloud-agent
 fi
 
 #DEBHELPER#
