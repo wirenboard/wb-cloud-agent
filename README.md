@@ -1,106 +1,22 @@
 # Wiren Board Agent 
 
-Очень простой агент с использованием аппаратной подписи для получения обновлений с wirenboard.cloud
+Агент с использованием аппаратной подписи для получения обновлений с wirenboard.cloud.
+[Подробная документация](https://wirenboard.com/wiki/Wiren_Board_Cloud)
 
-1. Периодически принимает события с эндпоинта https://agent.wirenboard.cloud/api-agent/v1/events/
-2. Обновляет файлы конфигурации и перезапускает необходимые службы (frpc.service или telegraf.service)
-3. Подтверждает события по эндпоинту https://agent.wirenboard.cloud/api-agent/v1/events/{id}/confirm/ 
-                                                                           
+## Как установить
 
-## Сборка через Docker
-
-Пример сборки пакета представлен в Dockerfile. Сначала необходимо собрать сам образ, например:
+Обновите список пакетов на контроллере и установите пакет
 
 ```
-docker build . -t agent-dist-builder
+apt update && apt install wb-cloud-agent
 ```
 
-После чего нужно скопировать deb изнутри образа в систему, например, так:
+## Как использовать
 
-```
-id=$(docker create agent-dist-builder)                
-docker cp $id:/src/deb_dist/python3-wb-cloud-agent_0.1.0-1_all.deb wb_cloud_agent.deb
-docker rm -v $id
-```
-
-## Зависимости
-
-Пакет имеет в зависимостях только python-requests
-                            
-```
-apt install python3-requests
-```
-
-## Установка
-
-```
-dpkg -i wb_cloud_agent.deb
-```
-
-## Запуск
-
-В консоли
-
+Для подключения контроллера через веб-интерфейс воспользутейсь [разделом настроек](https://wirenboard.com/wiki/Wiren_Board_Cloud#%D0%94%D0%BE%D0%B1%D0%B0%D0%B2%D0%BB%D0%B5%D0%BD%D0%B8%D0%B5_%D0%BA%D0%BE%D0%BD%D1%82%D1%80%D0%BE%D0%BB%D0%BB%D0%B5%D1%80%D0%B0_%D0%B2_%D0%BE%D0%B1%D0%BB%D0%B0%D0%BA%D0%BE).
+Чтобы получить ссылку для подключения контроллера в консоли, выполните:
 ```
 wb-cloud-agent
 ```
 
-В качестве службы нужно прописать конфиг сервиса
 
-```
-# /etc/systemd/system/wb-cloud-agent.service
-
-[Unit]
-Description=Wiren Board Cloud Agent
-StartLimitIntervalSec=3600
-StartLimitBurst=100
-
-[Service]
-ExecStart=wb-cloud-agent
-Restart=always
-RestartSec=10
-
-[Install]
-WantedBy=multi-user.target
-```
-
-И запустить сервис 
-
-```systemctl start wb-cloud-agent.service```
-
-## Конфигурирование
-
-Для конфигурирования используются переменные окружения. 
-
-WIRENBOARD_CLOUD_URL - url для запросов агента, значение по умолчанию 'http://localhost:7000/api-agent/v1/'
-
-WIRENBOARD_FRP_CONFIG - файл для конфигурации туннеля (для перезаписи), значение по умолчанию '/root/soft/frp/frpc.conf'
-
-WIRENBOARD_TELEGRAF_CONFIG - файл для конфигурации метрик (для перезаписи), значение по умолчанию '/root/soft/telegraf/telegraf.conf'
-
-WIRENBOARD_ACTIVATION_LINK_CONFIG - файл для конфигурацией ссылки активации контроллера, значение по умолчанию '/root/soft/activation_link/activation_link.conf')
-
-WIRENBOARD_REQUEST_PERIOD_SECONDS - частота опроса эндпоинта событий в секундах, значение по умолчанию '3'
-
-## Конфигурация локального прокси
-
-Для работы аппаратного ключа удобнее всего воспользоваться nginx, как описано тут https://wirenboard.com/wiki/CryptodevATECCx08_Auth
-
-Например, можно прописать агент в `/etc/nginx/sites-enabled/agent` так:
-
-```
-server {
-	listen   7000;
-	server_name localhost;
-
-    location / { 
-        proxy_pass                 https://agent.wirenboard.cloud;
-        proxy_ssl_name             agent.wirenboard.cloud;
-        proxy_ssl_server_name      on; 
-        proxy_ssl_certificate      /etc/ssl/certs/device_bundle_good.crt.pem;
-        proxy_ssl_certificate_key  engine:ateccx08:ATECCx08:00:02:C0:00;
-    }  
-}
-```
-
-Где `device_bundle_good.crt.pem` - пофикшенный файл с сертификатом (см. по ссылке выше скрипт fix.sh)
