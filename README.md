@@ -6,12 +6,6 @@
 2. Обновляет файлы конфигурации и перезапускает необходимые службы (frpc.service или telegraf.service)
 3. Подтверждает события по эндпоинту https://agent.wirenboard.cloud/api-agent/v1/events/{id}/confirm/ 
                                                                            
-Актуальную версию можно скачать тут
-                                                                                
-```
-wget https://d85a2ae2-5556-4eb0-94dd-c6bd6565c3a9.selstorage.ru/eeLi8pah2oozepai/wb_cloud_agent.deb
-```
-
 
 ## Сборка через Docker
 
