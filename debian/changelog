@@ -1,3 +1,9 @@
+wb-cloud-agent (1.5.3) stable; urgency=medium
+
+  * Fix config search path
+
+ -- Nikolay Korotkiy <nikolay.korotkiy@wirenboard.com>  Wed, 26 Jun 2024 22:00:00 +0400
+
 wb-cloud-agent (1.5.2) stable; urgency=medium
 
   * Substitute mqtt broker url in telegraf config

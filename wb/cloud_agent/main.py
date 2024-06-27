@@ -18,8 +18,8 @@ from wb.cloud_agent.version import package_version
 HTTP_200_OK = 200
 HTTP_204_NO_CONTENT = 204
 
-DEFAULT_CONF_DIR = "/mnt/data/etc"
-PROVIDERS_CONF_DIR = "/mnt/data/etc/wb-cloud-agent/providers"
+DEFAULT_CONF_DIR = "/etc"
+PROVIDERS_CONF_DIR = "/etc/wb-cloud-agent/providers"
 DIAGNOSTIC_DIR = "/tmp"
 
 
@@ -29,7 +29,7 @@ class AppSettings:
 
     To rewrite parameters just add them to wb-cloud-agent config.
 
-    An example of config at /mnt/data/etc/wb-cloud-agent.conf:
+    An example of config at /etc/wb-cloud-agent.conf:
 
     {
         "CLIENT_CERT_ENGINE_KEY": "ATECCx08:00:04:C0:00",
