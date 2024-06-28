@@ -108,11 +108,10 @@ def setup_log(settings: AppSettings):
 def update_providers_list(settings: AppSettings, mqtt):
     #  FIXME: Find a better way to update providers list (services enabled? services running?).
     providers = ["default"]
-    if not os.path.exists(PROVIDERS_CONF_DIR):
-        return providers
-    providers += [
-        d for d in os.listdir(PROVIDERS_CONF_DIR) if os.path.isdir(os.path.join(PROVIDERS_CONF_DIR, d))
-    ]
+    if os.path.exists(PROVIDERS_CONF_DIR):
+        providers += [
+            d for d in os.listdir(PROVIDERS_CONF_DIR) if os.path.isdir(os.path.join(PROVIDERS_CONF_DIR, d))
+        ]
     mqtt.publish("/wb-cloud-agent/providers", ",".join(providers), retain=True, qos=2)
 
 
