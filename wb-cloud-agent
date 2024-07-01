@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 import argparse
+import glob
 import json
 import logging
 import os
 import subprocess
 import sys
+import threading
 import time
 from contextlib import ExitStack
 from dataclasses import dataclass
@@ -16,7 +18,8 @@ from wb_common.mqtt_client import DEFAULT_BROKER_URL, MQTTClient
 HTTP_200_OK = 200
 HTTP_204_NO_CONTENT = 204
 DEFAULT_CONF_FILE = "/mnt/data/etc/wb-cloud-agent.conf"
-PACKAGE_VERSION = "1.3.3-wb102"
+PACKAGE_VERSION = "1.3.3-wb103"
+DIAGNOSTIC_DIR = "/tmp"
 
 
 @dataclass
@@ -92,6 +95,8 @@ def do_curl(method="get", endpoint="", body=None):
         command = ["curl", "-X", method.upper()]
         if body:
             command += ["-H", "Content-Type: application/json", "-d", json.dumps(body)]
+    elif method == "multipart-post":
+        command = ["curl", "-X", "POST", "-F", f"file=@{body}"]
     else:
         raise ValueError("Invalid method: " + method)
 
@@ -175,10 +180,53 @@ def update_metrics_config(payload, mqtt):
     write_activation_link("unknown", mqtt)
 
 
+def upload_diagnostic():
+    files = sorted(glob.glob(os.path.join(DIAGNOSTIC_DIR, "diag_*.zip")), key=os.path.getmtime)
+    if not files:
+        logging.error("No diagnostics collected")
+        _, http_status = do_curl(method="put", endpoint="diagnostic-status/", body={"status": "error"})
+        if http_status != HTTP_200_OK:
+            logging.error("Not a 200 status while updating diagnostic status: " + str(http_status))
+        return
+
+    last_diagnostic = files[-1]
+    logging.info(f"Diagnostics collected: {last_diagnostic}")
+    data, http_status = do_curl(method="multipart-post", endpoint="upload-diagnostic/", body=last_diagnostic)
+    if http_status != HTTP_200_OK:
+        logging.error("Not a 200 status while making upload_diagnostic request: " + str(http_status))
+
+    os.remove(last_diagnostic)
+
+
+def fetch_diagnostics(payload, mqtt):
+    # remove old diagnostics
+    try:
+        for fname in glob.glob(f"{DIAGNOSTIC_DIR}/diag_*.zip"):
+            os.remove(fname)
+    except OSError as e:
+        logging.warning(f"Erase diagnostic files failed: {e.strerror}")
+
+    process = subprocess.Popen(
+        "wb-diag-collect diag",
+        cwd=DIAGNOSTIC_DIR,
+        shell=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+    )
+
+    def process_waiter(p, callback):
+        p.wait()
+        callback()
+
+    thread = threading.Thread(target=process_waiter, args=(process, upload_diagnostic))
+    thread.start()
+
+
 HANDLERS = {
     "update_activation_link": update_activation_link,
     "update_tunnel_config": update_tunnel_config,
     "update_metrics_config": update_metrics_config,
+    "fetch_diagnostics": fetch_diagnostics,
 }
 
 
