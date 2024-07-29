@@ -1,3 +1,9 @@
+wb-cloud-agent (1.3.3-wb105) stable; urgency=medium
+
+  * Move device certs check to ExecStartPre (instead of postinst)
+
+ -- Nikolay Korotkiy <nikolay.korotkiy@wirenboard.com>  Mon, 29 Jul 2024 20:00:00 +0400
+
 wb-cloud-agent (1.3.3-wb104) stable; urgency=medium
 
   * Handle TimeoutExpired exception during events polling
