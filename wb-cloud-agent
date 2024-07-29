@@ -107,8 +107,8 @@ def do_curl(method="get", endpoint="", body=None):
         "45",
         "--retry",
         "8",
-        "--retry-max-time",
-        "300",
+        "--retry-delay",
+        "1",
         "--retry-all-errors",
         "--cert",
         settings.CLIENT_CERT_FILE,
@@ -382,6 +382,8 @@ def main():
 
             try:
                 make_event_request(mqtt)
+            except subprocess.TimeoutExpired:
+                continue
             except Exception as ex:
                 logging.exception("Error making request to cloud!")
                 publish_ctrl(mqtt, "status", "error:" + str(ex))
