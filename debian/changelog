@@ -1,3 +1,10 @@
+wb-cloud-agent (1.5.6) stable; urgency=medium
+
+  * Handle TimeoutExpired exception during events polling
+  * Tweak curl params
+
+ -- Dmitry Fedichkin <dmitrii.fedichkin@wirenboard.com>  Mon, 29 Jul 2024 12:31:17 +0200
+
 wb-cloud-agent (1.5.5) stable; urgency=medium
 
   * Fix preinst hook
