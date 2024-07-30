@@ -1,2 +1,3 @@
 wb-cloud-agent /usr/bin/
 wb-cloud-agent.conf /mnt/data/etc/
+check-certs.sh /usr/lib/wb-cloud-agent/
