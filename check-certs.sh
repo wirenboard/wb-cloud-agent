@@ -2,6 +2,8 @@
 
 set -e
 
+AGENT_CONFIG="/etc/wb-cloud-agent.conf"
+
 print_bundle_part() {
     awk -v "req_part=$1" 'BEGIN { c = 0; } /BEGIN CERT/{c++} c == req_part { print }'
 }
@@ -38,7 +40,7 @@ fi
 wb_source of
 
 if of_machine_match "wirenboard,wirenboard-720"; then
-    sed -i 's/ATECCx08:00:../ATECCx08:00:02/g' /mnt/data/etc/wb-cloud-agent.conf
+    sed -i 's/ATECCx08:00:../ATECCx08:00:02/g' "$AGENT_CONFIG"
 elif of_machine_match "contactless,imx6ul-wirenboard60"; then
-    sed -i 's/ATECCx08:00:../ATECCx08:00:04/g' /mnt/data/etc/wb-cloud-agent.conf
+    sed -i 's/ATECCx08:00:../ATECCx08:00:04/g' "$AGENT_CONFIG"
 fi
