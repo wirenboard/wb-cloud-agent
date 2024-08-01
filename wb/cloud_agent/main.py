@@ -138,8 +138,8 @@ def do_curl(settings: AppSettings, method="get", endpoint="", params=None):
         "45",
         "--retry",
         "8",
-        "--retry-max-time",
-        "300",
+        "--retry-delay",
+        "1",
         "--retry-all-errors",
         "--cert",
         settings.CLIENT_CERT_FILE,
@@ -453,6 +453,8 @@ def run_daemon(mqtt, settings):
             start = time.perf_counter()
             try:
                 make_event_request(settings, mqtt)
+            except subprocess.TimeoutExpired:
+                continue
             except Exception as ex:
                 logging.exception("Error making request to cloud!")
                 publish_ctrl(settings, mqtt, "status", "error: " + str(ex))
