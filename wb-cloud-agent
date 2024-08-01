@@ -17,8 +17,8 @@ from wb_common.mqtt_client import DEFAULT_BROKER_URL, MQTTClient
 
 HTTP_200_OK = 200
 HTTP_204_NO_CONTENT = 204
-DEFAULT_CONF_FILE = "/mnt/data/etc/wb-cloud-agent.conf"
-PACKAGE_VERSION = "1.3.3-wb103"
+DEFAULT_CONF_FILE = "/etc/wb-cloud-agent.conf"
+PACKAGE_VERSION = "1.3.3-wb106"
 DIAGNOSTIC_DIR = "/tmp"
 
 
