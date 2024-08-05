@@ -4,6 +4,7 @@ import glob
 import json
 import logging
 import os
+import signal
 import subprocess
 import sys
 import threading
@@ -480,6 +481,9 @@ def main():
     )
     mqtt.on_connect = on_connect
     mqtt.on_message = on_message
+
+    signal.signal(signal.SIGINT, signal.SIG_DFL)
+    signal.signal(signal.SIGTERM, signal.SIG_DFL)
 
     try:
         if hasattr(options, "func"):

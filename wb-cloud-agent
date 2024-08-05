@@ -6,7 +6,4 @@ import sys
 from wb.cloud_agent import main
 
 if __name__ == "__main__":
-    try:
-        sys.exit(main.main())
-    except KeyboardInterrupt:
-        sys.exit(0)
+    sys.exit(main.main())
