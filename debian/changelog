@@ -1,3 +1,9 @@
+wb-cloud-agent (1.5.7) stable; urgency=medium
+
+  * Cleanup old frpc config during a service restart
+
+ -- Dmitry Fedichkin <dmitrii.fedichkin@wirenboard.com>  Wed, 07 Aug 2024 12:59:17 +0200
+
 wb-cloud-agent (1.5.6) stable; urgency=medium
 
   * Handle TimeoutExpired exception during events polling

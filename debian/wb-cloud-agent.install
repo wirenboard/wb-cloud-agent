@@ -3,3 +3,4 @@ wb-cloud-agent.conf /etc/
 19wb-cloud-agent /etc/wb-configs.d/
 check-certs.sh /usr/lib/wb-cloud-agent/
 activate-providers.sh /usr/lib/wb-cloud-agent/
+clean-frpc-token.sh /usr/lib/wb-cloud-agent/

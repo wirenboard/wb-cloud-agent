@@ -7,6 +7,7 @@ StartLimitBurst=100
 [Service]
 ExecCondition=/usr/bin/test -f /var/lib/wb-cloud-agent/providers/%i/frpc.conf
 ExecStart=/usr/bin/frpc --config /var/lib/wb-cloud-agent/providers/%i/frpc.conf
+ExecStopPost=/usr/lib/wb-cloud-agent/clean-frpc-token.sh /var/lib/wb-cloud-agent/providers/%i/frpc.conf
 Restart=always
 RestartSec=10
 
