@@ -1,3 +1,9 @@
+wb-cloud-agent (1.5.7) stable; urgency=medium
+
+  * Prevent restart if not configured
+
+ -- Nikolay Korotkiy <nikolay.korotkiy@wirenboard.com>  Thu, 15 Aug 2024 10:00:00 +0400
+
 wb-cloud-agent (1.5.6) stable; urgency=medium
 
   * Handle TimeoutExpired exception during events polling
