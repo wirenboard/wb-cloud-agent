@@ -8,7 +8,8 @@ Build-Depends: dh-python,
                python3-all,
                python3-setuptools,
                python3-wb-common (>= 2.1.1),
-               python3-pytest
+               python3-pytest,
+               python3-tomli
 Standards-Version: 4.6.1
 X-Python-Version: >= 3.9
 Homepage: https://github.com/wirenboard/wb-cloud-agent/
