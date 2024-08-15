@@ -12,6 +12,7 @@ ExecStartPre=/usr/lib/wb-cloud-agent/check-certs.sh
 ExecStartPre=/usr/lib/wb-cloud-agent/activate-providers.sh
 Restart=always
 RestartSec=10
+RestartPreventExitStatus=6
 
 [Install]
 WantedBy=multi-user.target
