@@ -15,6 +15,7 @@ from string import Template
 
 from wb_common.mqtt_client import DEFAULT_BROKER_URL, MQTTClient
 
+from wb.cloud_agent.settings import AppSettings, generate_config, get_providers
 from wb.cloud_agent.version import package_version
 
 HTTP_200_OK = 200
@@ -23,65 +24,6 @@ HTTP_204_NO_CONTENT = 204
 DEFAULT_CONF_DIR = "/etc"
 PROVIDERS_CONF_DIR = "/etc/wb-cloud-agent/providers"
 DIAGNOSTIC_DIR = "/tmp"
-
-
-class AppSettings:
-    """
-    Simple settings configurator.
-
-    To rewrite parameters just add them to wb-cloud-agent config.
-
-    An example of config at /etc/wb-cloud-agent.conf:
-
-    {
-        "CLIENT_CERT_ENGINE_KEY": "ATECCx08:00:04:C0:00",
-    }
-
-    """
-
-    LOG_LEVEL: str = "INFO"
-    BROKER_URL: str = DEFAULT_BROKER_URL
-
-    CLIENT_CERT_ENGINE_KEY: str = "ATECCx08:00:02:C0:00"
-    CLIENT_CERT_FILE: str = "/var/lib/wb-cloud-agent/device_bundle.crt.pem"
-    CLOUD_BASE_URL: str = "https://wirenboard.cloud"
-    CLOUD_AGENT_URL: str = "https://agent.wirenboard.cloud/api-agent/v1/"
-    REQUEST_PERIOD_SECONDS: int = 3
-
-    def __init__(self, provider: str, conf_file=None):
-        self.PROVIDER = provider
-        if provider == "default":
-            self.FRP_SERVICE: str = "wb-cloud-agent-frpc.service"
-            self.TELEGRAF_SERVICE: str = "wb-cloud-agent-telegraf.service"
-            self.FRP_CONFIG: str = f"/var/lib/wb-cloud-agent/frpc.conf"
-            self.TELEGRAF_CONFIG: str = f"/var/lib/wb-cloud-agent/telegraf.conf"
-            self.ACTIVATION_LINK_CONFIG: str = f"/var/lib/wb-cloud-agent/activation_link.conf"
-        else:
-            self.FRP_SERVICE: str = f"wb-cloud-agent-frpc@{provider}.service"
-            self.TELEGRAF_SERVICE: str = f"wb-cloud-agent-telegraf@{provider}.service"
-            self.FRP_CONFIG: str = f"/var/lib/wb-cloud-agent/providers/{provider}/frpc.conf"
-            self.TELEGRAF_CONFIG: str = f"/var/lib/wb-cloud-agent/providers/{provider}/telegraf.conf"
-            self.ACTIVATION_LINK_CONFIG: str = (
-                f"/var/lib/wb-cloud-agent/providers/{provider}/activation_link.conf"
-            )
-        self.MQTT_PREFIX: str = f"/devices/system__wb-cloud-agent__{provider}"
-        if conf_file:
-            self.apply_conf_file(conf_file)
-
-    def apply_conf_file(self, conf_file):
-        conf = read_json_file(conf_file)
-        for key in conf:
-            setattr(self, key, conf[key])
-
-
-def read_json_file(file_path):
-    try:
-        with open(file_path, "r") as file:
-            return json.load(file)
-    except (FileNotFoundError, OSError, JSONDecodeError):
-        raise ValueError("Cannot read config file at: " + file_path)
-    except JSONDecodeError:
-        raise ValueError("Invalid config file format (must be valid json) at: " + file_path)
 
 
 def start_service(service: str, restart=False):
@@ -94,12 +36,6 @@ def start_service(service: str, restart=False):
         subprocess.run(["systemctl", "start", service], check=True)
 
 
-def config_file_path(provider: str):
-    if provider == "default":
-        return f"{DEFAULT_CONF_DIR}/wb-cloud-agent.conf"
-    return f"{PROVIDERS_CONF_DIR}/{provider}/wb-cloud-agent.conf"
-
-
 def setup_log(settings: AppSettings):
     numeric_level = getattr(logging, settings.LOG_LEVEL.upper(), None)
     if not isinstance(numeric_level, int):
@@ -109,12 +45,7 @@ def setup_log(settings: AppSettings):
 
 def update_providers_list(settings: AppSettings, mqtt):
     #  FIXME: Find a better way to update providers list (services enabled? services running?).
-    providers = ["default"]
-    if os.path.exists(PROVIDERS_CONF_DIR):
-        providers += [
-            d for d in os.listdir(PROVIDERS_CONF_DIR) if os.path.isdir(os.path.join(PROVIDERS_CONF_DIR, d))
-        ]
-    mqtt.publish("/wb-cloud-agent/providers", ",".join(providers), retain=True, qos=2)
+    mqtt.publish("/wb-cloud-agent/providers", ",".join(get_providers()), retain=True, qos=2)
 
 
 def do_curl(settings: AppSettings, method="get", endpoint="", params=None):
@@ -421,17 +352,11 @@ def parse_args():
 
 
 def add_provider(options, settings, mqtt):
-    if os.path.exists(config_file_path(options.provider_name)):
+    if options.provider_name in get_providers():
         print("Provider " + options.provider_name + " already exists")
         return 1
     print("Adding provider " + options.provider_name)
-    conf = read_json_file(config_file_path("default"))
-    conf["CLOUD_BASE_URL"] = options.base_url
-    conf["CLOUD_AGENT_URL"] = options.agent_url
-    if not os.path.exists(os.path.join(PROVIDERS_CONF_DIR, options.provider_name)):
-        os.makedirs(os.path.join(PROVIDERS_CONF_DIR, options.provider_name))
-    with open(config_file_path(options.provider_name), "w") as config_file:
-        json.dump(conf, config_file, indent=4)
+    generate_config(options.provider_name, options.base_url, options.agent_url)
     start_service(f"wb-cloud-agent@{options.provider_name}.service")
     update_providers_list(settings, mqtt)
     return
@@ -469,8 +394,10 @@ def run_daemon(mqtt, settings):
 def main():
     options = parse_args()
     cloud_provider = options.provider
-    conf_file = config_file_path(cloud_provider)
-    settings = AppSettings(provider=cloud_provider, conf_file=conf_file)
+    try:
+        settings = AppSettings(cloud_provider)
+    except (FileNotFoundError, OSError, json.decoder.JSONDecodeError):
+        return 6  # systemd status=6/NOTCONFIGURED
 
     setup_log(settings)
 
