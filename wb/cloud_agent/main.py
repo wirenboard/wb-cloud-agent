@@ -13,8 +13,7 @@ from contextlib import ExitStack
 from json import JSONDecodeError
 from string import Template
 
-from wb_common.mqtt_client import DEFAULT_BROKER_URL, MQTTClient
-
+from wb.cloud_agent.mqtt import MQTTCloudAgent
 from wb.cloud_agent.settings import AppSettings, generate_config, get_providers
 from wb.cloud_agent.version import package_version
 
@@ -45,7 +44,7 @@ def setup_log(settings: AppSettings):
 
 def update_providers_list(settings: AppSettings, mqtt):
     #  FIXME: Find a better way to update providers list (services enabled? services running?).
-    mqtt.publish("/wb-cloud-agent/providers", ",".join(get_providers()), retain=True, qos=2)
+    mqtt.publish_providers(",".join(get_providers()))
 
 
 def do_curl(settings: AppSettings, method="get", endpoint="", params=None):
@@ -119,7 +118,7 @@ def write_to_file(fpath: str, contents: str):
 
 def write_activation_link(settings: AppSettings, link, mqtt):
     write_to_file(fpath=settings.ACTIVATION_LINK_CONFIG, contents=link)
-    publish_ctrl(settings, mqtt, "activation_link", link)
+    mqtt.publish_ctrl("activation_link", link)
 
 
 def read_activation_link(settings: AppSettings):
@@ -202,51 +201,6 @@ HANDLERS = {
 }
 
 
-def publish_vdev(settings: AppSettings, mqtt):
-    mqtt.publish(settings.MQTT_PREFIX + "/meta/name", "cloud status", retain=True, qos=2)
-    mqtt.publish(settings.MQTT_PREFIX + "/meta/driver", "wb-cloud-agent", retain=True, qos=2)
-    mqtt.publish(
-        settings.MQTT_PREFIX + "/controls/status/meta",
-        '{"type": "text", "readonly": true, "order": 1, "title": {"en": "Status"}}',
-        retain=True,
-        qos=2,
-    )
-    mqtt.publish(
-        settings.MQTT_PREFIX + "/controls/activation_link/meta",
-        '{"type": "text", "readonly": true, "order": 2, "title": {"en": "Link"}}',
-        retain=True,
-        qos=2,
-    )
-    mqtt.publish(
-        settings.MQTT_PREFIX + "/controls/cloud_base_url/meta",
-        '{"type": "text", "readonly": true, "order": 3, "title": {"en": "URL"}}',
-        retain=True,
-        qos=2,
-    )
-    mqtt.publish(settings.MQTT_PREFIX + "/controls/status", "connecting", retain=True, qos=2)
-    mqtt.publish(
-        settings.MQTT_PREFIX + "/controls/activation_link", read_activation_link(settings), retain=True, qos=2
-    )
-    mqtt.publish(
-        settings.MQTT_PREFIX + "/controls/cloud_base_url", settings.CLOUD_BASE_URL, retain=True, qos=2
-    )
-
-
-def remove_vdev(settings: AppSettings, mqtt):
-    mqtt.publish(settings.MQTT_PREFIX + "/meta/name", "", retain=True, qos=2)
-    mqtt.publish(settings.MQTT_PREFIX + "/meta/driver", "", retain=True, qos=2)
-    mqtt.publish(settings.MQTT_PREFIX + "/controls/status/meta", "", retain=True, qos=2)
-    mqtt.publish(settings.MQTT_PREFIX + "/controls/activation_link/meta", "", retain=True, qos=2)
-    mqtt.publish(settings.MQTT_PREFIX + "/controls/cloud_base_url/meta", "", retain=True, qos=2)
-    mqtt.publish(settings.MQTT_PREFIX + "/controls/status", "", retain=True, qos=2)
-    mqtt.publish(settings.MQTT_PREFIX + "/controls/activation_link", "", retain=True, qos=2)
-    mqtt.publish(settings.MQTT_PREFIX + "/controls/cloud_base_url", "", retain=True, qos=2)
-
-
-def publish_ctrl(settings: AppSettings, mqtt, ctrl, value):
-    mqtt.publish(settings.MQTT_PREFIX + f"/controls/{ctrl}", value, retain=True, qos=2)
-
-
 def make_event_request(settings: AppSettings, mqtt):
     event_data, http_status = do_curl(settings=settings, method="get", endpoint="events/")
     logging.debug("Checked for new events. Status " + str(http_status) + ". Data: " + str(event_data))
@@ -311,17 +265,7 @@ def send_agent_version(settings: AppSettings):
         logging.error("Not a 200 status while making send_agent_version request: " + str(http_status))
 
 
-def on_connect(client, _, flags, reason_code, properties=None):
-    # 0: Connection successful
-    if reason_code != 0:
-        logging.error(f"Failed to connect: {reason_code}. loop_forever() will retry connection")
-    else:
-        client.subscribe("/devices/system/controls/HW Revision", qos=2)
-
-
-def on_message(client, userdata, message):
-    assert "settings" in userdata, "No settings in userdata"
-    client.unsubscribe("/devices/system/controls/HW Revision")
+def on_message(userdata, message):
     status_data, http_status = do_curl(
         userdata.get("settings"),
         method="put",
@@ -372,9 +316,9 @@ def show_activation_link(settings):
 
 
 def run_daemon(mqtt, settings):
-    publish_vdev(settings, mqtt)
+    mqtt.publish_vdev(read_activation_link(settings), settings.CLOUD_BASE_URL)
     with ExitStack() as stack:
-        stack.callback(remove_vdev, settings, mqtt)
+        stack.callback(mqtt.remove_vdev)
         while True:
             start = time.perf_counter()
             try:
@@ -383,9 +327,9 @@ def run_daemon(mqtt, settings):
                 continue
             except Exception as ex:
                 logging.exception("Error making request to cloud!")
-                publish_ctrl(settings, mqtt, "status", "error: " + str(ex))
+                mqtt.publish_ctrl("status", "error: " + str(ex))
             else:
-                publish_ctrl(settings, mqtt, "status", "ok")
+                mqtt.publish_ctrl("status", "ok")
             request_time = time.perf_counter() - start
             logging.debug("Done in: " + str(int(request_time * 1000)) + " ms.")
             time.sleep(settings.REQUEST_PERIOD_SECONDS)
@@ -403,11 +347,7 @@ def main():
 
     settings.BROKER_URL = options.broker or settings.BROKER_URL
 
-    mqtt = MQTTClient(
-        f"wb-cloud-agent@{cloud_provider}", settings.BROKER_URL, userdata={"settings": settings}
-    )
-    mqtt.on_connect = on_connect
-    mqtt.on_message = on_message
+    mqtt = MQTTCloudAgent(settings, on_message)
 
     signal.signal(signal.SIGINT, signal.SIG_DFL)
     signal.signal(signal.SIGTERM, signal.SIG_DFL)
@@ -422,15 +362,12 @@ def main():
             make_start_up_request(settings, mqtt)
             return show_activation_link(settings)
 
-        mqtt.will_set(settings.MQTT_PREFIX + "/controls/status", "stopped", retain=True, qos=2)
-        mqtt.start()
-        publish_ctrl(settings, mqtt, "status", "starting")
+        mqtt.start(update_status=True)
         make_start_up_request(settings, mqtt)
         send_agent_version(settings)
         update_providers_list(settings, mqtt)
 
         run_daemon(mqtt, settings)
-
     except (ConnectionError, ConnectionRefusedError):
         logging.error(f"Cannot connect to broker {settings.BROKER_URL}")
         sys.exit(1)
