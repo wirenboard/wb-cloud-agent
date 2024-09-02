@@ -20,7 +20,7 @@ class MQTTCloudAgent:
             self.client.will_set(f"{self.mqtt_prefix}/controls/status", "stopped", retain=True, qos=2)
         self.client.start()
         if update_status:
-            self.client.publish_ctrl("status", "starting")
+            self.publish_ctrl("status", "starting")
 
     def _on_connect(self, client, _userdata, _flags, reason_code, *_):
         # 0: Connection successful
