@@ -26,7 +26,7 @@ DIAGNOSTIC_DIR = "/tmp"
 def start_service(service: str, restart=False, enable=True):
     if enable:
         subprocess.run(["systemctl", "enable", service], check=True)
-    else: 
+    else:
         subprocess.run(["systemctl", "disable", service], check=True)
 
     if restart:
