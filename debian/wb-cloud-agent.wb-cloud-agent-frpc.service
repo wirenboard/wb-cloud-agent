@@ -5,8 +5,8 @@ StartLimitIntervalSec=3600
 StartLimitBurst=100
 
 [Service]
-ExecCondition=/usr/bin/test -f /run/frpc.conf
-ExecStart=/usr/bin/frpc --config /run/frpc.conf
+ExecCondition=/usr/bin/test -f /run/wb-cloud-agent/frpc.conf
+ExecStart=/usr/bin/frpc --config /run/wb-cloud-agent/frpc.conf
 Restart=always
 RestartSec=10
 

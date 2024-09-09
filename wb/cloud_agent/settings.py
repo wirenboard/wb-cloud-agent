@@ -37,14 +37,14 @@ class AppSettings:  # pylint: disable=too-many-instance-attributes disable=too-f
             self.CONFIG_FILE: str = DEFAULT_CONF_FILE
             self.FRP_SERVICE: str = "wb-cloud-agent-frpc.service"
             self.TELEGRAF_SERVICE: str = "wb-cloud-agent-telegraf.service"
-            self.FRP_CONFIG: str = "/run/frpc.conf"
+            self.FRP_CONFIG: str = "/run/wb-cloud-agent/frpc.conf"
             self.TELEGRAF_CONFIG: str = "/var/lib/wb-cloud-agent/telegraf.conf"
             self.ACTIVATION_LINK_CONFIG: str = "/var/lib/wb-cloud-agent/activation_link.conf"
         else:
             self.CONFIG_FILE: str = f"{PROVIDERS_CONF_DIR}/{provider}/wb-cloud-agent.conf"
             self.FRP_SERVICE: str = f"wb-cloud-agent-frpc@{provider}.service"
             self.TELEGRAF_SERVICE: str = f"wb-cloud-agent-telegraf@{provider}.service"
-            self.FRP_CONFIG: str = f"/run/frpc-{provider}.conf"
+            self.FRP_CONFIG: str = f"/run/wb-cloud-agent-{provider}/frpc.conf"
             self.TELEGRAF_CONFIG: str = f"/var/lib/wb-cloud-agent/providers/{provider}/telegraf.conf"
             self.ACTIVATION_LINK_CONFIG: str = (
                 f"/var/lib/wb-cloud-agent/providers/{provider}/activation_link.conf"
