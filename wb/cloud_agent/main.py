@@ -23,8 +23,12 @@ PROVIDERS_CONF_DIR = "/etc/wb-cloud-agent/providers"
 DIAGNOSTIC_DIR = "/tmp"
 
 
-def start_service(service: str, restart=False):
-    subprocess.run(["systemctl", "enable", service], check=True)
+def start_service(service: str, restart=False, enable=True):
+    if enable:
+        subprocess.run(["systemctl", "enable", service], check=True)
+    else:
+        subprocess.run(["systemctl", "disable", service], check=True)
+
     if restart:
         print(f"Restarting service {service}")
         subprocess.run(["systemctl", "restart", service], check=True)
@@ -127,7 +131,7 @@ def update_activation_link(settings: AppSettings, payload, mqtt):
 
 def update_tunnel_config(settings: AppSettings, payload, mqtt):
     write_to_file(fpath=settings.FRP_CONFIG, contents=payload["config"])
-    start_service(settings.FRP_SERVICE, restart=True)
+    start_service(settings.FRP_SERVICE, restart=True, enable=False)
     write_activation_link(settings, "unknown", mqtt)
 
 

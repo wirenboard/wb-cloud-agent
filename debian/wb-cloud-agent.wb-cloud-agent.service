@@ -6,6 +6,7 @@ StartLimitIntervalSec=3600
 StartLimitBurst=100
 
 [Service]
+RuntimeDirectory=wb-cloud-agent
 ExecStart=/usr/bin/wb-cloud-agent --daemon --provider default
 ExecStartPre=/usr/lib/wb-cloud-agent/check-certs.sh
 ExecStartPre=/usr/lib/wb-cloud-agent/activate-providers.sh

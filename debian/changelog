@@ -1,3 +1,9 @@
+wb-cloud-agent (1.5.9) stable; urgency=medium
+
+  * Disable wb-cloud-agent-frpc service on boot to reduce logs after system reboot
+
+ -- Nikita Chernykh <nikita.chernykh@wirenboard.com>  Mon, 09 Sep 2024 10:00:00 +0400
+
 wb-cloud-agent (1.5.8) stable; urgency=medium
 
   * Refactor mqtt client, no functional changes
