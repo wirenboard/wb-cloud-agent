@@ -4,7 +4,9 @@ import glob
 import json
 import logging
 import os
+import signal
 import subprocess
+import sys
 import threading
 import time
 from contextlib import ExitStack
@@ -83,7 +85,12 @@ def do_curl(settings: AppSettings, method="get", endpoint="", params=None):
         url,
     ]
 
-    result = subprocess.run(command, timeout=360, check=True, capture_output=True)
+    try:
+        result = subprocess.run(command, timeout=360, check=True, capture_output=True)
+    except subprocess.CalledProcessError as e:
+        raise ValueError("Error during request: " + str(e))
+    except subprocess.TimeoutExpired as e:
+        raise ValueError("Timeout expired: " + str(e))
 
     decoded_result = result.stdout.decode("utf-8")
     split_result = decoded_result.split(data_delimiter)
@@ -342,18 +349,28 @@ def main():
 
     mqtt = MQTTCloudAgent(settings, on_message)
 
-    if hasattr(options, "func"):
-        mqtt.start()
-        return options.func(options, settings, mqtt)
+    signal.signal(signal.SIGINT, signal.SIG_DFL)
+    signal.signal(signal.SIGTERM, signal.SIG_DFL)
 
-    if not options.daemon:
-        mqtt.start()
+    try:
+        if hasattr(options, "func"):
+            mqtt.start()
+            return options.func(options, settings, mqtt)
+
+        if not options.daemon:
+            mqtt.start()
+            make_start_up_request(settings, mqtt)
+            return show_activation_link(settings)
+
+        mqtt.start(update_status=True)
         make_start_up_request(settings, mqtt)
-        return show_activation_link(settings)
+        send_agent_version(settings)
+        update_providers_list(settings, mqtt)
 
-    mqtt.start(update_status=True)
-    make_start_up_request(settings, mqtt)
-    send_agent_version(settings)
-    update_providers_list(settings, mqtt)
-
-    run_daemon(mqtt, settings)
+        run_daemon(mqtt, settings)
+    except (ConnectionError, ConnectionRefusedError):
+        logging.error(f"Cannot connect to broker {settings.BROKER_URL}")
+        sys.exit(1)
+    except Exception as e:
+        logging.error(e)
+        sys.exit(1)
