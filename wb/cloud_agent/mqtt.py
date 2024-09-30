@@ -16,7 +16,7 @@ class MQTTCloudAgent:
         )
         self.client.on_connect = self._on_connect
         self.client.on_message = self._on_message
-        self.client.on_disconnect = self._on_disconnect        
+        self.client.on_disconnect = self._on_disconnect
 
         self.was_disconnected = False
 
@@ -35,11 +35,10 @@ class MQTTCloudAgent:
             if self.was_disconnected:
                 self.was_disconnected = False
                 self.publish_vdev()
-                for control,value in self.controls.items():
+                for control, value in self.controls.items():
                     self.publish_ctrl(control, value)
 
             self.client.subscribe("/devices/system/controls/HW Revision", qos=2)
-
 
     def _on_message(self, client, userdata, message):
         assert "settings" in userdata, "No settings in userdata"
@@ -84,7 +83,7 @@ class MQTTCloudAgent:
 
     def publish_ctrl(self, ctrl, value):
         self.client.publish(f"{self.mqtt_prefix}/controls/{ctrl}", value, retain=True, qos=2)
-        self.controls.update({ctrl:value})
+        self.controls.update({ctrl: value})
 
     def publish_providers(self, providers):
         self.client.publish("/wb-cloud-agent/providers", providers, retain=True, qos=2)
