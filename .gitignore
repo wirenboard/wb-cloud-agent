@@ -108,6 +108,7 @@ dmypy.json
 # IDE stuff
 .vscode
 .idea
+.devcontainer
 
 venv
 .venv
@@ -118,3 +119,4 @@ db.sqlite
 
 .helm/charts/*.tgz
 .werf_secret_key
+
