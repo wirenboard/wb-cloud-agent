@@ -8,8 +8,6 @@ ConditionPathExistsGlob=/etc/wb-cloud-agent/providers/%i/*.conf
 
 [Service]
 ExecStart=/usr/bin/wb-cloud-agent --daemon --provider %i
-ExecStartPre=/usr/lib/wb-cloud-agent/check-certs.sh
-ExecStartPre=/usr/lib/wb-cloud-agent/activate-providers.sh
 Restart=always
 RestartSec=10
 RestartPreventExitStatus=6
