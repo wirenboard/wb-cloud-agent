@@ -10,6 +10,7 @@ class MQTTCloudAgent:
         self.mqtt_prefix = settings.MQTT_PREFIX
         self.on_message = on_message
         self.controls = {}
+        self.providers = None
 
         self.client = MQTTClient(
             f"wb-cloud-agent@{settings.PROVIDER}", settings.BROKER_URL, userdata={"settings": settings}
@@ -37,6 +38,7 @@ class MQTTCloudAgent:
                 self.publish_vdev()
                 for control, value in self.controls.items():
                     self.publish_ctrl(control, value)
+                self.publish_providers(self.providers)
 
             self.client.subscribe("/devices/system/controls/HW Revision", qos=2)
 
@@ -86,4 +88,5 @@ class MQTTCloudAgent:
         self.controls.update({ctrl: value})
 
     def publish_providers(self, providers):
+        self.providers = providers
         self.client.publish("/wb-cloud-agent/providers", providers, retain=True, qos=2)
