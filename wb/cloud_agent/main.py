@@ -309,7 +309,10 @@ def show_activation_link(settings):
 
 
 def run_daemon(mqtt, settings):
-    mqtt.publish_vdev(read_activation_link(settings), settings.CLOUD_BASE_URL)
+    mqtt.publish_vdev()
+    mqtt.publish_ctrl("activation_link", read_activation_link(settings))
+    mqtt.publish_ctrl("cloud_base_url", settings.CLOUD_BASE_URL)
+    mqtt.publish_ctrl("status", "connecting")
     with ExitStack() as stack:
         stack.callback(mqtt.remove_vdev)
         while True:
