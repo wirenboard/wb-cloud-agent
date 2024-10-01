@@ -7,6 +7,7 @@ StartLimitBurst=100
 ConditionPathExistsGlob=/etc/wb-cloud-agent/providers/%i/*.conf
 
 [Service]
+ExecStartPre=/usr/lib/wb-cloud-agent/check-certs.sh /etc/wb-cloud-agent/providers/%i/wb-cloud-agent.conf
 ExecStart=/usr/bin/wb-cloud-agent --daemon --provider %i
 Restart=always
 RestartSec=10

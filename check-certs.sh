@@ -2,7 +2,7 @@
 
 set -e
 
-AGENT_CONFIG="/etc/wb-cloud-agent.conf"
+AGENT_CONFIG="${1:-/etc/wb-cloud-agent.conf}"
 
 print_bundle_part() {
     awk -v "req_part=$1" '/BEGIN CERT/{c++} c == req_part { print }'
