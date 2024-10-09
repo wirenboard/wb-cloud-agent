@@ -28,7 +28,7 @@ class MQTTCloudAgent:
         if update_status:
             self.publish_ctrl("status", "starting")
 
-    def _on_connect(self, client, _userdata, _flags, reason_code, *_):
+    def _on_connect(self, _client, _userdata, _flags, reason_code, *_):
         # 0: Connection successful
         if reason_code != 0:
             logging.error("Failed to connect: %d. loop_forever() will retry connection", reason_code)
@@ -42,7 +42,7 @@ class MQTTCloudAgent:
 
             self.client.subscribe("/devices/system/controls/HW Revision", qos=2)
 
-    def _on_message(self, client, userdata, message):
+    def _on_message(self, _client, userdata, message):
         assert "settings" in userdata, "No settings in userdata"
         self.client.unsubscribe("/devices/system/controls/HW Revision")
         if self.on_message:

@@ -36,12 +36,12 @@ def start_service(service: str, restart=False):
 def setup_log(settings: AppSettings):
     numeric_level = getattr(logging, settings.LOG_LEVEL.upper(), None)
     if not isinstance(numeric_level, int):
-        raise ValueError("Invalid log level: %s" % settings.LOG_LEVEL)
+        raise ValueError(f"Invalid log level: {settings.LOG_LEVEL}")
     logging.basicConfig(level=numeric_level, encoding="utf-8", format="%(message)s")
 
 
-def update_providers_list(settings: AppSettings, mqtt):
-    #  FIXME: Find a better way to update providers list (services enabled? services running?).
+def update_providers_list(_settings: AppSettings, mqtt):
+    #  Find a better way to update providers list (services enabled? services running?).
     mqtt.publish_providers(",".join(get_providers()))
 
 
@@ -97,15 +97,15 @@ def do_curl(settings: AppSettings, method="get", endpoint="", params=None):
 
     try:
         status = int(json.loads(split_result[1])["code"])
-    except (KeyError, TypeError, ValueError, JSONDecodeError):
-        raise ValueError("Invalid data in response: " + str(split_result))
+    except (KeyError, TypeError, ValueError, JSONDecodeError) as e:
+        raise ValueError(f"Invalid data in response: {split_result}") from e
 
     return data, status
 
 
 def write_to_file(fpath: str, contents: str):
     os.makedirs(os.path.dirname(fpath), exist_ok=True)
-    with open(fpath, mode="w") as file:
+    with open(fpath, mode="w", encoding="utf-8") as file:
         file.write(contents)
 
 
@@ -117,7 +117,7 @@ def write_activation_link(settings: AppSettings, link, mqtt):
 def read_activation_link(settings: AppSettings):
     if not os.path.exists(settings.ACTIVATION_LINK_CONFIG):
         return "unknown"
-    with open(settings.ACTIVATION_LINK_CONFIG, "r") as file:
+    with open(settings.ACTIVATION_LINK_CONFIG, "r", encoding="utf-8") as file:
         return file.readline()
 
 
@@ -148,41 +148,40 @@ def upload_diagnostic(settings: AppSettings):
             settings=settings, method="put", endpoint="diagnostic-status/", params={"status": "error"}
         )
         if http_status != HTTP_200_OK:
-            logging.error("Not a 200 status while updating diagnostic status: " + str(http_status))
+            logging.error("Not a 200 status while updating diagnostic status: %s", http_status)
         return
 
     last_diagnostic = files[-1]
-    logging.info(f"Diagnostics collected: {last_diagnostic}")
-    data, http_status = do_curl(
+    logging.info("Diagnostics collected: %s", last_diagnostic)
+    _data, http_status = do_curl(
         settings=settings, method="multipart-post", endpoint="upload-diagnostic/", params=last_diagnostic
     )
     if http_status != HTTP_200_OK:
-        logging.error("Not a 200 status while making upload_diagnostic request: " + str(http_status))
+        logging.error("Not a 200 status while making upload_diagnostic request: %s", http_status)
 
     os.remove(last_diagnostic)
 
 
-def fetch_diagnostics(settings: AppSettings, payload, mqtt):
+def fetch_diagnostics(settings: AppSettings, _payload, _mqtt):
     # remove old diagnostics
     try:
         for fname in glob.glob(f"{DIAGNOSTIC_DIR}/diag_*.zip"):
             os.remove(fname)
     except OSError as e:
-        logging.warning(f"Erase diagnostic files failed: {e.strerror}")
+        logging.warning("Erase diagnostic files failed: %s", e.strerror)
 
-    process = subprocess.Popen(
-        "wb-diag-collect diag",
-        cwd=DIAGNOSTIC_DIR,
-        shell=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-    )
+    def process_waiter():
+        with subprocess.Popen(
+            "wb-diag-collect diag",
+            cwd=DIAGNOSTIC_DIR,
+            shell=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        ) as process:
+            process.wait()
+        upload_diagnostic(settings)
 
-    def process_waiter(p, callback):
-        p.wait()
-        callback(settings)
-
-    thread = threading.Thread(target=process_waiter, args=(process, upload_diagnostic))
+    thread = threading.Thread(target=process_waiter)
     thread.start()
 
 
@@ -196,7 +195,7 @@ HANDLERS = {
 
 def make_event_request(settings: AppSettings, mqtt):
     event_data, http_status = do_curl(settings=settings, method="get", endpoint="events/")
-    logging.debug("Checked for new events. Status " + str(http_status) + ". Data: " + str(event_data))
+    logging.debug("Checked for new events. Status %s. Data: %s", http_status, event_data)
 
     if http_status == HTTP_204_NO_CONTENT:
         return
@@ -218,9 +217,9 @@ def make_event_request(settings: AppSettings, mqtt):
     if handler:
         handler(settings, payload, mqtt)
     else:
-        logging.warning("Got an unknown event '" + code + "'. Try to update wb-cloud-agent package.")
+        logging.warning("Got an unknown event '%s'. Try to update wb-cloud-agent package.", code)
 
-    logging.info("Event '" + code + "' handled successfully, event id " + str(event_id))
+    logging.info("Event '%s' handled successfully, event id %s", code, event_id)
 
     _, http_status = do_curl(settings=settings, method="post", endpoint="events/" + event_id + "/confirm/")
 
@@ -248,18 +247,18 @@ def make_start_up_request(settings: AppSettings, mqtt):
 
 
 def send_agent_version(settings: AppSettings):
-    status_data, http_status = do_curl(
+    _status_data, http_status = do_curl(
         settings=settings,
         method="put",
         endpoint="update_device_data/",
         params={"agent_version": package_version},
     )
     if http_status != HTTP_200_OK:
-        logging.error("Not a 200 status while making send_agent_version request: " + str(http_status))
+        logging.error("Not a 200 status while making send_agent_version request: %s", http_status)
 
 
 def on_message(userdata, message):
-    status_data, http_status = do_curl(
+    _status_data, http_status = do_curl(
         userdata.get("settings"),
         method="put",
         endpoint="update_device_data/",
@@ -296,7 +295,7 @@ def add_provider(options, settings, mqtt):
     generate_config(options.provider_name, options.base_url, options.agent_url)
     start_service(f"wb-cloud-agent@{options.provider_name}.service")
     update_providers_list(settings, mqtt)
-    return
+    return 0
 
 
 def show_activation_link(settings):
@@ -305,7 +304,6 @@ def show_activation_link(settings):
         print(f">> {link}")
     else:
         print("No active link. Controller may be already connected")
-    return
 
 
 def run_daemon(mqtt, settings):
@@ -321,13 +319,13 @@ def run_daemon(mqtt, settings):
                 make_event_request(settings, mqtt)
             except subprocess.TimeoutExpired:
                 continue
-            except Exception as ex:
+            except Exception as ex:  # pylint:disable=broad-exception-caught
                 logging.exception("Error making request to cloud!")
                 mqtt.publish_ctrl("status", "error: " + str(ex))
             else:
                 mqtt.publish_ctrl("status", "ok")
             request_time = time.perf_counter() - start
-            logging.debug("Done in: " + str(int(request_time * 1000)) + " ms.")
+            logging.debug("Done in: %s ms.", int(request_time * 1000))
             time.sleep(settings.REQUEST_PERIOD_SECONDS)
 
 
@@ -360,3 +358,4 @@ def main():
     update_providers_list(settings, mqtt)
 
     run_daemon(mqtt, settings)
+    return 0
