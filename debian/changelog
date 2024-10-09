@@ -1,3 +1,9 @@
+wb-cloud-agent (1.5.10) stable; urgency=medium
+
+  * Enable anrgy pylint. No functional changes
+
+ --  Ekaterina Volkova <ekaterina.volkova@wirenboard.com>  Wed, 09 Oct 2024 13:59:09 +0300
+
 wb-cloud-agent (1.5.9) stable; urgency=medium
 
   * Add mqtt device republish on mosquitto restart
