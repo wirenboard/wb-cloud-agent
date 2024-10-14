@@ -1,6 +1,5 @@
 import json
 import os
-from json import JSONDecodeError
 from pathlib import Path
 
 from wb_common.mqtt_client import DEFAULT_BROKER_URL
@@ -32,14 +31,16 @@ class AppSettings:  # pylint: disable=too-many-instance-attributes disable=too-f
     REQUEST_PERIOD_SECONDS: int = 3
 
     def __init__(self, provider: str = "default"):
-        self.PROVIDER = provider
+        self.PROVIDER = provider  # pylint:disable=invalid-name
         if provider == "default":
-            self.CONFIG_FILE: str = DEFAULT_CONF_FILE
-            self.FRP_SERVICE: str = "wb-cloud-agent-frpc.service"
-            self.TELEGRAF_SERVICE: str = "wb-cloud-agent-telegraf.service"
-            self.FRP_CONFIG: str = "/var/lib/wb-cloud-agent/frpc.conf"
-            self.TELEGRAF_CONFIG: str = "/var/lib/wb-cloud-agent/telegraf.conf"
-            self.ACTIVATION_LINK_CONFIG: str = "/var/lib/wb-cloud-agent/activation_link.conf"
+            self.CONFIG_FILE: str = DEFAULT_CONF_FILE  # pylint:disable=invalid-name
+            self.FRP_SERVICE: str = "wb-cloud-agent-frpc.service"  # pylint:disable=invalid-name
+            self.TELEGRAF_SERVICE: str = "wb-cloud-agent-telegraf.service"  # pylint:disable=invalid-name
+            self.FRP_CONFIG: str = "/var/lib/wb-cloud-agent/frpc.conf"  # pylint:disable=invalid-name
+            self.TELEGRAF_CONFIG: str = "/var/lib/wb-cloud-agent/telegraf.conf"  # pylint:disable=invalid-name
+            self.ACTIVATION_LINK_CONFIG: str = (  # pylint:disable=invalid-name
+                "/var/lib/wb-cloud-agent/activation_link.conf"
+            )
         else:
             self.CONFIG_FILE: str = f"{PROVIDERS_CONF_DIR}/{provider}/wb-cloud-agent.conf"
             self.FRP_SERVICE: str = f"wb-cloud-agent-frpc@{provider}.service"
@@ -49,7 +50,7 @@ class AppSettings:  # pylint: disable=too-many-instance-attributes disable=too-f
             self.ACTIVATION_LINK_CONFIG: str = (
                 f"/var/lib/wb-cloud-agent/providers/{provider}/activation_link.conf"
             )
-        self.MQTT_PREFIX: str = f"/devices/system__wb-cloud-agent__{provider}"
+        self.MQTT_PREFIX: str = f"/devices/system__wb-cloud-agent__{provider}"  # pylint:disable=invalid-name
 
         if os.path.exists(self.CONFIG_FILE):
             self.apply_conf_file(self.CONFIG_FILE)
