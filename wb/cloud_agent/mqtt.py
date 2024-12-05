@@ -53,7 +53,9 @@ class MQTTCloudAgent:
         self.was_disconnected = True
 
     def publish_vdev(self):
-        self.client.publish(f"{self.mqtt_prefix}/meta/name", "Cloud status {self.provider}", retain=True, qos=2)
+        self.client.publish(
+            f"{self.mqtt_prefix}/meta/name", "Cloud status {self.provider}", retain=True, qos=2
+        )
         self.client.publish(f"{self.mqtt_prefix}/meta/driver", "wb-cloud-agent", retain=True, qos=2)
         self.client.publish(
             f"{self.mqtt_prefix}/controls/status/meta",
