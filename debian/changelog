@@ -1,6 +1,7 @@
 wb-cloud-agent (1.5.12) stable; urgency=medium
 
   * Wait until the network is "up"
+  * Don't fail if no mqtt connection
   * Fix virtual device title
 
  -- Nikolay Korotkiy <nikolay.korotkiy@wirenboard.com>  Thu, 05 Dec 2024 15:30:00 +0400

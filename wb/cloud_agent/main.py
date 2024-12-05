@@ -352,7 +352,10 @@ def main():
         make_start_up_request(settings, mqtt)
         return show_activation_link(settings)
 
-    mqtt.start(update_status=True)
+    try:
+        mqtt.start(update_status=True)
+    except Exception as ex:  # pylint:disable=broad-exception-caught
+        logging.error("Error starting MQTT client: %s", ex)
     make_start_up_request(settings, mqtt)
     send_agent_version(settings)
     update_providers_list(settings, mqtt)
