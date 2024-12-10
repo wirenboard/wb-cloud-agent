@@ -10,10 +10,11 @@ class MQTTCloudAgent:
         self.mqtt_prefix = settings.MQTT_PREFIX
         self.on_message = on_message
         self.controls = {}
+        self.provider = settings.PROVIDER
         self.providers = None
 
         self.client = MQTTClient(
-            f"wb-cloud-agent@{settings.PROVIDER}", settings.BROKER_URL, userdata={"settings": settings}
+            f"wb-cloud-agent@{self.provider}", settings.BROKER_URL, userdata={"settings": settings}
         )
         self.client.on_connect = self._on_connect
         self.client.on_message = self._on_message
@@ -52,7 +53,9 @@ class MQTTCloudAgent:
         self.was_disconnected = True
 
     def publish_vdev(self):
-        self.client.publish(f"{self.mqtt_prefix}/meta/name", "cloud status", retain=True, qos=2)
+        self.client.publish(
+            f"{self.mqtt_prefix}/meta/name", f"Cloud status {self.provider}", retain=True, qos=2
+        )
         self.client.publish(f"{self.mqtt_prefix}/meta/driver", "wb-cloud-agent", retain=True, qos=2)
         self.client.publish(
             f"{self.mqtt_prefix}/controls/status/meta",

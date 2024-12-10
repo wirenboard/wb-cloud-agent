@@ -1,20 +1,28 @@
+wb-cloud-agent (1.5.12) stable; urgency=medium
+
+  * Wait until the network is "up"
+  * Don't fail if no mqtt connection
+  * Fix virtual device title
+
+ -- Nikolay Korotkiy <nikolay.korotkiy@wirenboard.com>  Thu, 05 Dec 2024 15:30:00 +0400
+
 wb-cloud-agent (1.5.11) stable; urgency=medium
 
   * Restart alternative cloud services when main agent is restarting
 
- --  Nikita Chernykh <nikita.chernykh@wirenboard.com>  Mon, 07 Oct 2024 10:00:00 +0300
+ -- Nikita Chernykh <nikita.chernykh@wirenboard.com>  Mon, 07 Oct 2024 10:00:00 +0300
 
 wb-cloud-agent (1.5.10) stable; urgency=medium
 
   * Enable anrgy pylint. No functional changes
 
- --  Ekaterina Volkova <ekaterina.volkova@wirenboard.com>  Wed, 09 Oct 2024 13:59:09 +0300
+ -- Ekaterina Volkova <ekaterina.volkova@wirenboard.com>  Wed, 09 Oct 2024 13:59:09 +0300
 
 wb-cloud-agent (1.5.9) stable; urgency=medium
 
   * Add mqtt device republish on mosquitto restart
 
- --  Ekaterina Volkova <ekaterina.volkova@wirenboard.com>  Mon, 30 Sep 2024 17:27:21 +0300
+ -- Ekaterina Volkova <ekaterina.volkova@wirenboard.com>  Mon, 30 Sep 2024 17:27:21 +0300
 
 wb-cloud-agent (1.5.8) stable; urgency=medium
 
