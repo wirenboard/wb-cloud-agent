@@ -1,3 +1,9 @@
+wb-cloud-agent (1.5.13) stable; urgency=medium
+
+  * Add ping to ttyCONSOLE on each request
+
+ -- Vladimir Romanov <v.romanov@wirenboard.com>  Sun, 09 Feb 2025 15:42:21 +0300
+
 wb-cloud-agent (1.5.12) stable; urgency=medium
 
   * Wait until the network is "up"

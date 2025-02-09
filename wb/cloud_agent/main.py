@@ -326,6 +326,7 @@ def run_daemon(mqtt, settings):
                 mqtt.publish_ctrl("status", "ok")
             request_time = time.perf_counter() - start
             logging.debug("Done in: %s ms.", int(request_time * 1000))
+            subprocess.call('echo "ping_wb_cloud" >> /dev/ttyCONSOLE', shell=True)
             time.sleep(settings.REQUEST_PERIOD_SECONDS)
 
 
