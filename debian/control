@@ -1,7 +1,7 @@
 Source: wb-cloud-agent
 Section: misc
 Priority: optional
-Maintainer: Nikita Maslov <nikita.maslov@wirenboard.ru>
+Maintainer: Wiren Board team <info@wirenboard.com>
 XS-Python-Version: >= 3.9
 Build-Depends: dh-python,
                debhelper-compat (= 13),
@@ -18,7 +18,7 @@ Rules-Requires-Root: no
 Package: wb-cloud-agent
 Architecture: all
 Depends: ${misc:Depends},
-         python3-all,
+         ${python3:Depends},
          python3-requests,
          telegraf-wb-cloud-agent | telegraf,
          frpc,
