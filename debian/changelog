@@ -1,3 +1,9 @@
+wb-cloud-agent (1.5.14) stable; urgency=medium
+
+  * Add more explicit error message on invalid certs (possibly because of wrong CPU board)
+
+ -- Vladimir Romanov <v.romanov@wirenboard.com>  Thu, 10 Apr 2025 13:58:22 +0300
+
 wb-cloud-agent (1.5.13) stable; urgency=medium
 
   * Fix frpc service description

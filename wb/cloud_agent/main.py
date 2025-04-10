@@ -83,7 +83,16 @@ def do_curl(settings: AppSettings, method="get", endpoint="", params=None):
         url,
     ]
 
-    result = subprocess.run(command, timeout=360, check=True, capture_output=True)
+    try:
+        result = subprocess.run(command, timeout=360, check=True, capture_output=True)
+    except subprocess.CalledProcessError as e:
+        if e.returncode == 58:
+            errmsg = (
+                f"Cert {settings.CLIENT_CERT_FILE} and key {settings.CLIENT_CERT_ENGINE_KEY} "
+                "seem to be inconsistent (possibly because of CPU board missmatch)!"
+            )
+            raise RuntimeError(errmsg) from e
+        raise e
 
     decoded_result = result.stdout.decode("utf-8")
     split_result = decoded_result.split(data_delimiter)
