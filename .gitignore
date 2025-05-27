@@ -115,8 +115,7 @@ venv
 static
 .env
 db.sqlite
-
+trash
 
 .helm/charts/*.tgz
 .werf_secret_key
-
