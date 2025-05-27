@@ -7,9 +7,11 @@ import os
 import subprocess
 import threading
 import time
+import socket
 from contextlib import ExitStack
 from json import JSONDecodeError
 from string import Template
+from urllib.parse import urlparse
 
 from wb.cloud_agent.mqtt import MQTTCloudAgent
 from wb.cloud_agent.settings import AppSettings, generate_config, get_providers
@@ -40,7 +42,7 @@ def setup_log(settings: AppSettings):
     logging.basicConfig(level=numeric_level, encoding="utf-8", format="%(message)s")
 
 
-def update_providers_list(_settings: AppSettings, mqtt):
+def update_providers_list(mqtt):
     #  Find a better way to update providers list (services enabled? services running?).
     mqtt.publish_providers(",".join(get_providers()))
 
@@ -277,42 +279,51 @@ def on_message(userdata, message):
         raise ValueError("Not a 200 status while making start up request: " + str(http_status))
 
 
+def validate_url(value: str) -> str:
+    parsed = urlparse(value)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise argparse.ArgumentTypeError(f"Invalid URL: {value}")
+    return value
+
+
 def parse_args():
     main_parser = argparse.ArgumentParser()
     main_parser.add_argument("--daemon", action="store_true", help="Run cloud agent in daemon mode")
-    main_parser.add_argument("--provider", help="Provider name to use", default="default")
     main_parser.add_argument("--broker", help="MQTT broker url")
     subparsers = main_parser.add_subparsers(title="Actions", help="Choose mode:\n", required=False)
-    add_provider_parser = subparsers.add_parser("add-provider", help="Add new cloud service provider")
-    add_provider_parser.add_argument("provider_name", help="Cloud Provider name to add")
-    add_provider_parser.add_argument(
-        "base_url", help="Cloud Provider base URL, e.g. https://wirenboard.cloud"
+    change_provider_parser = subparsers.add_parser("change-provider", help="Add new cloud service provider")
+    change_provider_parser.add_argument("provider_name", help="Cloud Provider name to add")
+    change_provider_parser.add_argument(
+        "base_url", type=validate_url, help="Cloud Provider base URL, e.g. https://wirenboard.cloud"
     )
-    add_provider_parser.add_argument(
-        "agent_url", help="Cloud Provider Agent URL, e.g. https://agent.wirenboard.cloud/api-agent/v1/"
-    )
-    add_provider_parser.set_defaults(func=add_provider)
+    change_provider_parser.set_defaults(func=change_provider)
     options = main_parser.parse_args()
     return options
 
 
-def add_provider(options, settings, mqtt):
+def change_provider(options, mqtt):
     if options.provider_name in get_providers():
         print("Provider " + options.provider_name + " already exists")
         return 1
     print("Adding provider " + options.provider_name)
-    generate_config(options.provider_name, options.base_url, options.agent_url)
+    generate_config(options.provider_name, options.base_url)
     start_service(f"wb-cloud-agent@{options.provider_name}.service")
-    update_providers_list(settings, mqtt)
+    update_providers_list(mqtt)
     return 0
 
 
-def show_activation_link(settings):
+def get_controller_url(settings: AppSettings) -> str:
+    ctrl_serial_number = socket.gethostname().rsplit('-', 1)[-1]
+    return f"{settings.CLOUD_BASE_URL.rstrip('/')}/controllers/{ctrl_serial_number}"
+
+
+def show_activation_link(settings: AppSettings) -> None:
     link = read_activation_link(settings)
     if link != "unknown":
-        print(f">> {link}")
+        print(f"Link for connect controller to cloud:\n{link}")
     else:
-        print("No active link. Controller may be already connected")
+        controller_url = get_controller_url(settings)
+        print(f"Controller already connect to cloud:\n{controller_url}")
 
 
 def run_daemon(mqtt, settings):
@@ -328,9 +339,10 @@ def run_daemon(mqtt, settings):
                 make_event_request(settings, mqtt)
             except subprocess.TimeoutExpired:
                 continue
-            except Exception as ex:  # pylint:disable=broad-exception-caught
-                logging.exception("Error making request to cloud!")
-                mqtt.publish_ctrl("status", "error: " + str(ex))
+            except Exception:  # pylint:disable=broad-exception-caught
+                err_msg = "Error making request to cloud!"
+                logging.exception(err_msg)
+                mqtt.publish_ctrl("status", err_msg)
             else:
                 mqtt.publish_ctrl("status", "ok")
             request_time = time.perf_counter() - start
@@ -340,7 +352,7 @@ def run_daemon(mqtt, settings):
 
 def main():
     options = parse_args()
-    cloud_provider = options.provider
+    cloud_provider = options.provider_name
     try:
         settings = AppSettings(cloud_provider)
     except (FileNotFoundError, OSError, json.decoder.JSONDecodeError):
@@ -354,7 +366,7 @@ def main():
 
     if hasattr(options, "func"):
         mqtt.start()
-        return options.func(options, settings, mqtt)
+        return options.func(options, mqtt)
 
     if not options.daemon:
         mqtt.start()
@@ -367,7 +379,7 @@ def main():
         logging.error("Error starting MQTT client: %s", ex)
     make_start_up_request(settings, mqtt)
     send_agent_version(settings)
-    update_providers_list(settings, mqtt)
+    update_providers_list(mqtt)
 
     run_daemon(mqtt, settings)
     return 0

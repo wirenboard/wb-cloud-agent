@@ -1,6 +1,7 @@
 import json
 import os
 from pathlib import Path
+from urllib.parse import urlparse, urlunparse
 
 from wb_common.mqtt_client import DEFAULT_BROKER_URL
 
@@ -61,13 +62,19 @@ class AppSettings:  # pylint: disable=too-many-instance-attributes disable=too-f
             setattr(self, key, conf[key])
 
 
-def generate_config(provider: str, base_url: str, agent_url: str) -> None:
+def base_url_to_agent_url(base_url: str) -> str:
+    parsed = urlparse(base_url)
+    netloc = f"agent.{parsed.netloc}"
+    return urlunparse((parsed.scheme, netloc, "/api-agent/v1/", '', '', ''))
+
+
+def generate_config(provider: str, base_url: str) -> None:
     if provider == "default":
         return
 
     conf = json.loads(Path(DEFAULT_CONF_FILE).read_text(encoding="utf-8"))
     conf["CLOUD_BASE_URL"] = base_url
-    conf["CLOUD_AGENT_URL"] = agent_url
+    conf["CLOUD_AGENT_URL"] = base_url_to_agent_url(base_url)
 
     conf_dir = os.path.join(PROVIDERS_CONF_DIR, provider)
     if not os.path.exists(conf_dir):
