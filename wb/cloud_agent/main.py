@@ -409,11 +409,11 @@ def main():
 
     mqtt = MQTTCloudAgent(settings, on_message)
 
-    if hasattr(options, "func"):
-        mqtt.start()
-        return options.func(options, mqtt)
-
     if not options.daemon:
+        if hasattr(options, "func"):
+            mqtt.start()
+            return options.func(options, mqtt)
+
         mqtt.start()
         make_start_up_request(settings, mqtt)
         return show_activation_link(settings)
