@@ -1,20 +1,21 @@
 #!/usr/bin/env python3
 import argparse
+from functools import cache
 import glob
 import json
 import logging
 import os
+import socket
 import subprocess
 import threading
 import time
-import socket
 from contextlib import ExitStack
 from json import JSONDecodeError
 from string import Template
 from urllib.parse import urlparse
 
 from wb.cloud_agent.mqtt import MQTTCloudAgent
-from wb.cloud_agent.settings import AppSettings, generate_config, get_providers
+from wb.cloud_agent.settings import AppSettings, generate_config, get_providers, load_providers_configs
 from wb.cloud_agent.version import package_version
 
 HTTP_200_OK = 200
@@ -292,9 +293,13 @@ def parse_args():
     main_parser.add_argument("--broker", help="MQTT broker url")
     subparsers = main_parser.add_subparsers(title="Actions", help="Choose mode:\n", required=False)
     change_provider_parser = subparsers.add_parser("change-provider", help="Add new cloud service provider")
-    change_provider_parser.add_argument("provider_name", help="Cloud Provider name to add")
+    change_provider_parser.add_argument('provider_name', help='Cloud Provider name to add', default='default')
     change_provider_parser.add_argument(
-        "base_url", type=validate_url, help="Cloud Provider base URL, e.g. https://wirenboard.cloud"
+        'base_url',
+        type=validate_url,
+        help='Cloud Provider base URL, e.g. https://wirenboard.cloud',
+        nargs='?',  # not required
+        default=AppSettings.CLOUD_BASE_URL,
     )
     change_provider_parser.set_defaults(func=change_provider)
     options = main_parser.parse_args()
@@ -302,28 +307,68 @@ def parse_args():
 
 
 def change_provider(options, mqtt):
-    if options.provider_name in get_providers():
-        print("Provider " + options.provider_name + " already exists")
+    providers = get_providers()
+    if options.provider_name in providers:
+        provider_base_url = load_providers_configs(providers)[options.provider_name].get(
+            'CLOUD_BASE_URL', AppSettings.CLOUD_BASE_URL
+        )
+        print(f'Provider {options.provider_name} with url {provider_base_url} already exists')
         return 1
-    print("Adding provider " + options.provider_name)
+
+    print(f'Provider {options.provider_name} with url {options.base_url} successfully added')
     generate_config(options.provider_name, options.base_url)
-    start_service(f"wb-cloud-agent@{options.provider_name}.service")
+    start_service(f'wb-cloud-agent@{options.provider_name}.service')
     update_providers_list(mqtt)
     return 0
 
 
-def get_controller_url(settings: AppSettings) -> str:
-    ctrl_serial_number = socket.gethostname().rsplit('-', 1)[-1]
-    return f"{settings.CLOUD_BASE_URL.rstrip('/')}/controllers/{ctrl_serial_number}"
+@cache
+def get_ctrl_serial_number():
+    return socket.gethostname().rsplit('-', 1)[-1]
+
+
+def get_controller_url(base_url: str) -> str:
+    ctrl_serial_number = get_ctrl_serial_number()
+    return f"{base_url.rstrip('/')}/controllers/{ctrl_serial_number}"
+
+
+def get_base_url_from_cfg(cfg: dict) -> str:
+    cfg_url_key = 'CLOUD_BASE_URL'
+    return cfg.get(cfg_url_key, AppSettings.CLOUD_BASE_URL)
+
+
+def show_providers_table(providers_configs: dict[str, dict[str, str]]) -> None:
+    col1_name = "Provider"
+    col2_name = "Url"
+
+    col1_width = max(len(col1_name), *(len(name) for name in providers_configs))
+    col2_width = max(
+        len(col2_name),
+        *(len(get_controller_url(get_base_url_from_cfg(cfg)))
+        for cfg in providers_configs.values())
+    )
+    total_width = col1_width + col2_width + 7
+
+    print(f"+{'-' * (total_width - 2)}+")
+    print(f"| {col1_name.ljust(col1_width)} | {col2_name.ljust(col2_width)} |")
+    print(f"|{'-' * (col1_width + 2)}|{'-' * (col2_width + 2)}|")
+
+    for name, cfg in providers_configs.items():
+        controller_url = get_controller_url(get_base_url_from_cfg(cfg))
+        print(f"| {name.ljust(col1_width)} | {controller_url.ljust(col2_width)} |")
+
+    print(f"+{'-' * (total_width - 2)}+")
 
 
 def show_activation_link(settings: AppSettings) -> None:
     link = read_activation_link(settings)
-    if link != "unknown":
-        print(f"Link for connect controller to cloud:\n{link}")
+    if link != 'unknown':
+        print(f'Link for connect controller to cloud:\n{link}')
     else:
-        controller_url = get_controller_url(settings)
-        print(f"Controller already connect to cloud:\n{controller_url}")
+        providers = get_providers()
+        providers_configs = load_providers_configs(providers)
+        print('Connected providers:')
+        show_providers_table(providers_configs)
 
 
 def run_daemon(mqtt, settings):
@@ -352,7 +397,7 @@ def run_daemon(mqtt, settings):
 
 def main():
     options = parse_args()
-    cloud_provider = options.provider_name
+    cloud_provider = getattr(options, 'provider_name', 'default')
     try:
         settings = AppSettings(cloud_provider)
     except (FileNotFoundError, OSError, json.decoder.JSONDecodeError):

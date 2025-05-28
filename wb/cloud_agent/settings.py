@@ -1,5 +1,6 @@
 import json
 import os
+import sys
 from pathlib import Path
 from urllib.parse import urlparse, urlunparse
 
@@ -91,3 +92,30 @@ def get_providers() -> list[str]:
             d for d in os.listdir(PROVIDERS_CONF_DIR) if os.path.isdir(os.path.join(PROVIDERS_CONF_DIR, d))
         ]
     return providers
+
+
+def read_providers_configs(config_path: Path, provider: str, configs: dict) -> None:
+    with config_path.open("r", encoding="utf-8") as f:
+        try:
+            configs[provider] = json.load(f)
+        except json.JSONDecodeError:
+            print(f"Error parsing JSON in: {config_path}")
+            sys.exit(6)
+
+
+def load_providers_configs(providers: list[str]) -> dict[str, dict[str, str]]:
+    configs = {}
+
+    for provider in providers:
+        config_path = Path(PROVIDERS_CONF_DIR) / provider / "wb-cloud-agent.conf"
+        if config_path.exists():
+            read_providers_configs(config_path, provider, configs)
+        else:
+            config_path = Path(DEFAULT_CONF_FILE)
+            if config_path.exists():
+                read_providers_configs(config_path, provider, configs)
+            else:
+                print(f"The file was not found in: {config_path}")
+                sys.exit(6)
+
+    return configs
