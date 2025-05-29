@@ -1,3 +1,5 @@
+# pylint: disable=unused-argument
+
 import sys
 from unittest.mock import patch
 
@@ -9,12 +11,12 @@ def test_change_provider_cmd(monkeypatch):
         pass
 
     with patch(
-        'wb.cloud_agent.main.change_provider',
+        "wb.cloud_agent.main.change_provider",
         side_effect=change_provider_mock,
     ) as _mock:
-        provider_name = 'staging'
-        base_url = 'https://cloud-staging.wirenboard.com/'
-        monkeypatch.setattr(sys, 'argv', ['wb-cloud-agent', 'change-provider', provider_name, base_url])
+        provider_name = "staging"
+        base_url = "https://cloud-staging.wirenboard.com/"
+        monkeypatch.setattr(sys, "argv", ["wb-cloud-agent", "change-provider", provider_name, base_url])
 
         options = parse_args()
 

@@ -13,25 +13,25 @@ def settings():
 
 @pytest.fixture
 def mock_hostname():
-    with patch('wb.cloud_agent.main.socket.gethostname', return_value='wirenboard-ART6DDNT'):
+    with patch("wb.cloud_agent.main.socket.gethostname", return_value="wirenboard-ART6DDNT"):
         yield
 
 
 @pytest.fixture
 def set_argv(monkeypatch):
     def _inner(argv):
-        monkeypatch.setattr(sys, 'argv', argv)
+        monkeypatch.setattr(sys, "argv", argv)
 
     return _inner
 
 
 @pytest.fixture
 def mock_print():
-    with patch('builtins.print') as _mock_print:
+    with patch("builtins.print") as _mock_print:
         yield _mock_print
 
 
 @pytest.fixture
 def mock_subprocess_run():
-    with patch('subprocess.run') as p:
+    with patch("subprocess.run") as p:
         yield p
