@@ -66,7 +66,7 @@ class AppSettings:  # pylint: disable=too-many-instance-attributes disable=too-f
 def base_url_to_agent_url(base_url: str) -> str:
     parsed = urlparse(base_url)
     netloc = f"agent.{parsed.netloc}"
-    return urlunparse((parsed.scheme, netloc, "/api-agent/v1/", '', '', ''))
+    return urlunparse((parsed.scheme, netloc, "/api-agent/v1/", "", "", ""))
 
 
 def generate_config(provider: str, base_url: str) -> None:

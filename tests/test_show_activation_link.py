@@ -25,7 +25,7 @@ def test_show_activation_link_with_unknown(mock_load, mock_get, mock_read, mock_
 
     mock_print.assert_any_call('Connected providers:')
     mock_print.assert_any_call('+----------------------------------------------------------------+')
-    mock_print.assert_any_call('| Provider | Url                                                 |')
+    mock_print.assert_any_call('| Provider | Controller Url                                      |')
     mock_print.assert_any_call('|----------|-----------------------------------------------------|')
     mock_print.assert_any_call('| default  | https://cloud.example.com/controllers/ART6DDNT      |')
     mock_print.assert_any_call('| staging  | https://staging.wirenboard.com/controllers/ART6DDNT |')
