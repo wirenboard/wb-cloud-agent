@@ -7,12 +7,9 @@ from wb.cloud_agent.main import parse_args
 
 
 def test_change_provider_cmd(monkeypatch):
-    def change_provider_mock(options, mqtt):
-        pass
-
     with patch(
         "wb.cloud_agent.main.change_provider",
-        side_effect=change_provider_mock,
+        side_effect=lambda options, mqtt: None,
     ) as _mock:
         provider_name = "staging"
         base_url = "https://cloud-staging.wirenboard.com/"

@@ -12,9 +12,10 @@ def settings():
 
 
 @pytest.fixture
-def mock_hostname():
-    with patch("wb.cloud_agent.main.socket.gethostname", return_value="wirenboard-ART6DDNT"):
-        yield
+def mock_serial_number():
+    serial_number = "ART6DDNT"
+    with patch("wb.cloud_agent.main.get_ctrl_serial_number", return_value=serial_number):
+        yield serial_number
 
 
 @pytest.fixture

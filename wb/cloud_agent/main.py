@@ -4,15 +4,17 @@ import glob
 import json
 import logging
 import os
-import socket
 import subprocess
+import sys
 import threading
 import time
 from contextlib import ExitStack
 from functools import cache
 from json import JSONDecodeError
 from string import Template
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
+
+from tabulate import tabulate
 
 from wb.cloud_agent.mqtt import MQTTCloudAgent
 from wb.cloud_agent.settings import (
@@ -29,6 +31,11 @@ HTTP_204_NO_CONTENT = 204
 DEFAULT_CONF_DIR = "/etc"
 PROVIDERS_CONF_DIR = "/etc/wb-cloud-agent/providers"
 DIAGNOSTIC_DIR = "/tmp"
+
+CLIENT_CERT_ERROR_MSG = (
+    "Cert {cert_file} and key {cert_engine_key} "
+    "seem to be inconsistent (possibly because of CPU board missmatch)!"
+)
 
 
 def start_service(service: str, restart=False):
@@ -95,11 +102,11 @@ def do_curl(settings: AppSettings, method="get", endpoint="", params=None):
         result = subprocess.run(command, timeout=360, check=True, capture_output=True)
     except subprocess.CalledProcessError as e:
         if e.returncode == 58:
-            errmsg = (
-                f"Cert {settings.CLIENT_CERT_FILE} and key {settings.CLIENT_CERT_ENGINE_KEY} "
-                "seem to be inconsistent (possibly because of CPU board missmatch)!"
-            )
-            raise RuntimeError(errmsg) from e
+            raise RuntimeError(
+                CLIENT_CERT_ERROR_MSG.format(
+                    cert_file=settings.CLIENT_CERT_FILE, cert_engine_key=settings.CLIENT_CERT_ENGINE_KEY
+                )
+            ) from e
         raise e
 
     decoded_result = result.stdout.decode("utf-8")
@@ -320,21 +327,25 @@ def change_provider(options, mqtt):
         print(f"Provider {options.provider_name} with url {provider_base_url} already exists")
         return 1
 
-    print(f"Provider {options.provider_name} with url {options.base_url} successfully added")
     generate_config(options.provider_name, options.base_url)
     start_service(f"wb-cloud-agent@{options.provider_name}.service")
     update_providers_list(mqtt)
+    print(f"Provider {options.provider_name} with url {options.base_url} successfully added")
     return 0
 
 
 @cache
-def get_ctrl_serial_number():
-    return socket.gethostname().rsplit("-", 1)[-1]
+def get_ctrl_serial_number() -> str:
+    try:
+        return subprocess.check_output("wb-gen-serial -s", shell=True).decode().strip()
+    except FileNotFoundError:
+        print("Command wb-gen-serial not found on controller.")
+        sys.exit(1)
 
 
 def get_controller_url(base_url: str) -> str:
     ctrl_serial_number = get_ctrl_serial_number()
-    return f"{base_url.rstrip('/')}/controllers/{ctrl_serial_number}"
+    return urljoin(base_url, f"controllers/{ctrl_serial_number}")
 
 
 def get_base_url_from_cfg(cfg: dict) -> str:
@@ -343,25 +354,14 @@ def get_base_url_from_cfg(cfg: dict) -> str:
 
 
 def show_providers_table(providers_configs: dict[str, dict[str, str]]) -> None:
-    col1_name = "Provider"
-    col2_name = "Controller Url"
-
-    col1_width = max(len(col1_name), *(len(name) for name in providers_configs))
-    col2_width = max(
-        len(col2_name),
-        *(len(get_controller_url(get_base_url_from_cfg(cfg))) for cfg in providers_configs.values()),
-    )
-    total_width = col1_width + col2_width + 7
-
-    print(f"+{'-' * (total_width - 2)}+")
-    print(f"| {col1_name.ljust(col1_width)} | {col2_name.ljust(col2_width)} |")
-    print(f"|{'-' * (col1_width + 2)}|{'-' * (col2_width + 2)}|")
-
+    table = []
     for name, cfg in providers_configs.items():
-        controller_url = get_controller_url(get_base_url_from_cfg(cfg))
-        print(f"| {name.ljust(col1_width)} | {controller_url.ljust(col2_width)} |")
+        base_url = get_base_url_from_cfg(cfg)
+        controller_url = get_controller_url(base_url)
+        table.append([name, controller_url])
 
-    print(f"+{'-' * (total_width - 2)}+")
+    headers = ["Provider", "Controller Url"]
+    print(tabulate(table, headers=headers, tablefmt="grid"))
 
 
 def show_activation_link(settings: AppSettings) -> None:

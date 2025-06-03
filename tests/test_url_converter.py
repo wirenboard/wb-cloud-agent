@@ -14,5 +14,8 @@ def test_base_url_to_agent_url():
     )
 
 
-def test_get_controller_url(mock_hostname, settings):
-    assert get_controller_url(settings.CLOUD_BASE_URL) == f"{settings.CLOUD_BASE_URL}/controllers/ART6DDNT"
+def test_get_controller_url(mock_serial_number, settings):
+    assert (
+        get_controller_url(settings.CLOUD_BASE_URL)
+        == f"{settings.CLOUD_BASE_URL}/controllers/{mock_serial_number}"
+    )

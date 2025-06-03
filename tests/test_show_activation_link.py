@@ -11,7 +11,6 @@ def test_show_activation_link_with_valid_link(mock_read, mock_print, settings):
     mock_print.assert_called_once_with("Link for connect controller to cloud:\nhttps://activation.link")
 
 
-@patch("wb.cloud_agent.main.get_ctrl_serial_number", return_value="ART6DDNT")
 @patch("wb.cloud_agent.main.read_activation_link", return_value="unknown")
 @patch("wb.cloud_agent.main.get_providers", return_value=["default", "staging"])
 @patch(
@@ -21,14 +20,21 @@ def test_show_activation_link_with_valid_link(mock_read, mock_print, settings):
         "staging": {"CLOUD_BASE_URL": "https://staging.wirenboard.com"},
     },
 )
-def test_show_activation_link_with_unknown(mock_load, mock_get, mock_read, mock_serial, settings):
+def test_show_activation_link_with_unknown(mock_load, mock_get, mock_read, mock_serial_number, settings):
     with patch("builtins.print") as mock_print:
         show_activation_link(settings)
 
+    default_url = mock_load.return_value["default"]["CLOUD_BASE_URL"]
+    staging_url = mock_load.return_value["staging"]["CLOUD_BASE_URL"]
+
     mock_print.assert_any_call("Connected providers:")
-    mock_print.assert_any_call("+----------------------------------------------------------------+")
-    mock_print.assert_any_call("| Provider | Controller Url                                      |")
-    mock_print.assert_any_call("|----------|-----------------------------------------------------|")
-    mock_print.assert_any_call("| default  | https://cloud.example.com/controllers/ART6DDNT      |")
-    mock_print.assert_any_call("| staging  | https://staging.wirenboard.com/controllers/ART6DDNT |")
-    mock_print.assert_any_call("+----------------------------------------------------------------+")
+    expected_table = (
+        "+------------+-----------------------------------------------------+\n"
+        "| Provider   | Controller Url                                      |\n"
+        "+============+=====================================================+\n"
+        f"| default    | {default_url}/controllers/{mock_serial_number}      |\n"
+        "+------------+-----------------------------------------------------+\n"
+        f"| staging    | {staging_url}/controllers/{mock_serial_number} |\n"
+        "+------------+-----------------------------------------------------+"
+    )
+    mock_print.assert_any_call(expected_table)

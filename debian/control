@@ -20,6 +20,7 @@ Architecture: all
 Depends: ${misc:Depends},
          ${python3:Depends},
          python3-requests,
+         python3-tabulate,
          telegraf-wb-cloud-agent | telegraf,
          frpc,
          curl,
