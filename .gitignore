@@ -116,6 +116,9 @@ static
 .env
 db.sqlite
 trash
+.coveragerc
+Makefile
+pyproject.toml
 
 .helm/charts/*.tgz
 .werf_secret_key
