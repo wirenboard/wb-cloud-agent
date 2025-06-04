@@ -94,13 +94,14 @@ def get_providers() -> list[str]:
     return providers
 
 
-def read_providers_configs(config_path: Path, provider: str, configs: dict) -> None:
+def read_providers_configs(config_path: Path) -> dict[str, str]:
     with config_path.open("r", encoding="utf-8") as f:
         try:
-            configs[provider] = json.load(f)
+            provider_config = json.load(f)
         except json.JSONDecodeError:
             print(f"Error parsing JSON in: {config_path}")
             sys.exit(6)
+    return provider_config
 
 
 def load_providers_configs(providers: list[str]) -> dict[str, dict[str, str]]:
@@ -109,13 +110,15 @@ def load_providers_configs(providers: list[str]) -> dict[str, dict[str, str]]:
     for provider in providers:
         config_path = Path(PROVIDERS_CONF_DIR) / provider / "wb-cloud-agent.conf"
         if config_path.exists():
-            read_providers_configs(config_path, provider, configs)
+            provider_config = read_providers_configs(config_path)
         else:
             config_path = Path(DEFAULT_CONF_FILE)
             if config_path.exists():
-                read_providers_configs(config_path, provider, configs)
+                provider_config = read_providers_configs(config_path)
             else:
                 print(f"The file was not found in: {config_path}")
                 sys.exit(6)
+
+        configs[provider] = provider_config
 
     return configs

@@ -28,8 +28,6 @@ from wb.cloud_agent.version import package_version
 HTTP_200_OK = 200
 HTTP_204_NO_CONTENT = 204
 
-DEFAULT_CONF_DIR = "/etc"
-PROVIDERS_CONF_DIR = "/etc/wb-cloud-agent/providers"
 DIAGNOSTIC_DIR = "/tmp"
 
 CLIENT_CERT_ERROR_MSG = (
@@ -361,7 +359,7 @@ def show_providers_table(providers_configs: dict[str, dict[str, str]]) -> None:
         table.append([name, controller_url])
 
     headers = ["Provider", "Controller Url"]
-    print(tabulate(table, headers=headers, tablefmt="grid"))
+    print(tabulate(table, headers=headers, tablefmt="github"))
 
 
 def show_activation_link(settings: AppSettings) -> None:

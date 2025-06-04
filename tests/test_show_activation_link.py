@@ -29,12 +29,9 @@ def test_show_activation_link_with_unknown(mock_load, mock_get, mock_read, mock_
 
     mock_print.assert_any_call("Connected providers:")
     expected_table = (
-        "+------------+-----------------------------------------------------+\n"
         "| Provider   | Controller Url                                      |\n"
-        "+============+=====================================================+\n"
+        "|------------|-----------------------------------------------------|\n"
         f"| default    | {default_url}/controllers/{mock_serial_number}      |\n"
-        "+------------+-----------------------------------------------------+\n"
-        f"| staging    | {staging_url}/controllers/{mock_serial_number} |\n"
-        "+------------+-----------------------------------------------------+"
+        f"| staging    | {staging_url}/controllers/{mock_serial_number} |"
     )
     mock_print.assert_any_call(expected_table)
