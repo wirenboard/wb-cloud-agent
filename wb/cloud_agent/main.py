@@ -382,9 +382,11 @@ def run_daemon(mqtt, settings):
         stack.callback(mqtt.remove_vdev)
         while True:
             start = time.perf_counter()
+            logging.debug("Starting request for events sent")
             try:
                 make_event_request(settings, mqtt)
             except subprocess.TimeoutExpired:
+                logging.debug("Timeout when executing request for events sent")
                 continue
             except Exception:  # pylint:disable=broad-exception-caught
                 err_msg = "Error making request to cloud!"
@@ -393,7 +395,7 @@ def run_daemon(mqtt, settings):
             else:
                 mqtt.publish_ctrl("status", "ok")
             request_time = time.perf_counter() - start
-            logging.debug("Done in: %s ms.", int(request_time * 1000))
+            logging.debug("Request for events sent done in: %s ms.", int(request_time * 1000))
             time.sleep(settings.REQUEST_PERIOD_SECONDS)
 
 
