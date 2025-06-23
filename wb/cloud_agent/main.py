@@ -223,7 +223,7 @@ def make_event_request(settings: AppSettings, mqtt):
         return
 
     if http_status != HTTP_200_OK:
-        raise ValueError("Not a 200 status while retrieving event: " + str(http_status))
+        raise ValueError(f"Not a 200 status while retrieving event: {http_status}")
 
     code = event_data.get("code", "")
     handler = HANDLERS.get(code)
@@ -252,6 +252,7 @@ def make_event_request(settings: AppSettings, mqtt):
 def make_start_up_request(settings: AppSettings, mqtt):
     status_data, http_status = do_curl(settings=settings, method="get", endpoint="agent-start-up/")
     if http_status != HTTP_200_OK:
+        logging.debug("http_status=%s status_data=%s", http_status, status_data)
         raise ValueError("Not a 200 status while making start up request: " + str(http_status))
 
     if "activated" not in status_data or "activationLink" not in status_data:
