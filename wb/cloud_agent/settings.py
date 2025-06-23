@@ -30,7 +30,7 @@ class AppSettings:  # pylint: disable=too-many-instance-attributes disable=too-f
     CLIENT_CERT_FILE: str = "/var/lib/wb-cloud-agent/device_bundle.crt.pem"
     CLOUD_BASE_URL: str = "https://wirenboard.cloud"
     CLOUD_AGENT_URL: str = "https://agent.wirenboard.cloud/api-agent/v1/"
-    REQUEST_PERIOD_SECONDS: int = 3
+    REQUEST_PERIOD_SECONDS: int = 10
 
     def __init__(self, provider: str = "default"):
         self.PROVIDER = provider  # pylint:disable=invalid-name

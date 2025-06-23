@@ -5,9 +5,10 @@ wb-cloud-agent (1.6.0) stable; urgency=medium
   * Remove positional parameter agent url
   * Add logic for base agent url on base url positional parameter
   * Add url validator for base url positional parameter
-  * Make mqtt error most user friendly if "Error making request to cloud!"
+  * Make mqtt error more user friendly if "Error making request to cloud!"
   * Add table report about existing providers for command "wb-cloud-agent"
   * Add unit tests
+  * Change request period seconds to cloud from 3 to 10 seconds
 
  -- Arseniy Astafev <arseniy.astafev@wirenboard.com>  Wed, 28 May 2025 18:00:00 +0300
 
