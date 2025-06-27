@@ -18,9 +18,14 @@ if [ "$1" = "configure" ]; then
         echo "Cleaning up deprecated wb-cloud-agent service and files"
         systemctl stop wb-cloud-agent 2>/dev/null || true
         systemctl disable wb-cloud-agent 2>/dev/null || true
+        systemctl stop wb-cloud-agent-telegraf 2>/dev/null || true
+        systemctl disable wb-cloud-agent-telegraf 2>/dev/null || true
+        systemctl stop wb-cloud-agent.wb-cloud-agent-frpc 2>/dev/null || true
+        systemctl disable wb-cloud-agent.wb-cloud-agent-frpc 2>/dev/null || true
 
         # Delete deprecated files if exists
         rm -f /var/lib/wb-cloud-agent/telegraf.conf
+        rm -f /var/lib/wb-cloud-agent/frpc.conf
         rm -f /var/lib/wb-cloud-agent/activation_link.conf
 
         echo "Add default wirenboard.cloud provider"
