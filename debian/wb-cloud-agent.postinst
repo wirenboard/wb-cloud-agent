@@ -14,6 +14,15 @@ fi
 # or if it is an update from version < 1.6.0
 if [ "$1" = "configure" ]; then
     if [ -z "$2" ] || dpkg --compare-versions "$2" lt "1.6.0"; then
+
+        echo "Cleaning up deprecated wb-cloud-agent service and files"
+        systemctl stop wb-cloud-agent 2>/dev/null || true
+        systemctl disable wb-cloud-agent 2>/dev/null || true
+
+        # Delete deprecated files if exists
+        rm -f /var/lib/wb-cloud-agent/telegraf.conf
+        rm -f /var/lib/wb-cloud-agent/activation_link.conf
+
         echo "Add default wirenboard.cloud provider"
         wb-cloud-agent add-provider https://wirenboard.cloud || true
     fi
