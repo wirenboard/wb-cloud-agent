@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/b#!/usr/bin/env python3
 import argparse
 import glob
 import json
@@ -8,25 +8,28 @@ import subprocess
 import sys
 import threading
 import time
+from argparse import Namespace
 from contextlib import ExitStack
 from functools import cache
+from http import HTTPStatus as status
 from json import JSONDecodeError
 from string import Template
+from typing import Any, Optional
 from urllib.parse import urljoin, urlparse
 
 from tabulate import tabulate
 
 from wb.cloud_agent.mqtt import MQTTCloudAgent
 from wb.cloud_agent.settings import (
+    PROVIDERS_CONF_DIR,
     AppSettings,
-    generate_config,
+    delete_provider_config,
+    generate_provider_config,
     get_providers,
+    load_providers_activation_links,
     load_providers_configs,
 )
 from wb.cloud_agent.version import package_version
-
-HTTP_200_OK = 200
-HTTP_204_NO_CONTENT = 204
 
 DIAGNOSTIC_DIR = "/tmp"
 
@@ -36,29 +39,71 @@ CLIENT_CERT_ERROR_MSG = (
 )
 
 
-def start_service(service: str, restart=False):
-    subprocess.run(["systemctl", "enable", service], check=True)
+def start_service(service: str, restart: bool = False) -> None:
+    logging.debug("Enabling service %s", service)
+
+    result = subprocess.run(
+        ["systemctl", "enable", service],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    if result.stdout:
+        logging.debug("stdout: %s", result.stdout.strip())
+    if result.stderr:
+        logging.debug("stderr: %s", result.stderr.strip())
+
     if restart:
-        print(f"Restarting service {service}")
+        logging.debug("Restarting service %s", service)
         subprocess.run(["systemctl", "restart", service], check=True)
     else:
-        print(f"Starting service {service}")
+        logging.debug("Starting service %s", service)
         subprocess.run(["systemctl", "start", service], check=True)
 
 
-def setup_log(settings: AppSettings):
-    numeric_level = getattr(logging, settings.LOG_LEVEL.upper(), None)
+def stop_service(service: str) -> None:
+    logging.debug("Disabling service %s", service)
+
+    result = subprocess.run(
+        ["systemctl", "disable", service],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    if result.stdout:
+        logging.debug("stdout: %s", result.stdout.strip())
+    if result.stderr:
+        logging.debug("stderr: %s", result.stderr.strip())
+
+    logging.debug("Stopping service %s", service)
+    subprocess.run(["systemctl", "stop", service], check=True)
+
+
+def stop_services_and_del_configs(provider_name: str) -> None:
+    stop_service(f"wb-cloud-agent@{provider_name}.service")
+    stop_service(f"wb-cloud-agent-frpc@{provider_name}.service")
+    stop_service(f"wb-cloud-agent-telegraf@{provider_name}.service")
+    delete_provider_config(PROVIDERS_CONF_DIR, provider_name)
+    print(f"Provider {provider_name} successfully deleted")
+
+
+def setup_log(settings: AppSettings) -> None:
+    numeric_level = getattr(logging, settings.log_level.upper(), None)
     if not isinstance(numeric_level, int):
-        raise ValueError(f"Invalid log level: {settings.LOG_LEVEL}")
+        raise ValueError(f"Invalid log level: {settings.log_level}")
     logging.basicConfig(level=numeric_level, encoding="utf-8", format="%(message)s")
 
 
-def update_providers_list(mqtt):
+def update_providers_list(mqtt: MQTTCloudAgent) -> None:
     #  Find a better way to update providers list (services enabled? services running?).
     mqtt.publish_providers(",".join(get_providers()))
 
 
-def do_curl(settings: AppSettings, method="get", endpoint="", params=None):
+def do_curl(
+    settings: AppSettings, method: str = "get", endpoint: str = "", params: Optional[dict] = None
+) -> tuple[dict, int]:
     data_delimiter = "|||"
     output_format = data_delimiter + '{"code":"%{response_code}"}'
 
@@ -73,7 +118,7 @@ def do_curl(settings: AppSettings, method="get", endpoint="", params=None):
     else:
         raise ValueError("Invalid method: " + method)
 
-    url = settings.CLOUD_AGENT_URL + endpoint
+    url = settings.cloud_agent_url + endpoint
 
     command += [
         "--connect-timeout",
@@ -84,9 +129,9 @@ def do_curl(settings: AppSettings, method="get", endpoint="", params=None):
         "1",
         "--retry-all-errors",
         "--cert",
-        settings.CLIENT_CERT_FILE,
+        settings.client_cert_file,
         "--key",
-        settings.CLIENT_CERT_ENGINE_KEY,
+        settings.client_cert_engine_key,
         "--engine",
         "ateccx08",
         "--key-type",
@@ -102,7 +147,7 @@ def do_curl(settings: AppSettings, method="get", endpoint="", params=None):
         if e.returncode == 58:
             raise RuntimeError(
                 CLIENT_CERT_ERROR_MSG.format(
-                    cert_file=settings.CLIENT_CERT_FILE, cert_engine_key=settings.CLIENT_CERT_ENGINE_KEY
+                    cert_file=settings.client_cert_file, cert_engine_key=settings.client_cert_engine_key
                 )
             ) from e
         raise e
@@ -118,67 +163,76 @@ def do_curl(settings: AppSettings, method="get", endpoint="", params=None):
         data = {}
 
     try:
-        status = int(json.loads(split_result[1])["code"])
+        status_code = int(json.loads(split_result[1])["code"])
     except (KeyError, TypeError, ValueError, JSONDecodeError) as e:
         raise ValueError(f"Invalid data in response: {split_result}") from e
 
-    return data, status
+    return data, status_code
 
 
-def write_to_file(fpath: str, contents: str):
+def write_to_file(fpath: str, contents: str) -> None:
     os.makedirs(os.path.dirname(fpath), exist_ok=True)
     with open(fpath, mode="w", encoding="utf-8") as file:
         file.write(contents)
 
 
-def write_activation_link(settings: AppSettings, link, mqtt):
-    write_to_file(fpath=settings.ACTIVATION_LINK_CONFIG, contents=link)
+def write_activation_link(settings: AppSettings, link: str, mqtt: MQTTCloudAgent) -> None:
+    logging.debug("Write activation link %s to %s", link, settings.activation_link_config)
+    write_to_file(fpath=settings.activation_link_config, contents=link)
     mqtt.publish_ctrl("activation_link", link)
 
 
-def read_activation_link(settings: AppSettings):
-    if not os.path.exists(settings.ACTIVATION_LINK_CONFIG):
+def read_activation_link(settings: AppSettings) -> str:
+    logging.debug("Read activation link from %s", settings.activation_link_config)
+
+    if not os.path.exists(settings.activation_link_config):
         return "unknown"
-    with open(settings.ACTIVATION_LINK_CONFIG, "r", encoding="utf-8") as file:
-        return file.readline()
+
+    with open(settings.activation_link_config, "r", encoding="utf-8") as file:
+        activation_link = file.readline()
+
+    logging.debug("Readed activation link %s", activation_link)
+    return activation_link
 
 
-def update_activation_link(settings: AppSettings, payload, mqtt):
+def update_activation_link(settings: AppSettings, payload: dict, mqtt: MQTTCloudAgent) -> None:
     write_activation_link(settings, payload["activationLink"], mqtt)
 
 
-def update_tunnel_config(settings: AppSettings, payload, mqtt):
-    write_to_file(fpath=settings.FRP_CONFIG, contents=payload["config"])
-    start_service(settings.FRP_SERVICE, restart=True)
+def update_tunnel_config(settings: AppSettings, payload: dict, mqtt: MQTTCloudAgent) -> None:
+    write_to_file(fpath=settings.frp_config, contents=payload["config"])
+    start_service(settings.frp_service, restart=True)
     write_activation_link(settings, "unknown", mqtt)
 
 
-def update_metrics_config(settings: AppSettings, payload, mqtt):
+def update_metrics_config(settings: AppSettings, payload: dict, mqtt: MQTTCloudAgent) -> None:
     write_to_file(
-        fpath=settings.TELEGRAF_CONFIG,
-        contents=Template(payload["config"]).safe_substitute(BROKER_URL=settings.BROKER_URL),
+        fpath=settings.telegraf_config,
+        contents=Template(payload["config"]).safe_substitute(BROKER_URL=settings.broker_url),
     )
-    start_service(settings.TELEGRAF_SERVICE, restart=True)
+    start_service(settings.telegraf_service, restart=True)
     write_activation_link(settings, "unknown", mqtt)
 
 
-def upload_diagnostic(settings: AppSettings):
+def upload_diagnostic(settings: AppSettings) -> None:
     files = sorted(glob.glob(os.path.join(DIAGNOSTIC_DIR, "diag_*.zip")), key=os.path.getmtime)
     if not files:
         logging.error("No diagnostics collected")
+
         _, http_status = do_curl(
             settings=settings, method="put", endpoint="diagnostic-status/", params={"status": "error"}
         )
-        if http_status != HTTP_200_OK:
+        if http_status != status.OK:
             logging.error("Not a 200 status while updating diagnostic status: %s", http_status)
         return
 
     last_diagnostic = files[-1]
     logging.info("Diagnostics collected: %s", last_diagnostic)
+
     _data, http_status = do_curl(
         settings=settings, method="multipart-post", endpoint="upload-diagnostic/", params=last_diagnostic
     )
-    if http_status != HTTP_200_OK:
+    if http_status != status.OK:
         logging.error("Not a 200 status while making upload_diagnostic request: %s", http_status)
 
     os.remove(last_diagnostic)
@@ -201,6 +255,7 @@ def fetch_diagnostics(settings: AppSettings, _payload, _mqtt):
             stderr=subprocess.STDOUT,
         ) as process:
             process.wait()
+
         upload_diagnostic(settings)
 
     thread = threading.Thread(target=process_waiter)
@@ -215,14 +270,14 @@ HANDLERS = {
 }
 
 
-def make_event_request(settings: AppSettings, mqtt):
+def make_event_request(settings: AppSettings, mqtt: MQTTCloudAgent):
     event_data, http_status = do_curl(settings=settings, method="get", endpoint="events/")
     logging.debug("Checked for new events. Status %s. Data: %s", http_status, event_data)
 
-    if http_status == HTTP_204_NO_CONTENT:
+    if http_status == status.NO_CONTENT:
         return
 
-    if http_status != HTTP_200_OK:
+    if http_status != status.OK:
         raise ValueError(f"Not a 200 status while retrieving event: {http_status}")
 
     code = event_data.get("code", "")
@@ -241,17 +296,18 @@ def make_event_request(settings: AppSettings, mqtt):
     else:
         logging.warning("Got an unknown event '%s'. Try to update wb-cloud-agent package.", code)
 
-    logging.info("Event '%s' handled successfully, event id %s", code, event_id)
+    logging.debug("Event '%s' handled successfully, event id %s", code, event_id)
 
-    _, http_status = do_curl(settings=settings, method="post", endpoint="events/" + event_id + "/confirm/")
-
-    if http_status != HTTP_204_NO_CONTENT:
+    _event_data, http_status = do_curl(
+        settings=settings, method="post", endpoint="events/" + event_id + "/confirm/"
+    )
+    if http_status != status.NO_CONTENT:
         raise ValueError("Not a 204 status on event confirmation: " + str(http_status))
 
 
-def make_start_up_request(settings: AppSettings, mqtt):
+def make_start_up_request(settings: AppSettings, mqtt: MQTTCloudAgent):
     status_data, http_status = do_curl(settings=settings, method="get", endpoint="agent-start-up/")
-    if http_status != HTTP_200_OK:
+    if http_status != status.OK:
         logging.debug("http_status=%s status_data=%s", http_status, status_data)
         raise ValueError("Not a 200 status while making start up request: " + str(http_status))
 
@@ -276,61 +332,19 @@ def send_agent_version(settings: AppSettings):
         endpoint="update_device_data/",
         params={"agent_version": package_version},
     )
-    if http_status != HTTP_200_OK:
+    if http_status != status.OK:
         logging.error("Not a 200 status while making send_agent_version request: %s", http_status)
 
 
-def on_message(userdata, message):
+def on_message(userdata: dict, message):
     _status_data, http_status = do_curl(
         userdata.get("settings"),
         method="put",
         endpoint="update_device_data/",
         params={"hardware_revision": str(message.payload, "utf-8")},
     )
-    if http_status != HTTP_200_OK:
+    if http_status != status.OK:
         raise ValueError("Not a 200 status while making start up request: " + str(http_status))
-
-
-def validate_url(value: str) -> str:
-    parsed = urlparse(value)
-    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-        raise argparse.ArgumentTypeError(f"Invalid URL: {value}")
-    return value
-
-
-def parse_args():
-    main_parser = argparse.ArgumentParser()
-    main_parser.add_argument("--daemon", action="store_true", help="Run cloud agent in daemon mode")
-    main_parser.add_argument("--broker", help="MQTT broker url")
-    subparsers = main_parser.add_subparsers(title="Actions", help="Choose mode:\n", required=False)
-    change_provider_parser = subparsers.add_parser("change-provider", help="Add new cloud service provider")
-    change_provider_parser.add_argument("provider_name", help="Cloud Provider name to add", default="default")
-    change_provider_parser.add_argument(
-        "base_url",
-        type=validate_url,
-        help="Cloud Provider base URL, e.g. https://wirenboard.cloud",
-        nargs="?",  # not required
-        default=AppSettings.CLOUD_BASE_URL,
-    )
-    change_provider_parser.set_defaults(func=change_provider)
-    options = main_parser.parse_args()
-    return options
-
-
-def change_provider(options, mqtt):
-    providers = get_providers()
-    if options.provider_name in providers:
-        provider_base_url = load_providers_configs(providers)[options.provider_name].get(
-            "CLOUD_BASE_URL", AppSettings.CLOUD_BASE_URL
-        )
-        print(f"Provider {options.provider_name} with url {provider_base_url} already exists")
-        return 1
-
-    generate_config(options.provider_name, options.base_url)
-    start_service(f"wb-cloud-agent@{options.provider_name}.service")
-    update_providers_list(mqtt)
-    print(f"Provider {options.provider_name} with url {options.base_url} successfully added")
-    return 0
 
 
 @cache
@@ -347,43 +361,211 @@ def get_controller_url(base_url: str) -> str:
     return urljoin(base_url, f"controllers/{ctrl_serial_number}")
 
 
-def get_base_url_from_cfg(cfg: dict) -> str:
-    cfg_url_key = "CLOUD_BASE_URL"
-    return cfg.get(cfg_url_key, AppSettings.CLOUD_BASE_URL)
+def merge_providers_configs_with_links(
+    providers_configs: dict[str, dict[str, str]], providers_links: dict[str, Any]
+) -> dict[str, str]:
+    providers_with_urls = {}
+
+    for provider in set(providers_configs) | set(providers_links):
+        val1 = providers_configs.get(provider)
+        val2 = providers_links.get(provider)
+
+        if isinstance(val2, str) and val2.startswith("http"):
+            providers_with_urls[provider] = val2
+        elif isinstance(val1, dict):
+            providers_with_urls[provider] = get_controller_url(val1["CLOUD_BASE_URL"])
+
+    return providers_with_urls
 
 
-def show_providers_table(providers_configs: dict[str, dict[str, str]]) -> None:
+def show_providers_table(providers_with_urls: dict[str, str]) -> None:
+    if not providers_with_urls:
+        print("No one provider was found")
+        return
+
     table = []
-    for name, cfg in providers_configs.items():
-        base_url = get_base_url_from_cfg(cfg)
-        controller_url = get_controller_url(base_url)
-        table.append([name, controller_url])
+    for provider_name, url in providers_with_urls.items():
+        table.append([provider_name, url])
 
-    headers = ["Provider", "Controller Url"]
+    headers = ["Provider", "Controller Url / Activation Url"]
     print(tabulate(table, headers=headers, tablefmt="github"))
 
 
-def show_activation_link(settings: AppSettings) -> None:
-    link = read_activation_link(settings)
-    if link != "unknown":
-        print(f"Link for connect controller to cloud:\n{link}")
-    else:
-        providers = get_providers()
-        providers_configs = load_providers_configs(providers)
-        print("Connected providers:")
-        show_providers_table(providers_configs)
+def configure_app(provider_name: str) -> AppSettings:
+    try:
+        settings = AppSettings(provider_name)
+    except (FileNotFoundError, OSError, json.decoder.JSONDecodeError):
+        return 6  # systemd status=6/NOTCONFIGURED
+
+    setup_log(settings)
+    return settings
 
 
-def run_daemon(mqtt, settings):
+def validate_url(value: str) -> str:
+    parsed = urlparse(value)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise argparse.ArgumentTypeError(f"Invalid URL: {value}")
+    return value
+
+
+def parse_args() -> Namespace:
+    main_parser = argparse.ArgumentParser()
+    main_parser.set_defaults(func=show_providers)
+
+    subparsers = main_parser.add_subparsers(
+        dest="command", title="Actions", help="Choose mode:\n", required=False
+    )
+
+    add_provider_parser = subparsers.add_parser("add-provider", help="Add new cloud service provider")
+    add_provider_parser.add_argument(
+        "base_url",
+        type=validate_url,
+        help="Cloud Provider base URL, e.g. https://wirenboard.cloud",
+    )
+    add_provider_parser.add_argument(
+        "--name", help="Cloud Provider name to add (override url hostname)", required=False
+    )
+    add_provider_parser.set_defaults(func=add_provider)
+
+    add_on_premise_provider_parser = subparsers.add_parser(
+        "use-on-premise", help="Add new cloud service provider"
+    )
+    add_on_premise_provider_parser.add_argument(
+        "base_url",
+        type=validate_url,
+        help="On-Premise Cloud Provider base URL, e.g. https://on-premise.cloud",
+    )
+    add_on_premise_provider_parser.add_argument(
+        "--name", help="On-Premise Cloud Provider name to add (override url hostname)", required=False
+    )
+    add_on_premise_provider_parser.set_defaults(func=add_on_premise_provider)
+
+    del_provider_parser = subparsers.add_parser("del-provider", help="Delete cloud service provider")
+    del_provider_parser.add_argument(
+        "provider_name",
+        help="Cloud Provider name to delete",
+    )
+    del_provider_parser.set_defaults(func=del_provider)
+
+    del_all_providers_parser = subparsers.add_parser(
+        "del-all-providers", help="Delete all cloud service providers"
+    )
+    del_all_providers_parser.set_defaults(func=del_all_providers)
+
+    run_daemon_parser = subparsers.add_parser("run-daemon", help="Run cloud agent in daemon mode")
+    run_daemon_parser.add_argument(
+        "provider_name",
+        help="Cloud Provider name to run",
+    )
+    run_daemon_parser.add_argument("--broker", help="MQTT broker url", required=False)
+    run_daemon_parser.set_defaults(func=run_daemon)
+
+    return main_parser.parse_args()
+
+
+def show_providers(_options) -> int:
+    providers = get_providers()
+
+    providers_configs = load_providers_configs(providers)
+    providers_links = load_providers_activation_links(providers)
+
+    providers_with_urls = merge_providers_configs_with_links(providers_configs, providers_links)
+
+    show_providers_table(providers_with_urls)
+    return 0
+
+
+def add_provider(options) -> int:
+    provider_name = options.name or urlparse(options.base_url).netloc
+    settings = configure_app(provider_name)
+
+    mqtt = MQTTCloudAgent(settings, on_message)
+    mqtt.start()
+
+    providers = get_providers()
+    if provider_name in providers:
+        provider_base_url = load_providers_configs(providers)[provider_name]["CLOUD_BASE_URL"]
+        print(f"Provider {provider_name} with url {provider_base_url} already exists")
+        return 1
+
+    generate_provider_config(provider_name, options.base_url)
+    start_service(f"wb-cloud-agent@{provider_name}.service")
+    update_providers_list(mqtt)
+
+    print(f"Provider {provider_name} successfully added")
+    return 0
+
+
+def add_on_premise_provider(options) -> int:
+    del_all_providers(options)
+    return add_provider(options)
+
+
+def del_provider(options) -> int:
+    provider_name = options.provider_name
+    settings = configure_app(provider_name)
+
+    mqtt = MQTTCloudAgent(settings, on_message)
+    mqtt.start()
+
+    providers = get_providers()
+    if provider_name not in providers:
+        print(f"Provider {provider_name} does not exists")
+        return 1
+
+    stop_services_and_del_configs(provider_name)
+    update_providers_list(mqtt)
+    return 0
+
+
+def del_all_providers(_options) -> int:
+    providers = get_providers()
+    if not providers:
+        print("No one provider was found")
+        return 1
+
+    for provider_name in providers:
+        settings = configure_app(provider_name)
+
+        mqtt = MQTTCloudAgent(settings, on_message)
+        mqtt.start()
+
+        stop_services_and_del_configs(provider_name)
+        update_providers_list(mqtt)
+    return 0
+
+
+def run_daemon(options) -> int:
+    settings = configure_app(options.provider_name)
+
+    settings.broker_url = options.broker or settings.broker_url
+
+    mqtt = MQTTCloudAgent(settings, on_message)
+    try:
+        mqtt.start(update_status=True)
+    except Exception as ex:  # pylint:disable=broad-exception-caught
+        logging.error("Error starting MQTT client: %s", ex)
+
+    make_start_up_request(settings, mqtt)
+    send_agent_version(settings)
+    update_providers_list(mqtt)
+    _run_daemon(mqtt, settings)
+    return 0
+
+
+def _run_daemon(mqtt: MQTTCloudAgent, settings: AppSettings) -> None:
     mqtt.publish_vdev()
     mqtt.publish_ctrl("activation_link", read_activation_link(settings))
-    mqtt.publish_ctrl("cloud_base_url", settings.CLOUD_BASE_URL)
+    mqtt.publish_ctrl("cloud_base_url", settings.cloud_base_url)
     mqtt.publish_ctrl("status", "connecting")
+
     with ExitStack() as stack:
         stack.callback(mqtt.remove_vdev)
+
         while True:
             start = time.perf_counter()
             logging.debug("Starting request for events sent")
+
             try:
                 make_event_request(settings, mqtt)
             except subprocess.TimeoutExpired:
@@ -395,41 +577,12 @@ def run_daemon(mqtt, settings):
                 mqtt.publish_ctrl("status", err_msg)
             else:
                 mqtt.publish_ctrl("status", "ok")
+
             request_time = time.perf_counter() - start
             logging.debug("Request for events sent done in: %s ms.", int(request_time * 1000))
-            time.sleep(settings.REQUEST_PERIOD_SECONDS)
+            time.sleep(settings.request_period_seconds)
 
 
-def main():
+def main() -> int:
     options = parse_args()
-    cloud_provider = getattr(options, "provider_name", "default")
-    try:
-        settings = AppSettings(cloud_provider)
-    except (FileNotFoundError, OSError, json.decoder.JSONDecodeError):
-        return 6  # systemd status=6/NOTCONFIGURED
-
-    setup_log(settings)
-
-    settings.BROKER_URL = options.broker or settings.BROKER_URL
-
-    mqtt = MQTTCloudAgent(settings, on_message)
-
-    if not options.daemon:
-        if hasattr(options, "func"):
-            mqtt.start()
-            return options.func(options, mqtt)
-
-        mqtt.start()
-        make_start_up_request(settings, mqtt)
-        return show_activation_link(settings)
-
-    try:
-        mqtt.start(update_status=True)
-    except Exception as ex:  # pylint:disable=broad-exception-caught
-        logging.error("Error starting MQTT client: %s", ex)
-    make_start_up_request(settings, mqtt)
-    send_agent_version(settings)
-    update_providers_list(mqtt)
-
-    run_daemon(mqtt, settings)
-    return 0
+    return options.func(options)

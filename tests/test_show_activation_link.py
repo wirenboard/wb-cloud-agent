@@ -1,37 +1,25 @@
-# pylint: disable=unused-argument
+# pylint: disable=unused-argument,line-too-long
 
 from unittest.mock import patch
 
-from wb.cloud_agent.main import show_activation_link
+from wb.cloud_agent.main import show_providers_table
 
 
-@patch("wb.cloud_agent.main.read_activation_link", return_value="https://activation.link")
-def test_show_activation_link_with_valid_link(mock_read, mock_print, settings):
-    show_activation_link(settings)
-    mock_print.assert_called_once_with("Link for connect controller to cloud:\nhttps://activation.link")
+def test_table_show_activation_link_with_unknown():
+    awaiting_activation = "https://staging.wirenboard.com/controllers?add=396c20993ff8dc6e08d45686f93973d6cff6e179f1fc1724502f91b8bf5d"
+    already_activated = "https://wirenboard.cloud/organizations/controllers/A25NDEMJ"
 
-
-@patch("wb.cloud_agent.main.read_activation_link", return_value="unknown")
-@patch("wb.cloud_agent.main.get_providers", return_value=["default", "staging"])
-@patch(
-    "wb.cloud_agent.main.load_providers_configs",
-    return_value={
-        "default": {"CLOUD_BASE_URL": "https://cloud.example.com"},
-        "staging": {"CLOUD_BASE_URL": "https://staging.wirenboard.com"},
-    },
-)
-def test_show_activation_link_with_unknown(mock_load, mock_get, mock_read, mock_serial_number, settings):
     with patch("builtins.print") as mock_print:
-        show_activation_link(settings)
-
-    default_url = mock_load.return_value["default"]["CLOUD_BASE_URL"]
-    staging_url = mock_load.return_value["staging"]["CLOUD_BASE_URL"]
-
-    mock_print.assert_any_call("Connected providers:")
+        show_providers_table(
+            {
+                "awaiting_activation": awaiting_activation,
+                "already_activated": already_activated,
+            }
+        )
     expected_table = (
-        "| Provider   | Controller Url                                      |\n"
-        "|------------|-----------------------------------------------------|\n"
-        f"| default    | {default_url}/controllers/{mock_serial_number}      |\n"
-        f"| staging    | {staging_url}/controllers/{mock_serial_number} |"
+        "| Provider            | Controller Url / Activation Url                                                                             |\n"
+        "|---------------------|-------------------------------------------------------------------------------------------------------------|\n"
+        f"| awaiting_activation | {awaiting_activation} |\n"
+        f"| already_activated   | {already_activated}                                                 |"
     )
     mock_print.assert_any_call(expected_table)

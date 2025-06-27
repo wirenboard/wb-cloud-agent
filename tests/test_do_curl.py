@@ -15,7 +15,7 @@ def test_do_curl_certs_error(mock_subprocess_run, settings):
 
     assert str(exc_info.value) == (
         CLIENT_CERT_ERROR_MSG.format(
-            cert_file=settings.CLIENT_CERT_FILE, cert_engine_key=settings.CLIENT_CERT_ENGINE_KEY
+            cert_file=settings.client_cert_file, cert_engine_key=settings.client_cert_engine_key
         )
     )
 

@@ -10,6 +10,16 @@ if [ "$1" = "configure" ] && dpkg --compare-versions "$2" lt "1.2.7~~"; then
     fi
 fi
 
+# Add a provider only if this is the first installation of the package
+# or if it is an update from version < 1.6.0
+if [ "$1" = "configure" ] && { \
+     [ -z "$2" ] || \
+     ( dpkg --compare-versions "$2" lt "1.6.0" && dpkg --compare-versions "$3" ge "1.6.0" ); \
+}; then
+    echo "Add default wirenboard.cloud provider"
+    wb-cloud-agent add-provider https://wirenboard.cloud || true
+fi
+
 grep -qF "+update-from-cloud " /var/lib/wb-image-update/firmware-compatible || echo -n "+update-from-cloud " >> /var/lib/wb-image-update/firmware-compatible
 
 #DEBHELPER#

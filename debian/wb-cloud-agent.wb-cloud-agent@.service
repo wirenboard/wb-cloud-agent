@@ -8,10 +8,11 @@ ConditionPathExistsGlob=/etc/wb-cloud-agent/providers/%i/*.conf
 
 [Service]
 ExecStartPre=/usr/lib/wb-cloud-agent/check-certs.sh /etc/wb-cloud-agent/providers/%i/wb-cloud-agent.conf
-ExecStart=/usr/bin/wb-cloud-agent --daemon change-provider %i
+ExecStart=/usr/bin/wb-cloud-agent run-daemon %i
 Restart=always
 RestartSec=10
 RestartPreventExitStatus=6
+Environment=PYTHONUNBUFFERED=1
 
 [Install]
 WantedBy=multi-user.target

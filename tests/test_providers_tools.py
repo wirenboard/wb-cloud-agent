@@ -2,7 +2,7 @@
 
 import json
 from pathlib import Path
-from unittest.mock import mock_open, patch
+from unittest.mock import MagicMock, mock_open, patch
 
 import pytest
 
@@ -13,21 +13,16 @@ from wb.cloud_agent.settings import (
 )
 
 
-@patch(
-    "wb.cloud_agent.settings.os.path.isdir",
-    return_value=True,
-)
-@patch(
-    "wb.cloud_agent.settings.os.path.exists",
-    return_value=True,
-)
-@patch(
-    "wb.cloud_agent.settings.os.listdir",
-    return_value=["staging", "prod", "test"],
-)
-def test_get_providers(mock_os_listdir, mock_os_exists, mock_os_isdir):
-    providers = get_providers()
-    assert providers == ["default", "staging", "prod", "test"]
+@patch("wb.cloud_agent.settings.Path.exists", return_value=True)
+@patch("wb.cloud_agent.settings.Path.iterdir")
+def test_get_providers(iterdir_mock, exists_mock):
+    mock_dir = MagicMock()
+    mock_dir.name = "staging"
+    mock_dir.is_dir.return_value = True
+
+    iterdir_mock.return_value = [mock_dir]
+
+    assert get_providers() == ["staging"]
 
 
 @pytest.fixture

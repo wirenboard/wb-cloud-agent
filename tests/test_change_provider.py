@@ -6,18 +6,16 @@ from unittest.mock import patch
 from wb.cloud_agent.main import parse_args
 
 
-def test_change_provider_cmd(monkeypatch):
+def test_add_provider_cmd(monkeypatch):
     with patch(
-        "wb.cloud_agent.main.change_provider",
+        "wb.cloud_agent.main.add_provider",
         side_effect=lambda options, mqtt: None,
     ) as _mock:
-        provider_name = "staging"
         base_url = "https://cloud-staging.wirenboard.com/"
-        monkeypatch.setattr(sys, "argv", ["wb-cloud-agent", "change-provider", provider_name, base_url])
+        monkeypatch.setattr(sys, "argv", ["wb-cloud-agent", "add-provider", base_url])
 
         options = parse_args()
 
-        assert options.provider_name == provider_name
         assert options.base_url == base_url
 
         options.func(options, None)

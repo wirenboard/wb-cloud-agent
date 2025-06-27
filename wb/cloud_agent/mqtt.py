@@ -7,14 +7,14 @@ from wb.cloud_agent.settings import AppSettings
 
 class MQTTCloudAgent:
     def __init__(self, settings: AppSettings, on_message=None):
-        self.mqtt_prefix = settings.MQTT_PREFIX
+        self.mqtt_prefix = settings.mqtt_prefix
         self.on_message = on_message
         self.controls = {}
-        self.provider = settings.PROVIDER
+        self.provider = settings.provider
         self.providers = None
 
         self.client = MQTTClient(
-            f"wb-cloud-agent@{self.provider}", settings.BROKER_URL, userdata={"settings": settings}
+            f"wb-cloud-agent@{self.provider}", settings.broker_url, userdata={"settings": settings}
         )
         self.client.on_connect = self._on_connect
         self.client.on_message = self._on_message
@@ -25,7 +25,9 @@ class MQTTCloudAgent:
     def start(self, update_status=False):
         if update_status:
             self.client.will_set(f"{self.mqtt_prefix}/controls/status", "stopped", retain=True, qos=2)
+
         self.client.start()
+
         if update_status:
             self.publish_ctrl("status", "starting")
 
@@ -37,8 +39,10 @@ class MQTTCloudAgent:
             if self.was_disconnected:
                 self.was_disconnected = False
                 self.publish_vdev()
+
                 for control, value in self.controls.items():
                     self.publish_ctrl(control, value)
+
                 self.publish_providers(self.providers)
 
             self.client.subscribe("/devices/system/controls/HW Revision", qos=2)
@@ -46,6 +50,7 @@ class MQTTCloudAgent:
     def _on_message(self, _client, userdata, message):
         assert "settings" in userdata, "No settings in userdata"
         self.client.unsubscribe("/devices/system/controls/HW Revision")
+
         if self.on_message:
             self.on_message(userdata, message)
 

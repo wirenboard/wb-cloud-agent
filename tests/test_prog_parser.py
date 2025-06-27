@@ -23,8 +23,7 @@ def test_base_url_validator_with_valid_url(monkeypatch):
         "argv",
         [
             "wb-cloud-agent",
-            "change-provider",
-            "staging",
+            "add-provider",
             "https://cloud-staging.wirenboard.com/",
         ],
     )
@@ -41,7 +40,7 @@ def test_base_url_validator_with_valid_url(monkeypatch):
     ],
 )
 def test_base_url_validator_with_invalid_urls(monkeypatch, capsys, invalid_url):
-    monkeypatch.setattr(sys, "argv", ["wb-cloud-agent", "change-provider", "staging", invalid_url])
+    monkeypatch.setattr(sys, "argv", ["wb-cloud-agent", "add-provider", invalid_url])
 
     with pytest.raises(SystemExit) as exc_info:
         parse_args()

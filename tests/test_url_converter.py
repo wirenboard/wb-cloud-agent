@@ -1,7 +1,7 @@
 # pylint: disable=unused-argument
 
 from wb.cloud_agent.main import get_controller_url
-from wb.cloud_agent.settings import base_url_to_agent_url
+from wb.cloud_agent.settings import AppSettings, base_url_to_agent_url
 
 
 def test_base_url_to_agent_url():
@@ -14,8 +14,8 @@ def test_base_url_to_agent_url():
     )
 
 
-def test_get_controller_url(mock_serial_number, settings):
+def test_get_controller_url(mock_serial_number, settings: AppSettings):
     assert (
-        get_controller_url(settings.CLOUD_BASE_URL)
-        == f"{settings.CLOUD_BASE_URL}/controllers/{mock_serial_number}"
+        get_controller_url(settings.cloud_base_url)
+        == f"{settings.cloud_base_url}/controllers/{mock_serial_number}"
     )

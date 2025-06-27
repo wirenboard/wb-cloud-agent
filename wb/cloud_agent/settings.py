@@ -1,13 +1,20 @@
 import json
+import logging
 import os
+import shutil
 import sys
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 from urllib.parse import urlparse, urlunparse
 
 from wb_common.mqtt_client import DEFAULT_BROKER_URL
 
-DEFAULT_CONF_FILE = "/etc/wb-cloud-agent.conf"
+DEFAULT_PROVIDER_CONF_FILE = "/etc/wb-cloud-agent.conf"
 PROVIDERS_CONF_DIR = "/etc/wb-cloud-agent/providers"
+APP_DATA_DIR = "/var/lib/wb-cloud-agent"
+APP_DATA_PROVIDERS_DIR = f"{APP_DATA_DIR}/providers"
+CLOUD_AGENT_URL_POSTFIX = "/api-agent/v1/"
 
 
 class AppSettings:  # pylint: disable=too-many-instance-attributes disable=too-few-public-methods
@@ -23,59 +30,48 @@ class AppSettings:  # pylint: disable=too-many-instance-attributes disable=too-f
     }
     """
 
-    LOG_LEVEL: str = "INFO"
-    BROKER_URL: str = DEFAULT_BROKER_URL
+    log_level: str = "INFO"
 
-    CLIENT_CERT_ENGINE_KEY: str = "ATECCx08:00:02:C0:00"
-    CLIENT_CERT_FILE: str = "/var/lib/wb-cloud-agent/device_bundle.crt.pem"
-    CLOUD_BASE_URL: str = "https://wirenboard.cloud"
-    CLOUD_AGENT_URL: str = "https://agent.wirenboard.cloud/api-agent/v1/"
-    REQUEST_PERIOD_SECONDS: int = 10
+    broker_url: str = DEFAULT_BROKER_URL
 
-    def __init__(self, provider: str = "default"):
-        self.PROVIDER = provider  # pylint:disable=invalid-name
-        if provider == "default":
-            self.CONFIG_FILE: str = DEFAULT_CONF_FILE  # pylint:disable=invalid-name
-            self.FRP_SERVICE: str = "wb-cloud-agent-frpc.service"  # pylint:disable=invalid-name
-            self.TELEGRAF_SERVICE: str = "wb-cloud-agent-telegraf.service"  # pylint:disable=invalid-name
-            self.FRP_CONFIG: str = "/var/lib/wb-cloud-agent/frpc.conf"  # pylint:disable=invalid-name
-            self.TELEGRAF_CONFIG: str = "/var/lib/wb-cloud-agent/telegraf.conf"  # pylint:disable=invalid-name
-            self.ACTIVATION_LINK_CONFIG: str = (  # pylint:disable=invalid-name
-                "/var/lib/wb-cloud-agent/activation_link.conf"
-            )
-        else:
-            self.CONFIG_FILE: str = f"{PROVIDERS_CONF_DIR}/{provider}/wb-cloud-agent.conf"
-            self.FRP_SERVICE: str = f"wb-cloud-agent-frpc@{provider}.service"
-            self.TELEGRAF_SERVICE: str = f"wb-cloud-agent-telegraf@{provider}.service"
-            self.FRP_CONFIG: str = f"/var/lib/wb-cloud-agent/providers/{provider}/frpc.conf"
-            self.TELEGRAF_CONFIG: str = f"/var/lib/wb-cloud-agent/providers/{provider}/telegraf.conf"
-            self.ACTIVATION_LINK_CONFIG: str = (
-                f"/var/lib/wb-cloud-agent/providers/{provider}/activation_link.conf"
-            )
-        self.MQTT_PREFIX: str = f"/devices/system__wb-cloud-agent__{provider}"  # pylint:disable=invalid-name
+    client_cert_engine_key: str = "ATECCx08:00:02:C0:00"
+    client_cert_file: str = f"{APP_DATA_DIR}/device_bundle.crt.pem"
 
-        if os.path.exists(self.CONFIG_FILE):
-            self.apply_conf_file(self.CONFIG_FILE)
+    cloud_base_url: str = "https://wirenboard.cloud"
+    cloud_agent_url: str = f"https://agent.wirenboard.cloud{CLOUD_AGENT_URL_POSTFIX}"
+    request_period_seconds: int = 10
+
+    def __init__(self, provider: str) -> None:
+        self.provider = provider
+        self.config_file: str = f"{PROVIDERS_CONF_DIR}/{provider}/wb-cloud-agent.conf"
+        self.frp_service: str = f"wb-cloud-agent-frpc@{provider}.service"
+        self.telegraf_service: str = f"wb-cloud-agent-telegraf@{provider}.service"
+        self.frp_config: str = f"{APP_DATA_PROVIDERS_DIR}/{provider}/frpc.conf"
+        self.telegraf_config: str = f"{APP_DATA_PROVIDERS_DIR}/{provider}/telegraf.conf"
+        self.activation_link_config: str = f"{APP_DATA_PROVIDERS_DIR}/{provider}/activation_link.conf"
+        self.mqtt_prefix: str = f"/devices/system__wb-cloud-agent__{provider}"
+
+        if os.path.exists(self.config_file):
+            self.apply_conf_file(self.config_file)
 
     def apply_conf_file(self, conf_file: str) -> None:
-        conf = json.loads(Path(conf_file).read_text(encoding="utf-8"))
-        for key in conf:
-            setattr(self, key, conf[key])
+        conf = read_json_config(Path(conf_file))
+
+        self.cloud_agent_url = base_url_to_agent_url(conf["CLOUD_BASE_URL"])
+
+        for key, val in conf.items():
+            setattr(self, key.lower(), val)
 
 
 def base_url_to_agent_url(base_url: str) -> str:
     parsed = urlparse(base_url)
     netloc = f"agent.{parsed.netloc}"
-    return urlunparse((parsed.scheme, netloc, "/api-agent/v1/", "", "", ""))
+    return urlunparse((parsed.scheme, netloc, CLOUD_AGENT_URL_POSTFIX, "", "", ""))
 
 
-def generate_config(provider: str, base_url: str) -> None:
-    if provider == "default":
-        return
-
-    conf = json.loads(Path(DEFAULT_CONF_FILE).read_text(encoding="utf-8"))
+def generate_provider_config(provider: str, base_url: str) -> None:
+    conf = read_json_config(Path(DEFAULT_PROVIDER_CONF_FILE))
     conf["CLOUD_BASE_URL"] = base_url
-    conf["CLOUD_AGENT_URL"] = base_url_to_agent_url(base_url)
 
     conf_dir = os.path.join(PROVIDERS_CONF_DIR, provider)
     if not os.path.exists(conf_dir):
@@ -85,40 +81,76 @@ def generate_config(provider: str, base_url: str) -> None:
     conf_file.write_text(json.dumps(conf, indent=4), encoding="utf-8")
 
 
-def get_providers() -> list[str]:
-    providers = ["default"]
-    if os.path.exists(PROVIDERS_CONF_DIR):
-        providers += [
-            d for d in os.listdir(PROVIDERS_CONF_DIR) if os.path.isdir(os.path.join(PROVIDERS_CONF_DIR, d))
-        ]
-    return providers
+def delete_provider_config(conf_path_prefix: str, provider: str) -> None:
+    """Delete dir with config files"""
 
+    path = Path(conf_path_prefix)
+    target_dir = path / provider
 
-def read_providers_configs(config_path: Path) -> dict[str, str]:
-    with config_path.open("r", encoding="utf-8") as f:
+    if target_dir.exists() and target_dir.is_dir():
         try:
-            provider_config = json.load(f)
-        except json.JSONDecodeError:
-            print(f"Error parsing JSON in: {config_path}")
-            sys.exit(6)
-    return provider_config
+            shutil.rmtree(target_dir)
+        except FileNotFoundError:
+            logging.debug("Dir %s does not exists", target_dir)
+        except PermissionError:
+            logging.debug("No have permission to delete dir %s", target_dir)
+        except OSError as exc:
+            logging.debug("Error %s on delete dir %s", str(exc), target_dir)
+    else:
+        logging.debug("Dir %s does not exists", target_dir)
 
 
-def load_providers_configs(providers: list[str]) -> dict[str, dict[str, str]]:
+def get_providers() -> list[str]:
+    conf_path = Path(PROVIDERS_CONF_DIR)
+
+    if conf_path.exists():
+        return [d.name for d in conf_path.iterdir() if d.is_dir()]
+    return []
+
+
+def read_json_config(config_path: Path) -> dict[str, str]:
+    data = config_path.read_text(encoding="utf-8")
+    try:
+        return json.loads(data)
+    except json.JSONDecodeError:
+        print(f"Error parsing JSON in: {config_path}")
+        sys.exit(6)
+
+
+def read_plaintext_config(config_path: Path) -> str:
+    with config_path.open("r", encoding="utf-8") as f:
+        return f.readline().strip()
+
+
+def load_configs(reader: Callable, providers: list[str], providers_path: str) -> dict[str, Any]:
+    logging.debug("Load configs providers = %s providers_path = %s", providers, providers_path)
     configs = {}
 
     for provider in providers:
-        config_path = Path(PROVIDERS_CONF_DIR) / provider / "wb-cloud-agent.conf"
+        config_path = Path(providers_path.format(provider=provider))
+
         if config_path.exists():
-            provider_config = read_providers_configs(config_path)
+            provider_config = reader(config_path)
         else:
-            config_path = Path(DEFAULT_CONF_FILE)
-            if config_path.exists():
-                provider_config = read_providers_configs(config_path)
-            else:
-                print(f"The file was not found in: {config_path}")
-                sys.exit(6)
+            print(f"The file was not found in: {config_path}")
+            sys.exit(6)
 
         configs[provider] = provider_config
 
     return configs
+
+
+def load_providers_configs(providers: list[str]) -> dict[str, dict[str, str]]:
+    providers_configs = load_configs(
+        read_json_config, providers, f"{PROVIDERS_CONF_DIR}/{{provider}}/wb-cloud-agent.conf"
+    )
+    logging.debug("providers = %s providers_configs = %s", providers, providers_configs)
+    return providers_configs
+
+
+def load_providers_activation_links(providers: list[str]) -> dict[str, dict[str, str]]:
+    providers_activation_links = load_configs(
+        read_plaintext_config, providers, f"{APP_DATA_PROVIDERS_DIR}/{{provider}}/activation_link.conf"
+    )
+    logging.debug("providers = %s providers_activation_links = %s", providers, providers_activation_links)
+    return providers_activation_links
