@@ -19,6 +19,7 @@ from urllib.parse import urljoin, urlparse
 
 from tabulate import tabulate
 
+from wb.cloud_agent import __version__ as package_version
 from wb.cloud_agent.mqtt import MQTTCloudAgent
 from wb.cloud_agent.settings import (
     PROVIDERS_CONF_DIR,
@@ -29,7 +30,6 @@ from wb.cloud_agent.settings import (
     load_providers_activation_links,
     load_providers_configs,
 )
-from wb.cloud_agent.version import package_version
 
 DIAGNOSTIC_DIR = "/tmp"
 
