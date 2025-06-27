@@ -1,6 +1,5 @@
 import json
 import logging
-import os
 import shutil
 import sys
 from collections.abc import Callable
@@ -43,19 +42,20 @@ class AppSettings:  # pylint: disable=too-many-instance-attributes disable=too-f
 
     def __init__(self, provider: str) -> None:
         self.provider = provider
-        self.config_file: str = f"{PROVIDERS_CONF_DIR}/{provider}/wb-cloud-agent.conf"
+        self.config_file: Path = Path(f"{PROVIDERS_CONF_DIR}/{provider}/wb-cloud-agent.conf")
         self.frp_service: str = f"wb-cloud-agent-frpc@{provider}.service"
         self.telegraf_service: str = f"wb-cloud-agent-telegraf@{provider}.service"
         self.frp_config: str = f"{APP_DATA_PROVIDERS_DIR}/{provider}/frpc.conf"
         self.telegraf_config: str = f"{APP_DATA_PROVIDERS_DIR}/{provider}/telegraf.conf"
-        self.activation_link_config: str = f"{APP_DATA_PROVIDERS_DIR}/{provider}/activation_link.conf"
+        self.activation_link_config: Path = Path(f"{APP_DATA_PROVIDERS_DIR}/{provider}/activation_link.conf")
         self.mqtt_prefix: str = f"/devices/system__wb-cloud-agent__{provider}"
+        self.diag_archive: Path = Path("/tmp")
 
-        if os.path.exists(self.config_file):
-            self.apply_conf_file(self.config_file)
+        if self.config_file.exists():
+            self.apply_conf_file()
 
-    def apply_conf_file(self, conf_file: str) -> None:
-        conf = read_json_config(Path(conf_file))
+    def apply_conf_file(self) -> None:
+        conf = read_json_config(self.config_file)
 
         self.cloud_agent_url = base_url_to_agent_url(conf["CLOUD_BASE_URL"])
 
@@ -73,11 +73,11 @@ def generate_provider_config(provider: str, base_url: str) -> None:
     conf = read_json_config(Path(DEFAULT_PROVIDER_CONF_FILE))
     conf["CLOUD_BASE_URL"] = base_url
 
-    conf_dir = os.path.join(PROVIDERS_CONF_DIR, provider)
-    if not os.path.exists(conf_dir):
-        os.makedirs(conf_dir)
+    conf_dir = Path(PROVIDERS_CONF_DIR) / provider
+    if not conf_dir.exists():
+        conf_dir.mkdir(parents=True, exist_ok=True)
 
-    conf_file = Path(f"{PROVIDERS_CONF_DIR}/{provider}/wb-cloud-agent.conf")
+    conf_file = conf_dir / "wb-cloud-agent.conf"
     conf_file.write_text(json.dumps(conf, indent=4), encoding="utf-8")
 
 

@@ -1,9 +1,7 @@
 #!/usr/b#!/usr/bin/env python3
 import argparse
-import glob
 import json
 import logging
-import os
 import subprocess
 import sys
 import threading
@@ -13,6 +11,7 @@ from contextlib import ExitStack
 from functools import cache
 from http import HTTPStatus as status
 from json import JSONDecodeError
+from pathlib import Path
 from string import Template
 from typing import Any, Optional
 from urllib.parse import urljoin, urlparse
@@ -30,8 +29,6 @@ from wb.cloud_agent.settings import (
     load_providers_activation_links,
     load_providers_configs,
 )
-
-DIAGNOSTIC_DIR = "/tmp"
 
 CLIENT_CERT_ERROR_MSG = (
     "Cert {cert_file} and key {cert_engine_key} "
@@ -170,10 +167,9 @@ def do_curl(
     return data, status_code
 
 
-def write_to_file(fpath: str, contents: str) -> None:
-    os.makedirs(os.path.dirname(fpath), exist_ok=True)
-    with open(fpath, mode="w", encoding="utf-8") as file:
-        file.write(contents)
+def write_to_file(fpath: Path, contents: str) -> None:
+    fpath.parent.mkdir(parents=True, exist_ok=True)
+    fpath.write_text(contents, encoding="utf-8")
 
 
 def write_activation_link(settings: AppSettings, link: str, mqtt: MQTTCloudAgent) -> None:
@@ -185,11 +181,10 @@ def write_activation_link(settings: AppSettings, link: str, mqtt: MQTTCloudAgent
 def read_activation_link(settings: AppSettings) -> str:
     logging.debug("Read activation link from %s", settings.activation_link_config)
 
-    if not os.path.exists(settings.activation_link_config):
+    if not settings.activation_link_config.exists():
         return "unknown"
 
-    with open(settings.activation_link_config, "r", encoding="utf-8") as file:
-        activation_link = file.readline()
+    activation_link = settings.activation_link_config.read_text(encoding="utf-8").strip()
 
     logging.debug("Readed activation link %s", activation_link)
     return activation_link
@@ -215,7 +210,7 @@ def update_metrics_config(settings: AppSettings, payload: dict, mqtt: MQTTCloudA
 
 
 def upload_diagnostic(settings: AppSettings) -> None:
-    files = sorted(glob.glob(os.path.join(DIAGNOSTIC_DIR, "diag_*.zip")), key=os.path.getmtime)
+    files = sorted(settings.diag_archive.glob("diag_*.zip"), key=lambda p: p.stat().st_mtime)
     if not files:
         logging.error("No diagnostics collected")
 
@@ -235,21 +230,21 @@ def upload_diagnostic(settings: AppSettings) -> None:
     if http_status != status.OK:
         logging.error("Not a 200 status while making upload_diagnostic request: %s", http_status)
 
-    os.remove(last_diagnostic)
+    last_diagnostic.unlink()
 
 
 def fetch_diagnostics(settings: AppSettings, _payload, _mqtt):
     # remove old diagnostics
     try:
-        for fname in glob.glob(f"{DIAGNOSTIC_DIR}/diag_*.zip"):
-            os.remove(fname)
+        for fname in settings.diag_archive.glob("diag_*.zip"):
+            fname.unlink()
     except OSError as e:
         logging.warning("Erase diagnostic files failed: %s", e.strerror)
 
     def process_waiter():
         with subprocess.Popen(
             "wb-diag-collect diag",
-            cwd=DIAGNOSTIC_DIR,
+            cwd=settings.diag_archive,
             shell=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
@@ -366,7 +361,11 @@ def merge_providers_configs_with_links(
 ) -> dict[str, str]:
     providers_with_urls = {}
 
-    for provider in set(providers_configs) | set(providers_links):
+    providers = list(providers_configs) + [
+        provider for provider in providers_links if provider not in providers_configs
+    ]
+
+    for provider in providers:
         val1 = providers_configs.get(provider)
         val2 = providers_links.get(provider)
 

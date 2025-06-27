@@ -32,13 +32,11 @@ def example_configs():
             "LOG_LEVEL": "INFO",
             "CLIENT_CERT_ENGINE_KEY": "ATECCx08:00:02:C0:00",
             "CLOUD_BASE_URL": "https://wirenboard.cloud/",
-            "CLOUD_AGENT_URL": "https://agent.wirenboard.cloud/api-agent/v1/",
         },
         "staging": {
             "LOG_LEVEL": "INFO",
             "CLIENT_CERT_ENGINE_KEY": "ATECCx08:00:02:C0:00",
             "CLOUD_BASE_URL": "https://cloud-staging.wirenboard.com/",
-            "CLOUD_AGENT_URL": "https://agent.cloud-staging.wirenboard.com/api-agent/v1/",
         },
     }
 
