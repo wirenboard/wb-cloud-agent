@@ -16,7 +16,7 @@ wb-cloud-agent (1.6.0) stable; urgency=medium
   * Change request period seconds to cloud from 3 to 10 seconds by default
   * Refactor logic
 
- -- Arseniy Astafev <arseniy.astafev@wirenboard.com>  Wed, 28 May 2025 18:00:00 +0300
+ -- Arseniy Astafev <arseniy.astafev@wirenboard.com>  Wed, 27 June 2025 19:00:00 +0300
 
 wb-cloud-agent (1.5.14) stable; urgency=medium
 
