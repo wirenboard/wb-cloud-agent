@@ -2,9 +2,7 @@ import json
 import logging
 import shutil
 import sys
-from collections.abc import Callable
 from pathlib import Path
-from typing import Any
 from urllib.parse import urlparse, urlunparse
 
 from wb_common.mqtt_client import DEFAULT_BROKER_URL
@@ -45,8 +43,8 @@ class AppSettings:  # pylint: disable=too-many-instance-attributes disable=too-f
         self.config_file: Path = Path(f"{PROVIDERS_CONF_DIR}/{provider}/wb-cloud-agent.conf")
         self.frp_service: str = f"wb-cloud-agent-frpc@{provider}.service"
         self.telegraf_service: str = f"wb-cloud-agent-telegraf@{provider}.service"
-        self.frp_config: str = f"{APP_DATA_PROVIDERS_DIR}/{provider}/frpc.conf"
-        self.telegraf_config: str = f"{APP_DATA_PROVIDERS_DIR}/{provider}/telegraf.conf"
+        self.frp_config: Path = Path(f"{APP_DATA_PROVIDERS_DIR}/{provider}/frpc.conf")
+        self.telegraf_config: Path = Path(f"{APP_DATA_PROVIDERS_DIR}/{provider}/telegraf.conf")
         self.activation_link_config: Path = Path(f"{APP_DATA_PROVIDERS_DIR}/{provider}/activation_link.conf")
         self.mqtt_prefix: str = f"/devices/system__wb-cloud-agent__{provider}"
         self.diag_archive: Path = Path("/tmp")
@@ -122,7 +120,9 @@ def read_plaintext_config(config_path: Path) -> str:
         return f.readline().strip()
 
 
-def load_configs(reader: Callable, providers: list[str], providers_path: str) -> dict[str, Any]:
+def load_providers_configs(providers: list[str]) -> dict[str, dict[str, str]]:
+    providers_path = f"{PROVIDERS_CONF_DIR}/{{provider}}/wb-cloud-agent.conf"
+
     logging.debug("Load configs providers = %s providers_path = %s", providers, providers_path)
     configs = {}
 
@@ -130,27 +130,32 @@ def load_configs(reader: Callable, providers: list[str], providers_path: str) ->
         config_path = Path(providers_path.format(provider=provider))
 
         if config_path.exists():
-            provider_config = reader(config_path)
+            provider_config = read_json_config(config_path)
         else:
             print(f"The file was not found in: {config_path}")
             sys.exit(6)
 
         configs[provider] = provider_config
 
+    logging.debug("providers = %s providers_configs = %s", providers, configs)
     return configs
 
 
-def load_providers_configs(providers: list[str]) -> dict[str, dict[str, str]]:
-    providers_configs = load_configs(
-        read_json_config, providers, f"{PROVIDERS_CONF_DIR}/{{provider}}/wb-cloud-agent.conf"
-    )
-    logging.debug("providers = %s providers_configs = %s", providers, providers_configs)
-    return providers_configs
-
-
 def load_providers_activation_links(providers: list[str]) -> dict[str, dict[str, str]]:
-    providers_activation_links = load_configs(
-        read_plaintext_config, providers, f"{APP_DATA_PROVIDERS_DIR}/{{provider}}/activation_link.conf"
-    )
-    logging.debug("providers = %s providers_activation_links = %s", providers, providers_activation_links)
-    return providers_activation_links
+    providers_path = f"{APP_DATA_PROVIDERS_DIR}/{{provider}}/activation_link.conf"
+
+    logging.debug("Load configs providers = %s providers_path = %s", providers, providers_path)
+    links = {}
+
+    for provider in providers:
+        config_path = Path(providers_path.format(provider=provider))
+
+        if config_path.exists():
+            provider_config = read_plaintext_config(config_path)
+        else:
+            provider_config = "noconnect"
+
+        links[provider] = provider_config
+
+    logging.debug("providers = %s providers_activation_links = %s", providers, links)
+    return links

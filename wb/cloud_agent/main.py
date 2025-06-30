@@ -21,6 +21,7 @@ from tabulate import tabulate
 from wb.cloud_agent import __version__ as package_version
 from wb.cloud_agent.mqtt import MQTTCloudAgent
 from wb.cloud_agent.settings import (
+    APP_DATA_PROVIDERS_DIR,
     PROVIDERS_CONF_DIR,
     AppSettings,
     delete_provider_config,
@@ -60,8 +61,10 @@ def start_service(service: str, restart: bool = False) -> None:
 
 
 def stop_service(service: str) -> None:
-    logging.debug("Disabling service %s", service)
+    logging.debug("Stopping service %s", service)
+    subprocess.run(["systemctl", "stop", service], check=True)
 
+    logging.debug("Disabling service %s", service)
     result = subprocess.run(
         ["systemctl", "disable", service],
         check=True,
@@ -74,15 +77,13 @@ def stop_service(service: str) -> None:
     if result.stderr:
         logging.debug("stderr: %s", result.stderr.strip())
 
-    logging.debug("Stopping service %s", service)
-    subprocess.run(["systemctl", "stop", service], check=True)
-
 
 def stop_services_and_del_configs(provider_name: str) -> None:
     stop_service(f"wb-cloud-agent@{provider_name}.service")
     stop_service(f"wb-cloud-agent-frpc@{provider_name}.service")
     stop_service(f"wb-cloud-agent-telegraf@{provider_name}.service")
     delete_provider_config(PROVIDERS_CONF_DIR, provider_name)
+    delete_provider_config(APP_DATA_PROVIDERS_DIR, provider_name)
     print(f"Provider {provider_name} successfully deleted")
 
 
@@ -369,7 +370,9 @@ def merge_providers_configs_with_links(
         val1 = providers_configs.get(provider)
         val2 = providers_links.get(provider)
 
-        if isinstance(val2, str) and val2.startswith("http"):
+        if isinstance(val2, str) and val2 == "noconnect":
+            providers_with_urls[provider] = f"No connect to: {val1['CLOUD_BASE_URL']}"
+        elif isinstance(val2, str) and val2.startswith("http"):
             providers_with_urls[provider] = val2
         elif isinstance(val1, dict):
             providers_with_urls[provider] = get_controller_url(val1["CLOUD_BASE_URL"])
@@ -402,7 +405,7 @@ def configure_app(provider_name: str) -> AppSettings:
 
 def validate_url(value: str) -> str:
     parsed = urlparse(value)
-    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+    if parsed.scheme not in ("http", "https") or not parsed.netloc or parsed.path not in ("", "/"):
         raise argparse.ArgumentTypeError(f"Invalid URL: {value}")
     return value
 
@@ -496,7 +499,7 @@ def add_provider(options) -> int:
 
 
 def add_on_premise_provider(options) -> int:
-    del_all_providers(options)
+    del_all_providers(options, show_msg=False)
     return add_provider(options)
 
 
@@ -517,10 +520,11 @@ def del_provider(options) -> int:
     return 0
 
 
-def del_all_providers(_options) -> int:
+def del_all_providers(_options, show_msg: bool = True) -> int:
     providers = get_providers()
     if not providers:
-        print("No one provider was found")
+        if show_msg:
+            print("No one provider was found")
         return 1
 
     for provider_name in providers:
