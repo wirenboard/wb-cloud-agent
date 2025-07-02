@@ -1,22 +1,12 @@
 wb-cloud-agent (1.6.0) stable; urgency=medium
 
-  * Remove --provider flag
-  * Remove positional parameter agent url
-  * Remove of default configs and services
-  * Add --name flag to add-provider for override provider name from hostname in base url
-  * Add use-on-premise subcmd
-  * Add del-provider subcmd with provider name positional arg
-  * Add del-all-providers subcmd
-  * Add run-daemon subcmd with provider name positional arg
-  * Add url validator for base url positional parameter
+  * Remove `--provider` flag and `--broker` flag and positional parameter `agent url` from "add-provider" subcmd
+  * Add `--name` flag to "add-provider" subcmd for override provider name from hostname in base url
+  * Add "use-on-premise" and "del-provider" and "del-all-providers" subcmds
+  * Add "run-daemon" subcmd with provider name positional arg and `--broker` flag
   * Add table report about existing providers for command "wb-cloud-agent"
-  * Add unit tests
-  * Move --broker flag from add-provider to run-daemon subcmd
-  * Make mqtt error more user friendly if "Error making request to cloud!"
-  * Change request period seconds to cloud from 3 to 10 seconds by default
-  * Refactor logic
 
- -- Arseniy Astafev <arseniy.astafev@wirenboard.com>  Wed, 27 June 2025 19:00:00 +0300
+ -- Arseniy Astafev <arseniy.astafev@wirenboard.com>  Wed, 03 July 2025 12:00:00 +0300
 
 wb-cloud-agent (1.5.14) stable; urgency=medium
 

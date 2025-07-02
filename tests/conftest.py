@@ -14,7 +14,7 @@ def settings():
 @pytest.fixture
 def mock_serial_number():
     serial_number = "ART6DDNT"
-    with patch("wb.cloud_agent.main.get_ctrl_serial_number", return_value=serial_number):
+    with patch("wb.cloud_agent.utils.get_ctrl_serial_number", return_value=serial_number):
         yield serial_number
 
 

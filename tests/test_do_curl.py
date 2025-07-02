@@ -2,7 +2,8 @@ from subprocess import CalledProcessError
 
 import pytest
 
-from wb.cloud_agent.main import CLIENT_CERT_ERROR_MSG, do_curl
+from wb.cloud_agent.constants import CLIENT_CERT_ERROR_MSG
+from wb.cloud_agent.handlers.curl import do_curl
 
 
 def test_do_curl_certs_error(mock_subprocess_run, settings):

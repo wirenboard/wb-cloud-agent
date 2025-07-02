@@ -1,23 +1,19 @@
-# pylint: disable=unused-argument
-
-import sys
-from unittest.mock import patch
+from unittest.mock import MagicMock
 
 from wb.cloud_agent.main import parse_args
 
 
-def test_add_provider_cmd(monkeypatch):
-    with patch(
-        "wb.cloud_agent.main.add_provider",
-        side_effect=lambda options, mqtt: None,
-    ) as _mock:
-        base_url = "https://cloud-staging.wirenboard.com/"
-        monkeypatch.setattr(sys, "argv", ["wb-cloud-agent", "add-provider", base_url])
+def test_add_provider_cmd(set_argv):
+    base_url = "https://cloud-staging.wirenboard.com/"
+    set_argv(["wb-cloud-agent", "add-provider", base_url])
 
-        options = parse_args()
+    options = parse_args()
 
-        assert options.base_url == base_url
+    assert options.base_url == base_url
 
-        options.func(options, None)
+    _mock = MagicMock()
+    options.func = _mock
 
-        _mock.assert_called_once_with(options, None)
+    options.func(options)
+
+    _mock.assert_called_once_with(options)

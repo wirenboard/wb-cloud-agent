@@ -1,5 +1,3 @@
-import sys
-
 import pytest
 
 from wb.cloud_agent.main import parse_args
@@ -17,10 +15,8 @@ def test_unrecognized_arg(capsys, set_argv):
     assert f"unrecognized arguments: {invalid_arg}" in err
 
 
-def test_base_url_validator_with_valid_url(monkeypatch):
-    monkeypatch.setattr(
-        sys,
-        "argv",
+def test_base_url_validator_with_valid_url(set_argv):
+    set_argv(
         [
             "wb-cloud-agent",
             "add-provider",
@@ -39,8 +35,8 @@ def test_base_url_validator_with_valid_url(monkeypatch):
         "bad-url",
     ],
 )
-def test_base_url_validator_with_invalid_urls(monkeypatch, capsys, invalid_url):
-    monkeypatch.setattr(sys, "argv", ["wb-cloud-agent", "add-provider", invalid_url])
+def test_base_url_validator_with_invalid_urls(set_argv, capsys, invalid_url):
+    set_argv(["wb-cloud-agent", "add-provider", invalid_url])
 
     with pytest.raises(SystemExit) as exc_info:
         parse_args()

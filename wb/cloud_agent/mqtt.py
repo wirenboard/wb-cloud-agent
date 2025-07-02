@@ -2,7 +2,7 @@ import logging
 
 from wb_common.mqtt_client import MQTTClient
 
-from wb.cloud_agent.settings import AppSettings
+from wb.cloud_agent.settings import AppSettings, get_provider_names
 
 
 class MQTTCloudAgent:
@@ -98,3 +98,7 @@ class MQTTCloudAgent:
     def publish_providers(self, providers):
         self.providers = providers
         self.client.publish("/wb-cloud-agent/providers", providers, retain=True, qos=2)
+
+    def update_providers_list(self) -> None:
+        #  Find a better way to update providers list (services enabled? services running?).
+        self.publish_providers(",".join(get_provider_names()))

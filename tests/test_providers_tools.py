@@ -6,23 +6,24 @@ from unittest.mock import MagicMock, mock_open, patch
 
 import pytest
 
+from wb.cloud_agent.constants import NOCONNECT_LINK
 from wb.cloud_agent.settings import (
     PROVIDERS_CONF_DIR,
-    get_providers,
-    load_providers_configs,
+    get_provider_names,
+    load_providers_data,
 )
 
 
 @patch("wb.cloud_agent.settings.Path.exists", return_value=True)
 @patch("wb.cloud_agent.settings.Path.iterdir")
-def test_get_providers(iterdir_mock, exists_mock):
+def test_get_provider_names(iterdir_mock, exists_mock):
     mock_dir = MagicMock()
     mock_dir.name = "staging"
     mock_dir.is_dir.return_value = True
 
     iterdir_mock.return_value = [mock_dir]
 
-    assert get_providers() == ["staging"]
+    assert get_provider_names() == ["staging"]
 
 
 @pytest.fixture
@@ -41,8 +42,8 @@ def example_configs():
     }
 
 
-def test_load_providers_configs_with_mocks(example_configs: dict):  # pylint: disable=redefined-outer-name
-    providers = list(example_configs.keys())
+def test_load_providers_data_with_mocks(example_configs: dict):  # pylint: disable=redefined-outer-name
+    provider_names = list(example_configs.keys())
 
     path_to_content = {
         str(Path(PROVIDERS_CONF_DIR) / provider / "wb-cloud-agent.conf"): json.dumps(cfg)
@@ -61,6 +62,7 @@ def test_load_providers_configs_with_mocks(example_configs: dict):  # pylint: di
         patch.object(Path, "open", new=open_side_effect),
     ):
         #
-        providers_configs = load_providers_configs(providers)
+        providers = load_providers_data(provider_names)
 
-    assert providers_configs == example_configs
+    assert {provider.name: provider.config for provider in providers} == example_configs
+    assert [provider.activation_link for provider in providers] == [NOCONNECT_LINK, NOCONNECT_LINK]

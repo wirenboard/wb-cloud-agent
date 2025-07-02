@@ -2,16 +2,26 @@ import json
 import logging
 import shutil
 import sys
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Optional, Union
 from urllib.parse import urlparse, urlunparse
 
 from wb_common.mqtt_client import DEFAULT_BROKER_URL
 
-DEFAULT_PROVIDER_CONF_FILE = "/etc/wb-cloud-agent.conf"
-PROVIDERS_CONF_DIR = "/etc/wb-cloud-agent/providers"
-APP_DATA_DIR = "/var/lib/wb-cloud-agent"
-APP_DATA_PROVIDERS_DIR = f"{APP_DATA_DIR}/providers"
-CLOUD_AGENT_URL_POSTFIX = "/api-agent/v1/"
+from wb.cloud_agent.constants import (
+    APP_DATA_DIR,
+    APP_DATA_PROVIDERS_DIR,
+    CLOUD_AGENT_URL_POSTFIX,
+    DEFAULT_PROVIDER_CONF_FILE,
+    NOCONNECT_LINK,
+    PROVIDERS_CONF_DIR,
+)
+from wb.cloud_agent.utils import (
+    get_controller_url,
+    read_json_config,
+    read_plaintext_config,
+)
 
 
 class AppSettings:  # pylint: disable=too-many-instance-attributes disable=too-few-public-methods
@@ -55,16 +65,32 @@ class AppSettings:  # pylint: disable=too-many-instance-attributes disable=too-f
     def apply_conf_file(self) -> None:
         conf = read_json_config(self.config_file)
 
-        self.cloud_agent_url = base_url_to_agent_url(conf["CLOUD_BASE_URL"])
+        self.cloud_agent_url = self.base_url_to_agent_url(conf["CLOUD_BASE_URL"])
 
         for key, val in conf.items():
             setattr(self, key.lower(), val)
 
+    def base_url_to_agent_url(self, base_url: str) -> str:
+        parsed = urlparse(base_url)
+        netloc = f"agent.{parsed.netloc}"
+        return urlunparse((parsed.scheme, netloc, CLOUD_AGENT_URL_POSTFIX, "", "", ""))
 
-def base_url_to_agent_url(base_url: str) -> str:
-    parsed = urlparse(base_url)
-    netloc = f"agent.{parsed.netloc}"
-    return urlunparse((parsed.scheme, netloc, CLOUD_AGENT_URL_POSTFIX, "", "", ""))
+
+def configure_app(provider_name: str) -> AppSettings:
+    try:
+        settings = AppSettings(provider_name)
+    except (FileNotFoundError, OSError, json.decoder.JSONDecodeError):
+        return 6  # systemd status=6/NOTCONFIGURED
+
+    setup_log(settings)
+    return settings
+
+
+def setup_log(settings: AppSettings) -> None:
+    numeric_level = getattr(logging, settings.log_level.upper(), logging.NOTSET)
+    if not isinstance(numeric_level, int):
+        raise ValueError(f"Invalid log level: {settings.log_level}")
+    logging.basicConfig(level=numeric_level, encoding="utf-8", format="%(message)s")
 
 
 def generate_provider_config(provider: str, base_url: str) -> None:
@@ -98,7 +124,7 @@ def delete_provider_config(conf_path_prefix: str, provider: str) -> None:
         logging.debug("Dir %s does not exists", target_dir)
 
 
-def get_providers() -> list[str]:
+def get_provider_names() -> list[str]:
     conf_path = Path(PROVIDERS_CONF_DIR)
 
     if conf_path.exists():
@@ -106,28 +132,31 @@ def get_providers() -> list[str]:
     return []
 
 
-def read_json_config(config_path: Path) -> dict[str, str]:
-    data = config_path.read_text(encoding="utf-8")
-    try:
-        return json.loads(data)
-    except json.JSONDecodeError:
-        print(f"Error parsing JSON in: {config_path}")
-        sys.exit(6)
+@dataclass
+class Provider:
+    name: str
+    config: dict[str, Union[str, int]]
+    activation_link: Optional[str] = None
+
+    @property
+    def display_url(self) -> str:
+        if self.activation_link and self.activation_link.startswith("http"):
+            return self.activation_link
+
+        if self.activation_link == NOCONNECT_LINK:
+            return f"No connect to: {self.config['CLOUD_BASE_URL']}"
+
+        return get_controller_url(self.config["CLOUD_BASE_URL"])
 
 
-def read_plaintext_config(config_path: Path) -> str:
-    with config_path.open("r", encoding="utf-8") as f:
-        return f.readline().strip()
+def load_providers_data(provider_names: list[str]) -> list[Provider]:
+    """Load provider configs and actiovation links from files"""
+    logging.debug("Load configs for provider_names = %s", provider_names)
 
-
-def load_providers_configs(providers: list[str]) -> dict[str, dict[str, str]]:
-    providers_path = f"{PROVIDERS_CONF_DIR}/{{provider}}/wb-cloud-agent.conf"
-
-    logging.debug("Load configs providers = %s providers_path = %s", providers, providers_path)
-    configs = {}
-
-    for provider in providers:
-        config_path = Path(providers_path.format(provider=provider))
+    result = []
+    for provider_name in provider_names:
+        config_path = Path(f"{PROVIDERS_CONF_DIR}/{provider_name}/wb-cloud-agent.conf")
+        activation_path = Path(f"{APP_DATA_PROVIDERS_DIR}/{provider_name}/activation_link.conf")
 
         if config_path.exists():
             provider_config = read_json_config(config_path)
@@ -135,27 +164,15 @@ def load_providers_configs(providers: list[str]) -> dict[str, dict[str, str]]:
             print(f"The file was not found in: {config_path}")
             sys.exit(6)
 
-        configs[provider] = provider_config
-
-    logging.debug("providers = %s providers_configs = %s", providers, configs)
-    return configs
-
-
-def load_providers_activation_links(providers: list[str]) -> dict[str, dict[str, str]]:
-    providers_path = f"{APP_DATA_PROVIDERS_DIR}/{{provider}}/activation_link.conf"
-
-    logging.debug("Load configs providers = %s providers_path = %s", providers, providers_path)
-    links = {}
-
-    for provider in providers:
-        config_path = Path(providers_path.format(provider=provider))
-
-        if config_path.exists():
-            provider_config = read_plaintext_config(config_path)
+        if activation_path.exists():
+            provider_activation_link = read_plaintext_config(activation_path)
         else:
-            provider_config = "noconnect"
+            provider_activation_link = NOCONNECT_LINK
 
-        links[provider] = provider_config
+        result.append(
+            Provider(name=provider_name, config=provider_config, activation_link=provider_activation_link)
+        )
 
-    logging.debug("providers = %s providers_activation_links = %s", providers, links)
-    return links
+    logging.debug("Configs loaded %s", result)
+
+    return result
