@@ -18,5 +18,7 @@ setup(
     url="https://github.com/wirenboard/wb-cloud-agent",
     packages=[
         "wb.cloud_agent",
+        "wb.cloud_agent.handlers",
+        "wb.cloud_agent.services",
     ],
 )
