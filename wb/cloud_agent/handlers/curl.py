@@ -1,5 +1,6 @@
 import json
 import subprocess
+from collections.abc import Iterable
 from typing import Optional
 
 from wb.cloud_agent.constants import CLIENT_CERT_ERROR_MSG
@@ -7,14 +8,18 @@ from wb.cloud_agent.settings import AppSettings
 
 
 def do_curl(
-    settings: AppSettings, method: str = "get", endpoint: str = "", params: Optional[dict] = None
+    settings: AppSettings,
+    method: str = "get",
+    endpoint: str = "",
+    params: Optional[dict] = None,
+    retry_opts: Optional[Iterable[str]] = None,
 ) -> tuple[dict, int]:
     data_delimiter = "|||"
     output_format = data_delimiter + '{"code":"%{response_code}"}'
 
     if method == "get":
         command = ["curl"]
-    elif method in ("post", "put"):
+    elif method in ("post", "put", "delete"):
         command = ["curl", "-X", method.upper()]
         if params:
             command += ["-H", "Content-Type: application/json", "-d", json.dumps(params)]
@@ -25,14 +30,19 @@ def do_curl(
 
     url = settings.cloud_agent_url + endpoint
 
+    if not retry_opts:
+        retry_opts = [
+            "--connect-timeout",
+            "45",
+            "--retry",
+            "8",
+            "--retry-delay",
+            "1",
+            "--retry-all-errors",
+        ]
+
     command += [
-        "--connect-timeout",
-        "45",
-        "--retry",
-        "8",
-        "--retry-delay",
-        "1",
-        "--retry-all-errors",
+        *retry_opts,
         "--cert",
         settings.client_cert_file,
         "--key",

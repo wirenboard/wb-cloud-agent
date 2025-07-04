@@ -1,3 +1,9 @@
+wb-cloud-agent (1.6.1) stable; urgency=medium
+
+  * Added ability to remove controller from cloud when provider is deleted
+
+ -- Arseniy Astafev <arseniy.astafev@wirenboard.com>  Wed, 04 July 2025 19:00:00 +0300
+
 wb-cloud-agent (1.6.0) stable; urgency=medium
 
   * Remove `--provider` flag and `--broker` flag and positional parameter `agent url` from "add-provider" subcmd
