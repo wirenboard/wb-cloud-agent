@@ -54,3 +54,24 @@ def event_confirm(settings: AppSettings, event_id: str) -> None:
     )
     if http_status != status.NO_CONTENT:
         raise ValueError("Not a 204 status on event confirmation: " + str(http_status))
+
+
+def event_delete_controller(settings: AppSettings) -> None:
+    retry_opts = (
+        "--connect-timeout",
+        "6",
+        "--retry",
+        "0",
+        "--max-time",
+        "7",
+    )
+    try:
+        _event_data, http_status = do_curl(
+            settings=settings, method="delete", endpoint="delete-controller/", retry_opts=retry_opts
+        )
+    except Exception as exc:  # pylint: disable=W0718
+        logging.error("The controller on the remote server could not be deleted due to network problems.")
+        logging.debug("Error while sending delete-controller event: %s", exc)
+    else:
+        if http_status != status.NO_CONTENT:
+            logging.error("Not a 204 status while making event_delete_controller request: %s", http_status)

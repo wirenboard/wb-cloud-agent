@@ -66,7 +66,7 @@ def del_provider(options) -> int:
         print(f"Provider {provider_name} does not exists")
         return 1
 
-    stop_services_and_del_configs(provider_name)
+    stop_services_and_del_configs(settings, provider_name)
     mqtt.update_providers_list()
     return 0
 
@@ -84,7 +84,7 @@ def del_all_providers(_options, show_msg: bool = True) -> int:
         mqtt = MQTTCloudAgent(settings, on_message)
         mqtt.start()
 
-        stop_services_and_del_configs(provider_name)
+        stop_services_and_del_configs(settings, provider_name)
         mqtt.update_providers_list()
     return 0
 

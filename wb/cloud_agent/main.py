@@ -32,7 +32,7 @@ def parse_args() -> Namespace:
     add_provider_parser.set_defaults(func=add_provider)
 
     add_on_premise_provider_parser = subparsers.add_parser(
-        "use-on-premise", help="Add new cloud service provider"
+        "use-on-premise", help="Delete all cloud service providers and then add new cloud service provider"
     )
     add_on_premise_provider_parser.add_argument(
         "base_url",
