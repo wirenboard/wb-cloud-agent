@@ -1,4 +1,5 @@
 import json
+import logging
 import subprocess
 from collections.abc import Iterable
 from typing import Optional
@@ -64,6 +65,12 @@ def do_curl(
                 CLIENT_CERT_ERROR_MSG.format(
                     cert_file=settings.client_cert_file, cert_engine_key=settings.client_cert_engine_key
                 )
+            ) from e
+        if e.returncode == 6:
+            logging.debug(e)
+            raise RuntimeError(
+                f"{endpoint} Error. Curl couldnt find the IP address "
+                f"by domain name: {settings.cloud_base_url}"
             ) from e
         raise e
 
