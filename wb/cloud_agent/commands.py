@@ -89,7 +89,7 @@ def del_all_providers(_options, show_msg: bool = True) -> int:
     return 0
 
 
-def run_daemon(options) -> None:
+def run_daemon(options) -> int:
     settings = configure_app(options.provider_name)
 
     settings.broker_url = options.broker or settings.broker_url
@@ -100,8 +100,12 @@ def run_daemon(options) -> None:
     except Exception as ex:  # pylint:disable=broad-exception-caught
         logging.error("Error starting MQTT client: %s", ex)
 
-    make_start_up_request(settings, mqtt)
-    send_agent_version(settings)
+    try:
+        make_start_up_request(settings, mqtt)
+        send_agent_version(settings)
+    except RuntimeError as exc:
+        logging.error(exc)
+        return 1
 
     mqtt.update_providers_list()
     mqtt.publish_vdev()
