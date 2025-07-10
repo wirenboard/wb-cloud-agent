@@ -71,8 +71,8 @@ def event_delete_controller(settings: AppSettings) -> int:
         )
     except Exception as exc:  # pylint: disable=W0718
         logging.warning(
-            "Warning: The controller on the remote server could not be deleted due to network problems.\n"
-            "Delete it manually using the command: 'wb-cloud-agent cloud-unbind %s'",
+            "Warning: The controller on the remote server could not be detached due to network problems.\n"
+            "Unbind it manually using the command: 'wb-cloud-agent cloud-unbind %s'",
             settings.cloud_base_url,
         )
         logging.debug("Error while sending delete-controller event: %s", exc)
