@@ -1,4 +1,6 @@
-# Wiren Board Agent 
+# Wiren Board Agent
+
+[![Coverage Status](https://coveralls.io/repos/github/wirenboard/wb-cloud-agent/badge.svg)](https://coveralls.io/github/wirenboard/wb-cloud-agent)
 
 Агент с использованием аппаратной подписи для получения обновлений с wirenboard.cloud.
 [Подробная документация](https://wirenboard.com/wiki/Wiren_Board_Cloud)
@@ -18,5 +20,3 @@ apt update && apt install wb-cloud-agent
 ```
 wb-cloud-agent
 ```
-
-
