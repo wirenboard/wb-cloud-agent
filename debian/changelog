@@ -1,3 +1,13 @@
+wb-cloud-agent (1.6.0) stable; urgency=medium
+
+  * Remove `--provider` flag and `--broker` flag and positional parameter `agent url` from "add-provider" subcmd
+  * Add `--name` flag to "add-provider" subcmd for override provider name from hostname in base url
+  * Add "use-on-premise" and "del-provider" and "del-all-providers" subcmds
+  * Add "run-daemon" subcmd with provider name positional arg and `--broker` flag
+  * Add table report about existing providers for command "wb-cloud-agent"
+
+ -- Arseniy Astafev <arseniy.astafev@wirenboard.com>  Wed, 03 July 2025 12:00:00 +0300
+
 wb-cloud-agent (1.5.14) stable; urgency=medium
 
   * Add more explicit error message on invalid certs (possibly because of wrong CPU board)
