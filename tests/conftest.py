@@ -8,7 +8,7 @@ from wb.cloud_agent.settings import AppSettings
 
 @pytest.fixture
 def settings():
-    return AppSettings("default")
+    return AppSettings(provider_name="default")
 
 
 @pytest.fixture

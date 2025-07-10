@@ -56,7 +56,7 @@ def event_confirm(settings: AppSettings, event_id: str) -> None:
         raise ValueError("Not a 204 status on event confirmation: " + str(http_status))
 
 
-def event_delete_controller(settings: AppSettings) -> None:
+def event_delete_controller(settings: AppSettings) -> int:
     retry_opts = (
         "--connect-timeout",
         "6",
@@ -70,8 +70,17 @@ def event_delete_controller(settings: AppSettings) -> None:
             settings=settings, method="delete", endpoint="delete-controller/", retry_opts=retry_opts
         )
     except Exception as exc:  # pylint: disable=W0718
-        logging.error("The controller on the remote server could not be deleted due to network problems.")
+        logging.warning(
+            "Warning: The controller on the remote server could not be deleted due to network problems.\n"
+            "Delete it manually using the command: 'wb-cloud-agent cloud-unbind %s'",
+            settings.cloud_base_url,
+        )
         logging.debug("Error while sending delete-controller event: %s", exc)
-    else:
-        if http_status != status.NO_CONTENT:
-            logging.error("Not a 204 status while making event_delete_controller request: %s", http_status)
+        return 1
+
+    if http_status != status.NO_CONTENT:
+        logging.error("Not a 204 status while making event_delete_controller request: %s", http_status)
+        return 1
+
+    logging.info("Controller has been successfully detached from: %s", settings.cloud_base_url)
+    return 0

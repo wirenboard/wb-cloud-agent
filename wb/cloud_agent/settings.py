@@ -4,7 +4,7 @@ import shutil
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, Union
+from typing import Any, Optional, Union
 from urllib.parse import urlparse, urlunparse
 
 from wb_common.mqtt_client import DEFAULT_BROKER_URL
@@ -37,6 +37,10 @@ class AppSettings:  # pylint: disable=too-many-instance-attributes disable=too-f
     }
     """
 
+    provider_name: str
+
+    skip_conf_file: bool = False
+
     log_level: str = "INFO"
 
     broker_url: str = DEFAULT_BROKER_URL
@@ -48,24 +52,28 @@ class AppSettings:  # pylint: disable=too-many-instance-attributes disable=too-f
     cloud_agent_url: str = f"https://agent.wirenboard.cloud{CLOUD_AGENT_URL_POSTFIX}"
     request_period_seconds: int = 10
 
-    def __init__(self, provider: str) -> None:
-        self.provider = provider
-        self.config_file: Path = Path(f"{PROVIDERS_CONF_DIR}/{provider}/wb-cloud-agent.conf")
-        self.frp_service: str = f"wb-cloud-agent-frpc@{provider}.service"
-        self.telegraf_service: str = f"wb-cloud-agent-telegraf@{provider}.service"
-        self.frp_config: Path = Path(f"{APP_DATA_PROVIDERS_DIR}/{provider}/frpc.conf")
-        self.telegraf_config: Path = Path(f"{APP_DATA_PROVIDERS_DIR}/{provider}/telegraf.conf")
-        self.activation_link_config: Path = Path(f"{APP_DATA_PROVIDERS_DIR}/{provider}/activation_link.conf")
-        self.mqtt_prefix: str = f"/devices/system__wb-cloud-agent__{provider}"
+    def __init__(self, /, **kwargs: dict[str, Any]) -> None:
+        for key, val in kwargs.items():
+            setattr(self, key, val)
+
+        self.config_file: Path = Path(f"{PROVIDERS_CONF_DIR}/{self.provider_name}/wb-cloud-agent.conf")
+        self.frp_service: str = f"wb-cloud-agent-frpc@{self.provider_name}.service"
+        self.telegraf_service: str = f"wb-cloud-agent-telegraf@{self.provider_name}.service"
+        self.frp_config: Path = Path(f"{APP_DATA_PROVIDERS_DIR}/{self.provider_name}/frpc.conf")
+        self.telegraf_config: Path = Path(f"{APP_DATA_PROVIDERS_DIR}/{self.provider_name}/telegraf.conf")
+        self.activation_link_config: Path = Path(
+            f"{APP_DATA_PROVIDERS_DIR}/{self.provider_name}/activation_link.conf"
+        )
+        self.mqtt_prefix: str = f"/devices/system__wb-cloud-agent__{self.provider_name}"
         self.diag_archive: Path = Path("/tmp")
 
-        if self.config_file.exists():
+        if not self.skip_conf_file and self.config_file.exists():
             self.apply_conf_file()
+
+        self.cloud_agent_url = self.base_url_to_agent_url(self.cloud_base_url)
 
     def apply_conf_file(self) -> None:
         conf = read_json_config(self.config_file)
-
-        self.cloud_agent_url = self.base_url_to_agent_url(conf["CLOUD_BASE_URL"])
 
         for key, val in conf.items():
             setattr(self, key.lower(), val)
@@ -76,9 +84,9 @@ class AppSettings:  # pylint: disable=too-many-instance-attributes disable=too-f
         return urlunparse((parsed.scheme, netloc, CLOUD_AGENT_URL_POSTFIX, "", "", ""))
 
 
-def configure_app(provider_name: str) -> AppSettings:
+def configure_app(**kwargs: dict[str, Any]) -> AppSettings:
     try:
-        settings = AppSettings(provider_name)
+        settings = AppSettings(**kwargs)
     except (FileNotFoundError, OSError, json.decoder.JSONDecodeError):
         return 6  # systemd status=6/NOTCONFIGURED
 
