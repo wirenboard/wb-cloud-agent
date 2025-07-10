@@ -13,10 +13,10 @@ def make_start_up_request(settings: AppSettings, mqtt: MQTTCloudAgent):
     status_data, http_status = do_curl(settings=settings, method="get", endpoint="agent-start-up/")
     if http_status != status.OK:
         logging.debug("http_status=%s status_data=%s", http_status, status_data)
-        raise ValueError("Not a 200 status while making start up request: " + str(http_status))
+        raise ValueError(f"Not a {status.OK} status while making start up request: {http_status}")
 
     if "activated" not in status_data or "activationLink" not in status_data:
-        raise ValueError("Invalid response data while making start up request: " + str(status_data))
+        raise ValueError(f"Invalid response data while making start up request: {status_data}")
 
     activated = status_data["activated"]
     activation_link = status_data["activationLink"]
@@ -37,7 +37,7 @@ def send_agent_version(settings: AppSettings):
         params={"agent_version": package_version},
     )
     if http_status != status.OK:
-        logging.error("Not a 200 status while making send_agent_version request: %s", http_status)
+        logging.error("Not a %s status while making send_agent_version request: %s", status.OK, http_status)
 
 
 def on_message(userdata: dict, message):
@@ -48,4 +48,4 @@ def on_message(userdata: dict, message):
         params={"hardware_revision": str(message.payload, "utf-8")},
     )
     if http_status != status.OK:
-        raise ValueError("Not a 200 status while making start up request: " + str(http_status))
+        raise ValueError(f"Not a {status.OK} status while making start up request: {http_status}")

@@ -3,6 +3,7 @@ import threading
 from wb.cloud_agent.constants import (
     APP_DATA_PROVIDERS_DIR,
     PROVIDERS_CONF_DIR,
+    UNBIND_CTRL_REQUEST_TIMEOUT,
     UNKNOWN_LINK,
 )
 from wb.cloud_agent.handlers.events import event_delete_controller
@@ -26,6 +27,6 @@ def stop_services_and_del_configs(settings: AppSettings, provider_name: str) -> 
     delete_provider_config(APP_DATA_PROVIDERS_DIR, provider_name)
 
     if activation_link == UNKNOWN_LINK:
-        thread.join(timeout=8)
+        thread.join(timeout=UNBIND_CTRL_REQUEST_TIMEOUT + 1)
 
     print(f"Provider {provider_name} successfully deleted")

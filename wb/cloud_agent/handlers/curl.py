@@ -77,7 +77,7 @@ def do_curl(
     decoded_result = result.stdout.decode("utf-8")
     split_result = decoded_result.split(data_delimiter)
     if len(split_result) != 2:
-        raise ValueError("Invalid data in response: " + str(split_result))
+        raise ValueError(f"Invalid data in response: {split_result}")
 
     try:
         data = json.loads(split_result[0])

@@ -55,7 +55,7 @@ def add_on_premise_provider(options) -> int:
 
 
 def del_provider(options) -> int:
-    provider_name = options.provider_name
+    provider_name = urlparse(options.provider_name).netloc or options.provider_name
     settings = configure_app(provider_name=provider_name)
 
     mqtt = MQTTCloudAgent(settings, on_message)
