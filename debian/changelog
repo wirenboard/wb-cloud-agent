@@ -6,7 +6,7 @@ wb-cloud-agent (1.6.0) stable; urgency=medium
   * Add "run-daemon" subcmd with provider name positional arg and `--broker` flag
   * Add table report about existing providers for command "wb-cloud-agent"
 
- -- Arseniy Astafev <arseniy.astafev@wirenboard.com>  Wed, 03 July 2025 12:00:00 +0300
+ -- Arseniy Astafev <arseniy.astafev@wirenboard.com>  Wed, 03 Jul 2025 12:00:00 +0300
 
 wb-cloud-agent (1.5.14) stable; urgency=medium
 
