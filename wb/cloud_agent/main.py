@@ -6,6 +6,7 @@ from wb.cloud_agent.commands import (
     add_on_premise_provider,
     add_provider,
     del_all_providers,
+    del_controller_from_cloud,
     del_provider,
     run_daemon,
     show_providers,
@@ -32,7 +33,7 @@ def parse_args() -> Namespace:
     add_provider_parser.set_defaults(func=add_provider)
 
     add_on_premise_provider_parser = subparsers.add_parser(
-        "use-on-premise", help="Add new cloud service provider"
+        "use-on-premise", help="Delete all cloud service providers and then add new cloud service provider"
     )
     add_on_premise_provider_parser.add_argument(
         "base_url",
@@ -55,6 +56,16 @@ def parse_args() -> Namespace:
         "del-all-providers", help="Delete all cloud service providers"
     )
     del_all_providers_parser.set_defaults(func=del_all_providers)
+
+    del_controller_from_cloud_parser = subparsers.add_parser(
+        "cloud-unbind", help="Unbind controller from cloud"
+    )
+    del_controller_from_cloud_parser.add_argument(
+        "base_url",
+        type=validate_url,
+        help="Cloud Provider base URL, e.g. https://wirenboard.cloud",
+    )
+    del_controller_from_cloud_parser.set_defaults(func=del_controller_from_cloud)
 
     run_daemon_parser = subparsers.add_parser("run-daemon", help="Run cloud agent in daemon mode")
     run_daemon_parser.add_argument(

@@ -1,6 +1,7 @@
 import logging
 from http import HTTPStatus as status
 
+from wb.cloud_agent.constants import UNBIND_CTRL_REQUEST_TIMEOUT
 from wb.cloud_agent.handlers.curl import do_curl
 from wb.cloud_agent.mqtt import MQTTCloudAgent
 from wb.cloud_agent.services.activation import update_activation_link
@@ -25,7 +26,7 @@ def make_event_request(settings: AppSettings, mqtt: MQTTCloudAgent):
         return
 
     if http_status != status.OK:
-        raise ValueError(f"Not a 200 status while retrieving event: {http_status}")
+        raise ValueError(f"Not a {status.OK} status while retrieving event: {http_status}")
 
     code = event_data.get("code", "")
     handler = HANDLERS.get(code)
@@ -53,4 +54,36 @@ def event_confirm(settings: AppSettings, event_id: str) -> None:
         settings=settings, method="post", endpoint="events/" + event_id + "/confirm/"
     )
     if http_status != status.NO_CONTENT:
-        raise ValueError("Not a 204 status on event confirmation: " + str(http_status))
+        raise ValueError(f"Not a {status.NO_CONTENT} status on event confirmation: {http_status}")
+
+
+def event_delete_controller(settings: AppSettings) -> int:
+    retry_opts = (
+        "--connect-timeout",
+        str(UNBIND_CTRL_REQUEST_TIMEOUT - 1),
+        "--retry",
+        "0",
+        "--max-time",
+        str(UNBIND_CTRL_REQUEST_TIMEOUT),
+    )
+    try:
+        _event_data, http_status = do_curl(
+            settings=settings, method="delete", endpoint="delete-controller/", retry_opts=retry_opts
+        )
+    except Exception as exc:  # pylint: disable=W0718
+        logging.warning(
+            "Warning: The controller on the remote server could not be detached due to network problems.\n"
+            "Unbind it manually using the command: 'wb-cloud-agent cloud-unbind %s'",
+            settings.cloud_base_url,
+        )
+        logging.debug("Error while sending delete-controller event: %s", exc)
+        return 1
+
+    if http_status != status.NO_CONTENT:
+        logging.error(
+            "Not a %s status while making event_delete_controller request: %s", status.NO_CONTENT, http_status
+        )
+        return 1
+
+    logging.info("Controller has been successfully detached from: %s", settings.cloud_base_url)
+    return 0

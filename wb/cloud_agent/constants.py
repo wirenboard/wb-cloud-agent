@@ -13,3 +13,5 @@ CLIENT_CERT_ERROR_MSG = (
     "Cert {cert_file} and key {cert_engine_key} "
     "seem to be inconsistent (possibly because of CPU board missmatch)!"
 )
+
+UNBIND_CTRL_REQUEST_TIMEOUT = 7

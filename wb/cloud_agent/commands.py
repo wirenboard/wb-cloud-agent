@@ -4,7 +4,7 @@ import time
 from contextlib import ExitStack
 from urllib.parse import urlparse
 
-from wb.cloud_agent.handlers.events import make_event_request
+from wb.cloud_agent.handlers.events import event_delete_controller, make_event_request
 from wb.cloud_agent.handlers.startup import (
     make_start_up_request,
     on_message,
@@ -31,7 +31,7 @@ def show_providers(_options) -> int:
 
 def add_provider(options) -> int:
     provider_name = options.name or urlparse(options.base_url).netloc
-    settings = configure_app(provider_name)
+    settings = configure_app(provider_name=provider_name)
 
     mqtt = MQTTCloudAgent(settings, on_message)
     mqtt.start()
@@ -55,8 +55,8 @@ def add_on_premise_provider(options) -> int:
 
 
 def del_provider(options) -> int:
-    provider_name = options.provider_name
-    settings = configure_app(provider_name)
+    provider_name = urlparse(options.provider_name).netloc or options.provider_name
+    settings = configure_app(provider_name=provider_name)
 
     mqtt = MQTTCloudAgent(settings, on_message)
     mqtt.start()
@@ -66,7 +66,7 @@ def del_provider(options) -> int:
         print(f"Provider {provider_name} does not exists")
         return 1
 
-    stop_services_and_del_configs(provider_name)
+    stop_services_and_del_configs(settings, provider_name)
     mqtt.update_providers_list()
     return 0
 
@@ -79,18 +79,23 @@ def del_all_providers(_options, show_msg: bool = True) -> int:
         return 1
 
     for provider_name in providers:
-        settings = configure_app(provider_name)
+        settings = configure_app(provider_name=provider_name)
 
         mqtt = MQTTCloudAgent(settings, on_message)
         mqtt.start()
 
-        stop_services_and_del_configs(provider_name)
+        stop_services_and_del_configs(settings, provider_name)
         mqtt.update_providers_list()
     return 0
 
 
-def run_daemon(options) -> None:
-    settings = configure_app(options.provider_name)
+def del_controller_from_cloud(options) -> int:
+    settings = configure_app(provider_name="", skip_conf_file=True, cloud_base_url=options.base_url)
+    return event_delete_controller(settings)
+
+
+def run_daemon(options) -> int:
+    settings = configure_app(provider_name=options.provider_name)
 
     settings.broker_url = options.broker or settings.broker_url
 
@@ -100,8 +105,12 @@ def run_daemon(options) -> None:
     except Exception as ex:  # pylint:disable=broad-exception-caught
         logging.error("Error starting MQTT client: %s", ex)
 
-    make_start_up_request(settings, mqtt)
-    send_agent_version(settings)
+    try:
+        make_start_up_request(settings, mqtt)
+        send_agent_version(settings)
+    except RuntimeError as exc:
+        logging.error(exc)
+        return 1
 
     mqtt.update_providers_list()
     mqtt.publish_vdev()

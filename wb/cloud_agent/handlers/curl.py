@@ -1,5 +1,7 @@
 import json
+import logging
 import subprocess
+from collections.abc import Iterable
 from typing import Optional
 
 from wb.cloud_agent.constants import CLIENT_CERT_ERROR_MSG
@@ -7,14 +9,18 @@ from wb.cloud_agent.settings import AppSettings
 
 
 def do_curl(
-    settings: AppSettings, method: str = "get", endpoint: str = "", params: Optional[dict] = None
+    settings: AppSettings,
+    method: str = "get",
+    endpoint: str = "",
+    params: Optional[dict] = None,
+    retry_opts: Optional[Iterable[str]] = None,
 ) -> tuple[dict, int]:
     data_delimiter = "|||"
     output_format = data_delimiter + '{"code":"%{response_code}"}'
 
     if method == "get":
         command = ["curl"]
-    elif method in ("post", "put"):
+    elif method in ("post", "put", "delete"):
         command = ["curl", "-X", method.upper()]
         if params:
             command += ["-H", "Content-Type: application/json", "-d", json.dumps(params)]
@@ -25,14 +31,19 @@ def do_curl(
 
     url = settings.cloud_agent_url + endpoint
 
+    if not retry_opts:
+        retry_opts = [
+            "--connect-timeout",
+            "45",
+            "--retry",
+            "8",
+            "--retry-delay",
+            "1",
+            "--retry-all-errors",
+        ]
+
     command += [
-        "--connect-timeout",
-        "45",
-        "--retry",
-        "8",
-        "--retry-delay",
-        "1",
-        "--retry-all-errors",
+        *retry_opts,
         "--cert",
         settings.client_cert_file,
         "--key",
@@ -55,12 +66,18 @@ def do_curl(
                     cert_file=settings.client_cert_file, cert_engine_key=settings.client_cert_engine_key
                 )
             ) from e
+        if e.returncode == 6:
+            logging.debug(e)
+            raise RuntimeError(
+                f"{endpoint} Error. Curl couldnt find the IP address "
+                f"by domain name: {settings.cloud_base_url}"
+            ) from e
         raise e
 
     decoded_result = result.stdout.decode("utf-8")
     split_result = decoded_result.split(data_delimiter)
     if len(split_result) != 2:
-        raise ValueError("Invalid data in response: " + str(split_result))
+        raise ValueError(f"Invalid data in response: {split_result}")
 
     try:
         data = json.loads(split_result[0])

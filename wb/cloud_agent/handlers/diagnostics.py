@@ -14,7 +14,7 @@ def upload_diagnostic(settings: AppSettings) -> None:
             settings=settings, method="put", endpoint="diagnostic-status/", params={"status": "error"}
         )
         if http_status != status.OK:
-            logging.error("Not a 200 status while updating diagnostic status: %s", http_status)
+            logging.error("Not a %s status while updating diagnostic status: %s", status.OK, http_status)
         return
 
     last_diagnostic = files[-1]
@@ -24,6 +24,6 @@ def upload_diagnostic(settings: AppSettings) -> None:
         settings=settings, method="multipart-post", endpoint="upload-diagnostic/", params=last_diagnostic
     )
     if http_status != status.OK:
-        logging.error("Not a 200 status while making upload_diagnostic request: %s", http_status)
+        logging.error("Not a %s status while making upload_diagnostic request: %s", status.OK, http_status)
 
     last_diagnostic.unlink()
