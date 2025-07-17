@@ -33,6 +33,9 @@ if [ "$1" = "configure" ]; then
     fi
 fi
 
-grep -qF "+update-from-cloud " /var/lib/wb-image-update/firmware-compatible || echo -n "+update-from-cloud " >> /var/lib/wb-image-update/firmware-compatible
+if [[ -e "/usr/sbin/policy-rc.d" ]] && [[ "$(cat /usr/sbin/policy-rc.d)" == "exit 101" ]]; then
+    echo "rootfs building mode, append +update-from-cloud to firmware-compatible"
+    grep -qF "+update-from-cloud " /var/lib/wb-image-update/firmware-compatible || echo -n "+update-from-cloud " >> /var/lib/wb-image-update/firmware-compatible
+fi
 
 #DEBHELPER#

@@ -1,3 +1,9 @@
+wb-cloud-agent (1.6.2) stable; urgency=medium
+
+  * Fix postinst script
+
+ -- Nikolay Korotkiy <nikolay.korotkiy@wirenboard.com>  Wed, 16 Jul 2025 15:10:00 +0400
+
 wb-cloud-agent (1.6.1) stable; urgency=medium
 
   * Add ability to remove controller from cloud when provider is deleted
