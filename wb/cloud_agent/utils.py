@@ -93,3 +93,12 @@ def show_providers_table(providers: list["Provider"]) -> None:
     table = [[p.name, p.display_url] for p in providers]
     headers = ["Provider", "Controller Url / Activation Url"]
     print(tabulate(table, headers=headers, tablefmt="github"))
+
+
+def parse_headers(header_section: str) -> dict[str, str]:
+    headers = {}
+    for line in header_section.splitlines():
+        if ":" in line:
+            name, value = line.split(":", 1)
+            headers[name.strip()] = value.strip()
+    return headers
