@@ -1,3 +1,9 @@
+wb-cloud-agent (1.6.3) stable; urgency=medium
+
+  * Add dynamic poll interval by header
+
+ -- Arseniy Astafev <arseniy.astafev@wirenboard.com>  Fri, 18 Jul 2025 17:00:00 +0300
+
 wb-cloud-agent (1.6.2) stable; urgency=medium
 
   * Fix postinst script
