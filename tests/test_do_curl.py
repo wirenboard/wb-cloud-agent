@@ -39,14 +39,14 @@ def test_handle_curl_output_with_poll_interval(settings):
 
     x_poll_interval = 42
     headers = (
-        "HTTP/1.1 200 OK\r\n"
+        f"HTTP/1.1 {status.OK} OK\r\n"
         "Content-Type: application/json\r\n"
         f"x-poll-interval: {x_poll_interval}\r\n"
         "\r\n"
     )
     input_data = {"result": "ok"}
     body = json.dumps(input_data)
-    meta = json.dumps({"code": "200"})
+    meta = json.dumps({"code": f"{status.OK}"})
     stdout = (headers + body + "|||" + meta).encode("utf-8")
 
     output_data, status_code = handle_curl_output(settings, stdout)
@@ -59,10 +59,10 @@ def test_handle_curl_output_with_poll_interval(settings):
 def test_handle_curl_output_without_poll_interval(settings):
     request_period_seconds = settings.request_period_seconds
 
-    headers = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n"
+    headers = f"HTTP/1.1 {status.OK} OK\r\nContent-Type: application/json\r\n\r\n"
     input_data = {"msg": "no poll header"}
     body = json.dumps(input_data)
-    meta = json.dumps({"code": "200"})
+    meta = json.dumps({"code": f"{status.OK}"})
     stdout = (headers + body + "|||" + meta).encode("utf-8")
 
     output_data, status_code = handle_curl_output(settings, stdout)
@@ -73,20 +73,20 @@ def test_handle_curl_output_without_poll_interval(settings):
 
 
 def test_handle_curl_output_invalid_json(settings):
-    headers = "HTTP/1.1 200 OK\r\n\r\n"
+    headers = f"HTTP/1.1 {status.OK} OK\r\n\r\n"
     body = "not-json"
-    meta = json.dumps({"code": "200"})
+    meta = json.dumps({"code": f"{status.OK}"})
     stdout = (headers + body + "|||" + meta).encode("utf-8")
 
     output_data, status_code = handle_curl_output(settings, stdout)
 
     assert output_data == {}  # fallback
-    assert status_code == 200
+    assert status_code == status.OK
 
 
 def test_handle_curl_output_malformed_split_raises(settings):
     bad_output = (
-        "HTTP/1.1 200 OK\r\n"
+        f"HTTP/1.1 {status.OK} OK\r\n"
         "\r\n"
         '{"data": true}'  # no DATA_DELIMITER present
     ).encode(
