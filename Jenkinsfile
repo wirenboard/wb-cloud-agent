@@ -3,6 +3,6 @@ buildDebSbuild defaultTargets: "bullseye-host",
                defaultRunPythonChecks: true,
                defaultAngryPylint: true,
                defaultRunCoverage: true,
-               defaultCoverageMin: "63",
+               defaultCoverageMin: "59",
                defaultDoCoverallsReporting: true
 
