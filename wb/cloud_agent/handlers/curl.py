@@ -6,6 +6,9 @@ from typing import Optional
 
 from wb.cloud_agent.constants import CLIENT_CERT_ERROR_MSG
 from wb.cloud_agent.settings import AppSettings
+from wb.cloud_agent.utils import parse_headers
+
+DATA_DELIMITER = "|||"
 
 
 def do_curl(
@@ -15,8 +18,7 @@ def do_curl(
     params: Optional[dict] = None,
     retry_opts: Optional[Iterable[str]] = None,
 ) -> tuple[dict, int]:
-    data_delimiter = "|||"
-    output_format = data_delimiter + '{"code":"%{response_code}"}'
+    output_format = DATA_DELIMITER + '{"code":"%{response_code}"}'
 
     if method == "get":
         command = ["curl"]
@@ -28,8 +30,6 @@ def do_curl(
         command = ["curl", "-X", "POST", "-F", f"file=@{params}"]
     else:
         raise ValueError("Invalid method: " + method)
-
-    url = settings.cloud_agent_url + endpoint
 
     if not retry_opts:
         retry_opts = [
@@ -52,9 +52,11 @@ def do_curl(
         "ateccx08",
         "--key-type",
         "ENG",
+        "-D",  # Capturing headers in stdout
+        "-",
         "-w",
         output_format,
-        url,
+        settings.cloud_agent_url + endpoint,
     ]
 
     try:
@@ -74,8 +76,22 @@ def do_curl(
             ) from e
         raise e
 
-    decoded_result = result.stdout.decode("utf-8")
-    split_result = decoded_result.split(data_delimiter)
+    return handle_curl_output(settings, result.stdout)
+
+
+def handle_curl_output(settings: AppSettings, stdout: bytes) -> tuple[dict, int]:
+    decoded_output = stdout.decode("utf-8")
+
+    header_section, decoded_result = decoded_output.split("\r\n\r\n", 1)
+
+    response_headers = parse_headers(header_section)
+    poll_interval = int(response_headers.get("x-poll-interval", settings.request_period_seconds))
+
+    if poll_interval != settings.request_period_seconds:
+        settings.request_period_seconds = poll_interval
+        logging.debug("A new poll interval has been set: %s", settings.request_period_seconds)
+
+    split_result = decoded_result.split(DATA_DELIMITER)
     if len(split_result) != 2:
         raise ValueError(f"Invalid data in response: {split_result}")
 
