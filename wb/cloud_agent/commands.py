@@ -3,6 +3,7 @@ import subprocess
 import time
 from contextlib import ExitStack
 from urllib.parse import urlparse
+
 from wb.cloud_agent.handlers.events import event_delete_controller, make_event_request
 from wb.cloud_agent.handlers.startup import (
     make_start_up_request,
