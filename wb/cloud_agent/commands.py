@@ -3,7 +3,6 @@ import subprocess
 import time
 from contextlib import ExitStack
 from urllib.parse import urlparse
-
 from wb.cloud_agent.handlers.events import event_delete_controller, make_event_request
 from wb.cloud_agent.handlers.startup import (
     make_start_up_request,
@@ -33,8 +32,11 @@ def add_provider(options) -> int:
     provider_name = options.name or urlparse(options.base_url).netloc
     settings = configure_app(provider_name=provider_name)
 
-    mqtt = MQTTCloudAgent(settings, on_message)
-    mqtt.start()
+    try:
+        mqtt = MQTTCloudAgent(settings, on_message)
+        mqtt.start()
+    except (FileNotFoundError, ConnectionError) as exc:
+        logging.error("Error starting MQTT client: %s", exc)
 
     providers = get_provider_names()
     if provider_name in providers:
@@ -43,7 +45,11 @@ def add_provider(options) -> int:
 
     generate_provider_config(provider_name, options.base_url)
     start_and_enable_service(f"wb-cloud-agent@{provider_name}.service")
-    mqtt.update_providers_list()
+
+    try:
+        mqtt.update_providers_list()
+    except (FileNotFoundError, ConnectionError) as exc:
+        logging.error("Error publish MQTT providers: %s", exc)
 
     print(f"Provider {provider_name} successfully added")
     return 0
