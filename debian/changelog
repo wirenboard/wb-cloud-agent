@@ -1,3 +1,10 @@
+wb-cloud-agent (1.6.5) stable; urgency=medium
+
+  * Fix bug with ConnectionError to mqtt when add provider
+  * Fix postinst condition for backport version 1.6.2-wb100
+
+ -- Arseniy Astafev <arseniy.astafev@wirenboard.com>  Mon, 11 Aug 2025 19:00:00 +0300
+
 wb-cloud-agent (1.6.4) stable; urgency=medium
 
   * Fix lintian warnings
