@@ -1,3 +1,9 @@
+wb-cloud-agent (1.6.2-wb100) stable; urgency=medium
+
+  * No functional changes over v1.5.14 (just to install over possible unstable v1.6.2 in wb-2507)
+
+ -- Vladimir Romanov <v.romanov@wirenboard.com>  Mon, 11 Aug 2025 12:50:22 +0300
+
 wb-cloud-agent (1.5.14) stable; urgency=medium
 
   * Add more explicit error message on invalid certs (possibly because of wrong CPU board)
