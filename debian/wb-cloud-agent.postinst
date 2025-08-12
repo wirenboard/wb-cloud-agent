@@ -10,27 +10,39 @@ if [ "$1" = "configure" ] && dpkg --compare-versions "$2" lt "1.2.7~~"; then
     fi
 fi
 
+should_cleanup() {
+  local old="${1:-}" new="${2:-}"
+  if dpkg --compare-versions "$new" ge "1.6.0~"; then
+    if [ -z "$old" ] || dpkg --compare-versions "$old" lt "1.6.0" || [ "$old" = "1.6.2-wb100" ]; then
+      return 0
+    fi
+  fi
+  return 1
+}
+
 # If it is an update from version < 1.6.0 or from version 1.6.2-wb100 to >= 1.6.0 then
 # Cleaning deprecated service and files and add a default wirenboard.cloud provider
 # 1.6.2-wb100 is equal to 1.5.14 https://github.com/wirenboard/wb-releases/pull/986
 if [ "$1" = "configure" ]; then
-    if [ -n "$2" ] && dpkg --compare-versions "$2" lt "1.6.0" || [ -n "$2" ] && [ "$2" = "1.6.2-wb100" ]; then
+  old="${2:-}"
+  new="$(dpkg-query -W -f='${Version}' wb-cloud-agent 2>/dev/null || echo)"
+  if should_cleanup "$old" "$new"; then
 
-        echo "Cleaning up deprecated wb-cloud-agent service and files"
-        deb-systemd-invoke stop wb-cloud-agent 2>/dev/null || true
-        deb-systemd-invoke disable wb-cloud-agent 2>/dev/null || true
-        deb-systemd-invoke stop wb-cloud-agent-telegraf 2>/dev/null || true
-        deb-systemd-invoke disable wb-cloud-agent-telegraf 2>/dev/null || true
-        deb-systemd-invoke stop wb-cloud-agent.wb-cloud-agent-frpc 2>/dev/null || true
-        deb-systemd-invoke disable wb-cloud-agent.wb-cloud-agent-frpc 2>/dev/null || true
+    echo "Cleaning up deprecated wb-cloud-agent service and files"
+    deb-systemd-invoke stop wb-cloud-agent 2>/dev/null || true
+    deb-systemd-invoke disable wb-cloud-agent 2>/dev/null || true
+    deb-systemd-invoke stop wb-cloud-agent-telegraf 2>/dev/null || true
+    deb-systemd-invoke disable wb-cloud-agent-telegraf 2>/dev/null || true
+    deb-systemd-invoke stop wb-cloud-agent.wb-cloud-agent-frpc 2>/dev/null || true
+    deb-systemd-invoke disable wb-cloud-agent.wb-cloud-agent-frpc 2>/dev/null || true
 
-        # Delete deprecated files if exists
-        rm -f /var/lib/wb-cloud-agent/telegraf.conf
-        rm -f /var/lib/wb-cloud-agent/frpc.conf
-        rm -f /var/lib/wb-cloud-agent/activation_link.conf
+    # Delete deprecated files if exists
+    rm -f /var/lib/wb-cloud-agent/telegraf.conf
+    rm -f /var/lib/wb-cloud-agent/frpc.conf
+    rm -f /var/lib/wb-cloud-agent/activation_link.conf
 
-        echo "Add default wirenboard.cloud provider"
-        wb-cloud-agent add-provider https://wirenboard.cloud || true
+    echo "Add default wirenboard.cloud provider"
+    wb-cloud-agent add-provider https://wirenboard.cloud || true
     fi
 fi
 
