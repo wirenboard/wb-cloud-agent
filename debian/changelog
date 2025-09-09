@@ -1,3 +1,9 @@
+wb-cloud-agent (1.6.6) stable; urgency=medium
+
+  * Fix postrm script
+
+ -- Nikolay Korotkiy <nikolay.korotkiy@wirenboard.com>  Tue, 09 Sep 2025 15:00:00 +0400
+
 wb-cloud-agent (1.6.5) stable; urgency=medium
 
   * Fix bug with ConnectionError to mqtt when add provider
