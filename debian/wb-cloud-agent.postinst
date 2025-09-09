@@ -43,7 +43,7 @@ if [ "$1" = "configure" ]; then
 
     echo "Add default wirenboard.cloud provider"
     wb-cloud-agent add-provider https://wirenboard.cloud || true
-    fi
+  fi
 fi
 
 if [[ -e "/usr/sbin/policy-rc.d" ]] && [[ "$(cat /usr/sbin/policy-rc.d)" == "exit 101" ]]; then

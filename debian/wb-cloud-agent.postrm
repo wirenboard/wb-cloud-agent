@@ -7,12 +7,16 @@ if [ -L /etc/nginx/sites-enabled/wb-cloud-agent ]; then
 fi
 
 if [ "$1" = "remove" ]; then
-    echo "Removing wb-cloud-agent devices from MQTT"
-    mqtt-delete-retained "/wb-cloud-agent/#" >/dev/null 2>/dev/null
-    mqtt-delete-retained "/devices/system__wb-cloud-agent__default/#" >/dev/null 2>/dev/null
-    for provider in $(ls /etc/wb-cloud-agent/providers); do
-        mqtt-delete-retained "/devices/system__wb-cloud-agent__$provider/#" >/dev/null 2>/dev/null
-    done
+    if [[ -e "/usr/sbin/policy-rc.d" ]] && [[ "$(cat /usr/sbin/policy-rc.d)" == "exit 101" ]]; then
+        echo "rootfs building mode, skip removing wb-cloud-agent devices from MQTT"
+    else
+        echo "Removing wb-cloud-agent devices from MQTT"
+        mqtt-delete-retained "/wb-cloud-agent/#" >/dev/null 2>/dev/null
+        mqtt-delete-retained "/devices/system__wb-cloud-agent__default/#" >/dev/null 2>/dev/null
+        for provider in $(ls /etc/wb-cloud-agent/providers); do
+            mqtt-delete-retained "/devices/system__wb-cloud-agent__$provider/#" >/dev/null 2>/dev/null
+        done
+    fi
 fi
 
 if [ "$1" = "purge" ]; then
