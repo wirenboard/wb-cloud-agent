@@ -116,7 +116,7 @@ def run_daemon(options) -> None:
         try:
             make_start_up_request(settings, mqtt)
             send_agent_version(settings)
-            logging.info("Startup request completed successfully")
+            logging.debug("Startup request completed successfully")
             break
         except Exception as exc:  # pylint:disable=broad-exception-caught
             logging.error("Error making start up request: %s", exc)
