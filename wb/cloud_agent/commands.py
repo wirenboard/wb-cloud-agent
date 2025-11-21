@@ -2,6 +2,7 @@ import logging
 import subprocess
 import time
 from contextlib import ExitStack
+from typing import NoReturn, Never
 from urllib.parse import urlparse
 
 from wb.cloud_agent.handlers.events import event_delete_controller, make_event_request
@@ -101,7 +102,7 @@ def del_controller_from_cloud(options) -> int:
     return event_delete_controller(settings)
 
 
-def run_daemon(options) -> int:
+def run_daemon(options) -> None:
     settings = configure_app(provider_name=options.provider_name)
 
     settings.broker_url = options.broker or settings.broker_url
@@ -112,12 +113,14 @@ def run_daemon(options) -> int:
     except Exception as ex:  # pylint:disable=broad-exception-caught
         logging.error("Error starting MQTT client: %s", ex)
 
-    try:
-        make_start_up_request(settings, mqtt)
-        send_agent_version(settings)
-    except RuntimeError as exc:
-        logging.error(exc)
-        return 1
+    while True:
+        try:
+            make_start_up_request(settings, mqtt)
+            send_agent_version(settings)
+            break
+        except Exception as exc:  # pylint:disable=broad-exception-caught
+            logging.error("Error making start up request: %s", exc)
+            time.sleep(settings.request_period_seconds)
 
     mqtt.update_providers_list()
     mqtt.publish_vdev()
