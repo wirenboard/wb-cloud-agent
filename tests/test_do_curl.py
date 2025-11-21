@@ -8,6 +8,26 @@ from wb.cloud_agent.constants import CLIENT_CERT_ERROR_MSG
 from wb.cloud_agent.handlers.curl import do_curl, handle_curl_output
 
 
+def test_do_curl_success_response(mock_subprocess_run, settings):
+    headers = "HTTP/1.1 200 OK\r\n\r\n"
+    body = '{"result": "success"}'
+    meta = '{"code": "200"}'
+    stdout = (headers + body + "|||" + meta).encode("utf-8")
+
+    mock_subprocess_run.return_value.returncode = 0
+    mock_subprocess_run.return_value.stdout = stdout
+
+    data, code = do_curl(settings)
+
+    assert data == {"result": "success"}
+    assert code == 200
+
+
+def test_do_curl_invalid_method(settings):
+    with pytest.raises(ValueError, match="Invalid method"):
+        do_curl(settings, method="invalid")
+
+
 def test_do_curl_certs_error(mock_subprocess_run, settings):
     mock_subprocess_run.side_effect = CalledProcessError(
         returncode=58, cmd=["curl"], output=b"", stderr=b"some low-level curl error"
