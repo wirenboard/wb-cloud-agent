@@ -2,7 +2,6 @@ import logging
 import subprocess
 import time
 from contextlib import ExitStack
-from typing import NoReturn, Never
 from urllib.parse import urlparse
 
 from wb.cloud_agent.handlers.events import event_delete_controller, make_event_request
