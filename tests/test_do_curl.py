@@ -106,8 +106,12 @@ def test_handle_curl_output_invalid_json(settings):
 
 def test_handle_curl_output_malformed_split_raises(settings):
     bad_output = (
-        f'HTTP/1.1 {status.OK} OK\r\n\r\n{{"data": true}}'  # no DATA_DELIMITER present
-    ).encode()
+        f"HTTP/1.1 {status.OK} OK\r\n"
+        "\r\n"
+        '{"data": true}'  # no DATA_DELIMITER present
+    ).encode(
+        "utf-8"
+    )
 
     with pytest.raises(ValueError, match="Invalid data in response"):
         handle_curl_output(settings, bad_output)

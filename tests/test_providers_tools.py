@@ -39,7 +39,9 @@ def example_configs():
     }
 
 
-def test_load_providers_data_with_mocks(example_configs: dict,):  # pylint: disable=redefined-outer-name
+def test_load_providers_data_with_mocks(
+        example_configs: dict,
+):  # pylint: disable=redefined-outer-name
     provider_names = list(example_configs.keys())
 
     path_to_content = {
