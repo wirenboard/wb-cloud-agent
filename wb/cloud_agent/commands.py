@@ -2,6 +2,7 @@ import logging
 import subprocess
 import time
 from contextlib import ExitStack
+from typing import Optional
 from urllib.parse import urlparse
 
 from wb.cloud_agent.handlers.events import event_delete_controller, make_event_request
@@ -102,11 +103,15 @@ def del_controller_from_cloud(options) -> int:
     return event_delete_controller(settings)
 
 
-def run_daemon(options) -> int | None:
+def run_daemon(options) -> Optional[int]:
     settings = configure_app(provider_name=options.provider_name)
     settings.broker_url = options.broker or settings.broker_url
 
     cloud_host = urlparse(settings.cloud_base_url).hostname
+    if cloud_host is None:
+        logging.error("Cannot parse cloud host from URL: %s", settings.cloud_base_url)
+        return 1
+
     wait_for_ping(cloud_host, period=settings.request_period_seconds)
 
     mqtt = MQTTCloudAgent(settings, on_message)
