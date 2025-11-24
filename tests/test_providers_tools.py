@@ -1,11 +1,8 @@
-# pylint: disable=unused-argument
-
 import json
 from pathlib import Path
 from unittest.mock import MagicMock, mock_open, patch
 
 import pytest
-
 from wb.cloud_agent.constants import NOCONNECT_LINK
 from wb.cloud_agent.settings import (
     PROVIDERS_CONF_DIR,
@@ -42,7 +39,7 @@ def example_configs():
     }
 
 
-def test_load_providers_data_with_mocks(example_configs: dict):  # pylint: disable=redefined-outer-name
+def test_load_providers_data_with_mocks(example_configs: dict,):  # pylint: disable=redefined-outer-name
     provider_names = list(example_configs.keys())
 
     path_to_content = {
@@ -65,4 +62,7 @@ def test_load_providers_data_with_mocks(example_configs: dict):  # pylint: disab
         providers = load_providers_data(provider_names)
 
     assert {provider.name: provider.config for provider in providers} == example_configs
-    assert [provider.activation_link for provider in providers] == [NOCONNECT_LINK, NOCONNECT_LINK]
+    assert [provider.activation_link for provider in providers] == [
+        NOCONNECT_LINK,
+        NOCONNECT_LINK,
+    ]
