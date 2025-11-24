@@ -2,6 +2,7 @@ import json
 from unittest.mock import MagicMock
 
 import pytest
+
 from wb.cloud_agent.settings import AppSettings
 from wb.cloud_agent.utils import (
     get_controller_url,

@@ -1,4 +1,5 @@
 import pytest
+
 from wb.cloud_agent.main import parse_args
 
 

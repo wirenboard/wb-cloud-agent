@@ -2,6 +2,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+
 from wb.cloud_agent.constants import UNKNOWN_LINK
 from wb.cloud_agent.services.activation import (
     read_activation_link,

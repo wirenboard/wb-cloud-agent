@@ -1,6 +1,7 @@
 from unittest.mock import patch
 
 import pytest
+
 from wb.cloud_agent.main import main, validate_url
 
 

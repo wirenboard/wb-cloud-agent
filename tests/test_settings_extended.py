@@ -3,6 +3,7 @@ import logging
 from unittest.mock import MagicMock, patch
 
 import pytest
+
 from wb.cloud_agent.settings import (
     AppSettings,
     Provider,

@@ -3,6 +3,7 @@ from http import HTTPStatus as status
 from subprocess import CalledProcessError
 
 import pytest
+
 from wb.cloud_agent.constants import CLIENT_CERT_ERROR_MSG
 from wb.cloud_agent.handlers.curl import do_curl, handle_curl_output
 

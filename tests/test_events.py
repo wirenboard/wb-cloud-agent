@@ -2,6 +2,7 @@ from http import HTTPStatus as status
 from unittest.mock import MagicMock, patch
 
 import pytest
+
 from wb.cloud_agent.handlers.events import (
     event_confirm,
     event_delete_controller,

@@ -1,6 +1,7 @@
 from unittest.mock import MagicMock, call, patch
 
 import pytest
+
 from wb.cloud_agent.mqtt import MQTTCloudAgent
 
 

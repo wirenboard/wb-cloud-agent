@@ -2,6 +2,7 @@ from http import HTTPStatus as status
 from unittest.mock import MagicMock, patch
 
 import pytest
+
 from wb.cloud_agent.handlers.startup import (
     make_start_up_request,
     on_message,

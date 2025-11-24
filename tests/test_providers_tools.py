@@ -3,6 +3,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, mock_open, patch
 
 import pytest
+
 from wb.cloud_agent.constants import NOCONNECT_LINK
 from wb.cloud_agent.settings import (
     PROVIDERS_CONF_DIR,

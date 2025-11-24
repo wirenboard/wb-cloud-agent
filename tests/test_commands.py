@@ -2,6 +2,7 @@ from argparse import Namespace
 from unittest.mock import MagicMock, patch
 
 import pytest
+
 from wb.cloud_agent.commands import (
     add_on_premise_provider,
     add_provider,
