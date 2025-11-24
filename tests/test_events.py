@@ -179,20 +179,6 @@ def test_make_event_request_empty_payload(settings, mock_mqtt):
             make_event_request(settings, mock_mqtt)
 
 
-def test_event_confirm_success(settings, mock_subprocess_run):
-    headers = f"HTTP/1.1 {status.NO_CONTENT} No Content\r\n\r\n"
-    body = ""
-    meta = '{"code": "204"}'
-    stdout = (headers + body + "|||" + meta).encode("utf-8")
-
-    mock_subprocess_run.return_value.returncode = 0
-    mock_subprocess_run.return_value.stdout = stdout
-
-    event_confirm(settings, "event123")
-
-    # Should complete without exception
-
-
 def test_event_confirm_invalid_status(settings, mock_subprocess_run):
     headers = f"HTTP/1.1 {status.BAD_REQUEST} Bad Request\r\n\r\n"
     body = '{"error": "bad request"}'

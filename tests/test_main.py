@@ -1,3 +1,4 @@
+from argparse import ArgumentTypeError
 from unittest.mock import patch
 
 import pytest
@@ -16,8 +17,6 @@ def test_validate_url_valid_http():
 
 
 def test_validate_url_invalid_scheme():
-    from argparse import ArgumentTypeError
-
     with pytest.raises(ArgumentTypeError, match="Invalid URL"):
         validate_url("ftp://example.com")
 

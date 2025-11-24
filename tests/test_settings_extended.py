@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from wb.cloud_agent.constants import NOCONNECT_LINK
 from wb.cloud_agent.settings import (
     AppSettings,
     Provider,
@@ -202,8 +203,6 @@ def test_provider_display_url_with_http_link():
 
 
 def test_provider_display_url_with_noconnect():
-    from wb.cloud_agent.constants import NOCONNECT_LINK
-
     provider = Provider(
         name="test",
         config={"CLOUD_BASE_URL": "https://example.com"},
@@ -273,8 +272,6 @@ def test_load_providers_data_no_activation_link(tmp_path):
         patch("wb.cloud_agent.settings.APP_DATA_PROVIDERS_DIR", str(providers_data_dir)),
     ):
         result = load_providers_data(["provider1"])
-
-        from wb.cloud_agent.constants import NOCONNECT_LINK
 
         assert result[0].activation_link == NOCONNECT_LINK
 

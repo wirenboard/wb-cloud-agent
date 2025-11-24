@@ -1,3 +1,4 @@
+import time
 from unittest.mock import patch
 
 from wb.cloud_agent.constants import UNKNOWN_LINK
@@ -71,9 +72,7 @@ def test_stop_services_and_del_configs_thread_timeout(settings, tmp_path):
 
     provider_name = "test_provider"
 
-    def slow_delete_controller(settings):
-        import time
-
+    def slow_delete_controller(_):
         time.sleep(0.1)
         return 0
 
