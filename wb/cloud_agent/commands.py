@@ -5,6 +5,7 @@ from contextlib import ExitStack
 from urllib.parse import urlparse
 
 from wb.cloud_agent.handlers.events import event_delete_controller, make_event_request
+from wb.cloud_agent.handlers.ping import wait_for_ping
 from wb.cloud_agent.handlers.startup import (
     make_start_up_request,
     on_message,
@@ -101,10 +102,12 @@ def del_controller_from_cloud(options) -> int:
     return event_delete_controller(settings)
 
 
-def run_daemon(options) -> None:
+def run_daemon(options) -> int | None:
     settings = configure_app(provider_name=options.provider_name)
-
     settings.broker_url = options.broker or settings.broker_url
+
+    cloud_host = urlparse(settings.cloud_base_url).hostname
+    wait_for_ping(cloud_host, period=settings.request_period_seconds)
 
     mqtt = MQTTCloudAgent(settings, on_message)
     try:
@@ -112,15 +115,12 @@ def run_daemon(options) -> None:
     except Exception as ex:  # pylint:disable=broad-exception-caught
         logging.error("Error starting MQTT client: %s", ex)
 
-    while True:
-        try:
-            make_start_up_request(settings, mqtt)
-            send_agent_version(settings)
-            logging.debug("Startup request completed successfully")
-            break
-        except Exception as exc:  # pylint:disable=broad-exception-caught
-            logging.error("Error making start up request: %s", exc)
-            time.sleep(settings.request_period_seconds)
+    try:
+        make_start_up_request(settings, mqtt)
+        send_agent_version(settings)
+    except RuntimeError as exc:
+        logging.error("Startup request failed: %s", exc)
+        return 1
 
     mqtt.update_providers_list()
     mqtt.publish_vdev()
