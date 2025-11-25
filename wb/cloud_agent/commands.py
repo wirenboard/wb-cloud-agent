@@ -112,7 +112,9 @@ def run_daemon(options) -> Optional[int]:
         logging.error("Cannot parse cloud host from URL: %s", settings.cloud_base_url)
         return 1
 
-    wait_for_ping(cloud_host, period=settings.request_period_seconds)
+    # Function pings the cloud host until it becomes reachable or the max retries are reached.
+    if not wait_for_ping(cloud_host, settings.ping_timeout_seconds, settings.ping_max_retries):
+        return 1
 
     mqtt = MQTTCloudAgent(settings, on_message)
     try:
