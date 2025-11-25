@@ -25,6 +25,14 @@ def test_make_event_request_no_content(settings, mock_subprocess_run):
     assert result is None
 
 
+@pytest.mark.usefixtures("mock_subprocess_bad_request")
+def test_make_event_request_invalid_status(settings):
+    mock_mqtt = MagicMock()
+
+    with pytest.raises(ValueError, match="Not a 200 status while retrieving event"):
+        make_event_request(settings, mock_mqtt)
+
+
 def test_make_event_request_update_activation_link(settings):
     mock_mqtt = MagicMock()
     event_data = {
@@ -168,15 +176,8 @@ def test_make_event_request_empty_payload(settings):
             make_event_request(settings, mock_mqtt)
 
 
-def test_event_confirm_invalid_status(settings, mock_subprocess_run):
-    headers = f"HTTP/1.1 {status.BAD_REQUEST} Bad Request\r\n\r\n"
-    body = '{"error": "bad request"}'
-    meta = '{"code": "400"}'
-    stdout = (headers + body + "|||" + meta).encode("utf-8")
-
-    mock_subprocess_run.return_value.returncode = 0
-    mock_subprocess_run.return_value.stdout = stdout
-
+@pytest.mark.usefixtures("mock_subprocess_bad_request")
+def test_event_confirm_invalid_status(settings):
     with pytest.raises(ValueError, match="Not a 204 status on event confirmation"):
         event_confirm(settings, "event123")
 
@@ -203,15 +204,8 @@ def test_event_delete_controller_network_error(settings, mock_subprocess_run):
     assert result == 1
 
 
-def test_event_delete_controller_invalid_status(settings, mock_subprocess_run):
-    headers = f"HTTP/1.1 {status.BAD_REQUEST} Bad Request\r\n\r\n"
-    body = '{"error": "bad request"}'
-    meta = '{"code": "400"}'
-    stdout = (headers + body + "|||" + meta).encode("utf-8")
-
-    mock_subprocess_run.return_value.returncode = 0
-    mock_subprocess_run.return_value.stdout = stdout
-
+@pytest.mark.usefixtures("mock_subprocess_bad_request")
+def test_event_delete_controller_invalid_status(settings):
     result = event_delete_controller(settings)
 
     assert result == 1

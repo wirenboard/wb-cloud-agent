@@ -3,12 +3,12 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from wb.cloud_agent.constants import UNKNOWN_LINK
 from wb.cloud_agent.handlers.startup import (
     make_start_up_request,
     on_message,
     send_agent_version,
 )
-from wb.cloud_agent.constants import UNKNOWN_LINK
 
 
 def test_make_start_up_request_activated(settings):

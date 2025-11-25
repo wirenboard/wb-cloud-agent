@@ -14,7 +14,7 @@ from wb.cloud_agent.settings import (
 
 @patch("wb.cloud_agent.settings.Path.exists", return_value=True)
 @patch("wb.cloud_agent.settings.Path.iterdir")
-def test_get_provider_names(iterdir_mock, _): # pylint: disable=redefined-outer-name
+def test_get_provider_names(iterdir_mock, _):  # pylint: disable=redefined-outer-name
     mock_dir = MagicMock()
     mock_dir.name = "staging"
     mock_dir.is_dir.return_value = True
