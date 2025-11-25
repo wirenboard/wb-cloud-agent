@@ -9,6 +9,7 @@ def wait_for_ping(host: str, period: int = 5) -> None:
             ["ping", "-c", "1", "-W", "2", host],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
+            check=False,
         )
         if result.returncode == 0:
             logging.info("Host %s is reachable", host)

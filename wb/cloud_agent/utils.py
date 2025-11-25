@@ -48,8 +48,7 @@ def start_and_enable_service(service: str, restart: bool = False, timeout: int =
     result = subprocess.run(
         ["systemctl", "enable", service],
         check=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        capture_output=True,
         text=True,
         timeout=timeout,
     )
