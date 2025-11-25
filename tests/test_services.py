@@ -1,8 +1,6 @@
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from wb.cloud_agent.constants import UNKNOWN_LINK
 from wb.cloud_agent.services.activation import (
     read_activation_link,
@@ -12,11 +10,6 @@ from wb.cloud_agent.services.activation import (
 from wb.cloud_agent.services.diagnostics import fetch_diagnostics
 from wb.cloud_agent.services.metrics import update_metrics_config
 from wb.cloud_agent.services.tunnel import update_tunnel_config
-
-
-@pytest.fixture
-def mock_mqtt():
-    return MagicMock()
 
 
 def test_read_activation_link_exists(settings, tmp_path):
@@ -36,7 +29,8 @@ def test_read_activation_link_not_exists(settings, tmp_path):
     assert link == UNKNOWN_LINK
 
 
-def test_update_activation_link(settings, mock_mqtt):
+def test_update_activation_link(settings):
+    mock_mqtt = MagicMock()
     payload = {"activationLink": "http://example.com/new-activate"}
 
     with patch("wb.cloud_agent.services.activation.write_activation_link") as mock_write:
@@ -45,7 +39,8 @@ def test_update_activation_link(settings, mock_mqtt):
         mock_write.assert_called_once_with(settings, "http://example.com/new-activate", mock_mqtt)
 
 
-def test_write_activation_link(settings, mock_mqtt, tmp_path):
+def test_write_activation_link(settings, tmp_path):
+    mock_mqtt = MagicMock()
     settings.activation_link_config = tmp_path / "activation_link.txt"
 
     write_activation_link(settings, "http://example.com/activate", mock_mqtt)
@@ -54,7 +49,8 @@ def test_write_activation_link(settings, mock_mqtt, tmp_path):
     mock_mqtt.publish_ctrl.assert_called_once_with("activation_link", "http://example.com/activate")
 
 
-def test_update_tunnel_config(settings, mock_mqtt, tmp_path):
+def test_update_tunnel_config(settings, tmp_path):
+    mock_mqtt = MagicMock()
     settings.frp_config = tmp_path / "frpc.ini"
     settings.frp_service = "wb-cloud-agent-frpc@default.service"
 
@@ -71,7 +67,8 @@ def test_update_tunnel_config(settings, mock_mqtt, tmp_path):
         mock_write.assert_called_once_with(settings, UNKNOWN_LINK, mock_mqtt)
 
 
-def test_update_metrics_config(settings, mock_mqtt, tmp_path):
+def test_update_metrics_config(settings, tmp_path):
+    mock_mqtt = MagicMock()
     settings.telegraf_config = tmp_path / "telegraf.conf"
     settings.telegraf_service = "wb-cloud-agent-telegraf@default.service"
     settings.broker_url = "tcp://localhost:1883"
@@ -90,7 +87,8 @@ def test_update_metrics_config(settings, mock_mqtt, tmp_path):
         mock_write.assert_called_once_with(settings, UNKNOWN_LINK, mock_mqtt)
 
 
-def test_update_metrics_config_template_substitution(settings, mock_mqtt, tmp_path):
+def test_update_metrics_config_template_substitution(settings, tmp_path):
+    mock_mqtt = MagicMock()
     settings.telegraf_config = tmp_path / "telegraf.conf"
     settings.telegraf_service = "wb-cloud-agent-telegraf@default.service"
     settings.broker_url = "tcp://192.168.1.100:1883"
@@ -112,7 +110,6 @@ def test_fetch_diagnostics(settings, tmp_path):
     settings.diag_archive = tmp_path
     mock_mqtt = MagicMock()
 
-    # Create some old diagnostic files
     old_file1 = tmp_path / "diag_old1.zip"
     old_file1.write_text("old data")
     old_file2 = tmp_path / "diag_old2.zip"
@@ -128,11 +125,9 @@ def test_fetch_diagnostics(settings, tmp_path):
 
         fetch_diagnostics(settings, {}, mock_mqtt)
 
-        # Check that old files were deleted
         assert not old_file1.exists()
         assert not old_file2.exists()
 
-        # Check that subprocess was called correctly
         mock_popen.assert_called_once()
         args, kwargs = mock_popen.call_args
         assert args[0] == "wb-diag-collect diag"
@@ -144,7 +139,6 @@ def test_fetch_diagnostics_deletion_error(settings, tmp_path):
     settings.diag_archive = tmp_path
     mock_mqtt = MagicMock()
 
-    # Create a file that will cause deletion error
     old_file = tmp_path / "diag_old.zip"
     old_file.write_text("old data")
 
@@ -157,5 +151,4 @@ def test_fetch_diagnostics_deletion_error(settings, tmp_path):
         mock_process.wait.return_value = None
         mock_popen.return_value.__enter__.return_value = mock_process
 
-        # Should not raise, just log warning
         fetch_diagnostics(settings, {}, mock_mqtt)

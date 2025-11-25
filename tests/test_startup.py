@@ -8,14 +8,11 @@ from wb.cloud_agent.handlers.startup import (
     on_message,
     send_agent_version,
 )
+from wb.cloud_agent.constants import UNKNOWN_LINK
 
 
-@pytest.fixture
-def mock_mqtt():
-    return MagicMock()
-
-
-def test_make_start_up_request_activated(settings, mock_mqtt):
+def test_make_start_up_request_activated(settings):
+    mock_mqtt = MagicMock()
     status_data = {"activated": True, "activationLink": "http://example.com/activate"}
 
     with (
@@ -27,13 +24,12 @@ def test_make_start_up_request_activated(settings, mock_mqtt):
         result = make_start_up_request(settings, mock_mqtt)
 
         assert result == status_data
-        # Should write UNKNOWN_LINK when activated
-        from wb.cloud_agent.constants import UNKNOWN_LINK
 
         mock_write.assert_called_once_with(settings, UNKNOWN_LINK, mock_mqtt)
 
 
-def test_make_start_up_request_not_activated_with_link(settings, mock_mqtt):
+def test_make_start_up_request_not_activated_with_link(settings):
+    mock_mqtt = MagicMock()
     status_data = {
         "activated": False,
         "activationLink": "http://example.com/activate123",
@@ -48,11 +44,11 @@ def test_make_start_up_request_not_activated_with_link(settings, mock_mqtt):
         result = make_start_up_request(settings, mock_mqtt)
 
         assert result == status_data
-        # Should write actual link when not activated
         mock_write.assert_called_once_with(settings, "http://example.com/activate123", mock_mqtt)
 
 
-def test_make_start_up_request_not_activated_no_link(settings, mock_mqtt):
+def test_make_start_up_request_not_activated_no_link(settings):
+    mock_mqtt = MagicMock()
     status_data = {"activated": False, "activationLink": ""}
 
     with (
@@ -64,13 +60,12 @@ def test_make_start_up_request_not_activated_no_link(settings, mock_mqtt):
         result = make_start_up_request(settings, mock_mqtt)
 
         assert result == status_data
-        # Should write UNKNOWN_LINK when no link
-        from wb.cloud_agent.constants import UNKNOWN_LINK
 
         mock_write.assert_called_once_with(settings, UNKNOWN_LINK, mock_mqtt)
 
 
-def test_make_start_up_request_invalid_status(settings, mock_mqtt):
+def test_make_start_up_request_invalid_status(settings):
+    mock_mqtt = MagicMock()
     with patch("wb.cloud_agent.handlers.startup.do_curl") as mock_curl:
         mock_curl.return_value = ({}, status.BAD_REQUEST)
 
@@ -78,7 +73,8 @@ def test_make_start_up_request_invalid_status(settings, mock_mqtt):
             make_start_up_request(settings, mock_mqtt)
 
 
-def test_make_start_up_request_missing_activated_field(settings, mock_mqtt):
+def test_make_start_up_request_missing_activated_field(settings):
+    mock_mqtt = MagicMock()
     status_data = {"activationLink": "http://example.com/activate"}
 
     with patch("wb.cloud_agent.handlers.startup.do_curl") as mock_curl:
@@ -88,7 +84,8 @@ def test_make_start_up_request_missing_activated_field(settings, mock_mqtt):
             make_start_up_request(settings, mock_mqtt)
 
 
-def test_make_start_up_request_missing_activation_link_field(settings, mock_mqtt):
+def test_make_start_up_request_missing_activation_link_field(settings):
+    mock_mqtt = MagicMock()
     status_data = {"activated": True}
 
     with patch("wb.cloud_agent.handlers.startup.do_curl") as mock_curl:
@@ -104,7 +101,6 @@ def test_send_agent_version_success(settings):
 
         send_agent_version(settings)
 
-        # Check that do_curl was called with agent_version parameter
         mock_curl.assert_called_once()
         args = mock_curl.call_args
         assert args[1]["method"] == "put"
@@ -116,7 +112,6 @@ def test_send_agent_version_failure(settings):
     with patch("wb.cloud_agent.handlers.startup.do_curl") as mock_curl:
         mock_curl.return_value = ({"error": "bad request"}, status.BAD_REQUEST)
 
-        # Should log error but not raise
         send_agent_version(settings)
 
 
@@ -130,7 +125,6 @@ def test_on_message_success(settings):
 
         on_message(userdata, message)
 
-        # Check that do_curl was called with hardware_revision parameter
         mock_curl.assert_called_once()
         args = mock_curl.call_args
         assert args[1]["method"] == "put"

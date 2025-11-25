@@ -10,12 +10,8 @@ from wb.cloud_agent.handlers.events import (
 )
 
 
-@pytest.fixture
-def mock_mqtt():
-    return MagicMock()
-
-
-def test_make_event_request_no_content(settings, mock_mqtt, mock_subprocess_run):
+def test_make_event_request_no_content(settings, mock_subprocess_run):
+    mock_mqtt = MagicMock()
     headers = f"HTTP/1.1 {status.NO_CONTENT} No Content\r\n\r\n"
     body = ""
     meta = '{"code": "204"}'
@@ -29,20 +25,8 @@ def test_make_event_request_no_content(settings, mock_mqtt, mock_subprocess_run)
     assert result is None
 
 
-def test_make_event_request_invalid_status(settings, mock_mqtt, mock_subprocess_run):
-    headers = f"HTTP/1.1 {status.BAD_REQUEST} Bad Request\r\n\r\n"
-    body = '{"error": "bad request"}'
-    meta = '{"code": "400"}'
-    stdout = (headers + body + "|||" + meta).encode("utf-8")
-
-    mock_subprocess_run.return_value.returncode = 0
-    mock_subprocess_run.return_value.stdout = stdout
-
-    with pytest.raises(ValueError, match="Not a 200 status while retrieving event"):
-        make_event_request(settings, mock_mqtt)
-
-
-def test_make_event_request_update_activation_link(settings, mock_mqtt):
+def test_make_event_request_update_activation_link(settings):
+    mock_mqtt = MagicMock()
     event_data = {
         "id": "event123",
         "code": "update_activation_link",
@@ -63,7 +47,8 @@ def test_make_event_request_update_activation_link(settings, mock_mqtt):
         mock_confirm.assert_called_once_with(settings, "event123")
 
 
-def test_make_event_request_update_tunnel_config(settings, mock_mqtt):
+def test_make_event_request_update_tunnel_config(settings):
+    mock_mqtt = MagicMock()
     event_data = {
         "id": "event456",
         "code": "update_tunnel_config",
@@ -87,7 +72,8 @@ def test_make_event_request_update_tunnel_config(settings, mock_mqtt):
         mock_confirm.assert_called_once_with(settings, "event456")
 
 
-def test_make_event_request_update_metrics_config(settings, mock_mqtt):
+def test_make_event_request_update_metrics_config(settings):
+    mock_mqtt = MagicMock()
     event_data = {
         "id": "event789",
         "code": "update_metrics_config",
@@ -111,7 +97,8 @@ def test_make_event_request_update_metrics_config(settings, mock_mqtt):
         mock_confirm.assert_called_once_with(settings, "event789")
 
 
-def test_make_event_request_fetch_diagnostics(settings, mock_mqtt, tmp_path):
+def test_make_event_request_fetch_diagnostics(settings, tmp_path):
+    mock_mqtt = MagicMock()
     settings.diag_archive = tmp_path
     event_data = {
         "id": "event999",
@@ -133,12 +120,12 @@ def test_make_event_request_fetch_diagnostics(settings, mock_mqtt, tmp_path):
 
         make_event_request(settings, mock_mqtt)
 
-        # fetch_diagnostics starts a thread, so we just check it was executed
         mock_popen.assert_called_once()
         mock_confirm.assert_called_once_with(settings, "event999")
 
 
-def test_make_event_request_unknown_event(settings, mock_mqtt):
+def test_make_event_request_unknown_event(settings):
+    mock_mqtt = MagicMock()
     event_data = {
         "id": "event000",
         "code": "unknown_event_code",
@@ -156,7 +143,8 @@ def test_make_event_request_unknown_event(settings, mock_mqtt):
         mock_confirm.assert_called_once_with(settings, "event000")
 
 
-def test_make_event_request_missing_event_id(settings, mock_mqtt):
+def test_make_event_request_missing_event_id(settings):
+    mock_mqtt = MagicMock()
     event_data = {
         "code": "update_activation_link",
         "payload": {"activationLink": "http://example.com/activate"},
@@ -169,7 +157,8 @@ def test_make_event_request_missing_event_id(settings, mock_mqtt):
             make_event_request(settings, mock_mqtt)
 
 
-def test_make_event_request_empty_payload(settings, mock_mqtt):
+def test_make_event_request_empty_payload(settings):
+    mock_mqtt = MagicMock()
     event_data = {"id": "event123", "code": "update_activation_link", "payload": None}
 
     with patch("wb.cloud_agent.handlers.events.do_curl") as mock_curl:

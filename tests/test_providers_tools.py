@@ -14,7 +14,7 @@ from wb.cloud_agent.settings import (
 
 @patch("wb.cloud_agent.settings.Path.exists", return_value=True)
 @patch("wb.cloud_agent.settings.Path.iterdir")
-def test_get_provider_names(iterdir_mock, exists_mock):
+def test_get_provider_names(iterdir_mock, _): # pylint: disable=redefined-outer-name
     mock_dir = MagicMock()
     mock_dir.name = "staging"
     mock_dir.is_dir.return_value = True
@@ -51,7 +51,7 @@ def test_load_providers_data_with_mocks(example_configs: dict):  # pylint: disab
     def exists_side_effect(self: Path):
         return str(self) in path_to_content
 
-    def open_side_effect(self: Path, *args, **kwargs):
+    def open_side_effect(self: Path, *_, **__):
         content = path_to_content.get(str(self))
         return mock_open(read_data=content)()
 

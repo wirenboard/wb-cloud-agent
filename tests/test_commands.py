@@ -1,3 +1,6 @@
+# pylint: disable=redefined-outer-name
+
+import subprocess
 from argparse import Namespace
 from unittest.mock import MagicMock, patch
 
@@ -54,6 +57,7 @@ def test_show_providers_with_data():
         mock_show.assert_called_once_with(providers)
 
 
+@pytest.mark.usefixtures("mock_mqtt_cloud_agent")
 def test_add_provider_success(mock_mqtt_cloud_agent):
     options = Namespace(base_url="https://example.com", name=None)
 
@@ -77,7 +81,8 @@ def test_add_provider_success(mock_mqtt_cloud_agent):
         mock_print.assert_called_once_with("Provider example.com successfully added")
 
 
-def test_add_provider_with_custom_name(mock_mqtt_cloud_agent):
+@pytest.mark.usefixtures("mock_mqtt_cloud_agent")
+def test_add_provider_with_custom_name():
     options = Namespace(base_url="https://example.com", name="custom_name")
 
     with (
@@ -96,7 +101,8 @@ def test_add_provider_with_custom_name(mock_mqtt_cloud_agent):
         mock_gen.assert_called_once_with("custom_name", "https://example.com")
 
 
-def test_add_provider_already_exists(mock_mqtt_cloud_agent):
+@pytest.mark.usefixtures("mock_mqtt_cloud_agent")
+def test_add_provider_already_exists():
     options = Namespace(base_url="https://example.com", name=None)
 
     with (
@@ -110,6 +116,7 @@ def test_add_provider_already_exists(mock_mqtt_cloud_agent):
         mock_print.assert_called_once_with("Provider example.com already exists")
 
 
+@pytest.mark.usefixtures("mock_mqtt_cloud_agent")
 def test_add_provider_mqtt_connection_error(mock_mqtt_cloud_agent):
     options = Namespace(base_url="https://example.com", name=None)
     mock_mqtt_cloud_agent.start.side_effect = ConnectionError("Connection failed")
@@ -174,7 +181,8 @@ def test_del_provider_success(mock_mqtt_cloud_agent):
         mock_mqtt_cloud_agent.update_providers_list.assert_called_once()
 
 
-def test_del_provider_not_exists(mock_mqtt_cloud_agent):
+@pytest.mark.usefixtures("mock_mqtt_cloud_agent")
+def test_del_provider_not_exists():
     options = Namespace(provider_name="nonexistent")
 
     with (
@@ -188,7 +196,8 @@ def test_del_provider_not_exists(mock_mqtt_cloud_agent):
         mock_print.assert_called_once_with("Provider nonexistent does not exists")
 
 
-def test_del_provider_with_url_format(mock_mqtt_cloud_agent):
+@pytest.mark.usefixtures("mock_mqtt_cloud_agent")
+def test_del_provider_with_url_format():
     options = Namespace(provider_name="https://example.com")
 
     with (
@@ -218,7 +227,8 @@ def test_del_all_providers_empty():
         mock_print.assert_called_once_with("No one provider was found")
 
 
-def test_del_all_providers_success(mock_mqtt_cloud_agent):
+@pytest.mark.usefixtures("mock_mqtt_cloud_agent")
+def test_del_all_providers_success():
     options = Namespace()
 
     with (
@@ -271,7 +281,8 @@ def test_del_controller_from_cloud_success():
         mock_delete.assert_called_once_with(mock_settings)
 
 
-def test_run_daemon_startup_failure(mock_mqtt_cloud_agent):
+@pytest.mark.usefixtures("mock_mqtt_cloud_agent")
+def test_run_daemon_startup_failure():
     options = Namespace(provider_name="test", broker=None)
 
     with (
@@ -293,7 +304,8 @@ def test_run_daemon_startup_failure(mock_mqtt_cloud_agent):
         assert result == 1
 
 
-def test_run_daemon_with_custom_broker(mock_mqtt_cloud_agent):
+@pytest.mark.usefixtures("mock_mqtt_cloud_agent")
+def test_run_daemon_with_custom_broker():
     options = Namespace(provider_name="test", broker="tcp://192.168.1.1:1883")
 
     with (
@@ -319,7 +331,8 @@ def test_run_daemon_with_custom_broker(mock_mqtt_cloud_agent):
         assert mock_settings.broker_url == "tcp://192.168.1.1:1883"
 
 
-def test_run_daemon_event_loop_with_timeout(mock_mqtt_cloud_agent):
+@pytest.mark.usefixtures("mock_mqtt_cloud_agent")
+def test_run_daemon_event_loop_with_timeout():
     options = Namespace(provider_name="test", broker=None)
 
     with (
@@ -336,9 +349,6 @@ def test_run_daemon_event_loop_with_timeout(mock_mqtt_cloud_agent):
         mock_settings.broker_url = "tcp://localhost:1883"
         mock_settings.request_period_seconds = 10
         mock_config.return_value = mock_settings
-
-        # First call: TimeoutExpired, second call: KeyboardInterrupt to stop
-        import subprocess
 
         mock_event.side_effect = [
             subprocess.TimeoutExpired("curl", 360),

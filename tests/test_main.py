@@ -22,15 +22,11 @@ def test_validate_url_invalid_scheme():
 
 
 def test_validate_url_no_netloc():
-    from argparse import ArgumentTypeError
-
     with pytest.raises(ArgumentTypeError, match="Invalid URL"):
         validate_url("https://")
 
 
 def test_validate_url_with_path():
-    from argparse import ArgumentTypeError
-
     with pytest.raises(ArgumentTypeError, match="Invalid URL"):
         validate_url("https://example.com/some/path")
 

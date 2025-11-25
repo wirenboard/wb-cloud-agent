@@ -1,3 +1,5 @@
+# pylint: disable=redefined-outer-name, protected-access
+
 from unittest.mock import MagicMock, call, patch
 
 import pytest
@@ -29,7 +31,8 @@ def test_mqtt_cloud_agent_init(settings, mock_mqtt_client):
     mock_mqtt_client.assert_called_once()
 
 
-def test_mqtt_cloud_agent_init_with_on_message(settings, mock_mqtt_client):
+@pytest.mark.usefixtures("mock_mqtt_client")
+def test_mqtt_cloud_agent_init_with_on_message(settings):
     on_message_handler = MagicMock()
     agent = MQTTCloudAgent(settings, on_message=on_message_handler)
 
