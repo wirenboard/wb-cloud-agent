@@ -326,6 +326,7 @@ def test_run_daemon_with_custom_broker():
         try:
             run_daemon(options)
         except KeyboardInterrupt:
+            # Expected interruption to stop the daemon loop during testing.
             pass
 
         assert mock_settings.broker_url == "tcp://192.168.1.1:1883"
@@ -358,6 +359,7 @@ def test_run_daemon_event_loop_with_timeout():
         try:
             run_daemon(options)
         except KeyboardInterrupt:
+            # Expected interruption to stop the daemon loop during testing.
             pass
 
         # Should have been called twice
@@ -392,6 +394,7 @@ def test_run_daemon_event_loop_with_exception(mock_mqtt_cloud_agent):
         try:
             run_daemon(options)
         except KeyboardInterrupt:
+            # Expected interruption to stop the daemon loop during testing.
             pass
 
         # Should publish error status first, then ok status

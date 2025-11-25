@@ -108,7 +108,7 @@ def run_daemon(options) -> Optional[int]:
     settings.broker_url = options.broker or settings.broker_url
 
     cloud_host = urlparse(settings.cloud_base_url).hostname
-    if cloud_host is None:
+    if not cloud_host:
         logging.error("Cannot parse cloud host from URL: %s", settings.cloud_base_url)
         return 1
 
