@@ -5,7 +5,7 @@ import time
 
 def wait_for_ping(host: str, period: int = 5) -> None:
     while True:
-        result = subprocess.run(
+        result = subprocess.run( # pylint: disable=subprocess-run-check
             ["ping", "-c", "1", "-W", "2", host],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
