@@ -50,13 +50,13 @@ def test_parse_headers_basic():
 def test_parse_headers_empty():
     raw_headers = "HTTP/1.1 200 OK\r\n"
     headers = parse_headers(raw_headers)
-    assert headers == {}
+    assert not headers
 
 
 def test_parse_headers_no_colon():
     raw_headers = "HTTP/1.1 200 OK\r\nInvalid-Header-Line"
     headers = parse_headers(raw_headers)
-    assert headers == {}
+    assert not headers
 
 
 def test_read_json_config(tmp_path):

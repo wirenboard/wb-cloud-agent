@@ -24,7 +24,7 @@ def test_make_event_request_no_content(settings, mock_mqtt, mock_subprocess_run)
     mock_subprocess_run.return_value.returncode = 0
     mock_subprocess_run.return_value.stdout = stdout
 
-    result = make_event_request(settings, mock_mqtt)
+    result = make_event_request(settings, mock_mqtt)  # pylint: disable=assignment-from-none
 
     assert result is None
 

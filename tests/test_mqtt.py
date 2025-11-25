@@ -23,7 +23,7 @@ def test_mqtt_cloud_agent_init(settings, mock_mqtt_client):
 
     assert agent.mqtt_prefix == settings.mqtt_prefix
     assert agent.provider_name == settings.provider_name
-    assert agent.controls == {}
+    assert not agent.controls
     assert agent.was_disconnected is False
 
     mock_mqtt_client.assert_called_once()
