@@ -287,21 +287,27 @@ def test_run_daemon_startup_failure():
 
     with (
         patch("wb.cloud_agent.commands.configure_app") as mock_config,
-        patch("wb.cloud_agent.commands.wait_for_cloud_reachable"),
+        patch("wb.cloud_agent.commands.wait_for_cloud_reachable") as mock_wait,
         patch(
             "wb.cloud_agent.commands.make_start_up_request",
             side_effect=RuntimeError("Startup failed"),
         ),
+        patch("wb.cloud_agent.commands.send_agent_version"),
     ):
         mock_settings = MagicMock()
         mock_settings.cloud_base_url = "https://example.com"
         mock_settings.broker_url = "tcp://localhost:1883"
         mock_settings.request_period_seconds = 10
+        mock_settings.ping_period_seconds = 7
         mock_config.return_value = mock_settings
 
         result = run_daemon(options)
 
         assert result == 1
+
+        mock_wait.assert_called_once_with(mock_settings.cloud_base_url, mock_settings.ping_period_seconds)
+
+        mock_config.assert_called_once()
 
 
 @pytest.mark.usefixtures("mock_mqtt_cloud_agent")
