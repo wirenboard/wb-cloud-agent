@@ -51,7 +51,7 @@ class AppSettings:  # pylint: disable=too-many-instance-attributes disable=too-f
     cloud_base_url: str = "https://wirenboard.cloud"
     cloud_agent_url: str = f"https://agent.wirenboard.cloud{CLOUD_AGENT_URL_POSTFIX}"
     request_period_seconds: int = 10
-    ping_timeout_seconds: int = 10
+    ping_period_seconds: int = 10
 
     def __init__(self, /, **kwargs: dict[str, Any]) -> None:
         for key, val in kwargs.items():
