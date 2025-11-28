@@ -287,7 +287,7 @@ def test_run_daemon_startup_failure():
 
     with (
         patch("wb.cloud_agent.commands.configure_app") as mock_config,
-        patch("wb.cloud_agent.commands.wait_for_ping"),
+        patch("wb.cloud_agent.commands.wait_for_cloud_reachable"),
         patch(
             "wb.cloud_agent.commands.make_start_up_request",
             side_effect=RuntimeError("Startup failed"),
@@ -310,7 +310,7 @@ def test_run_daemon_with_custom_broker():
 
     with (
         patch("wb.cloud_agent.commands.configure_app") as mock_config,
-        patch("wb.cloud_agent.commands.wait_for_ping"),
+        patch("wb.cloud_agent.commands.wait_for_cloud_reachable"),
         patch("wb.cloud_agent.commands.make_start_up_request"),
         patch("wb.cloud_agent.commands.send_agent_version"),
         patch("wb.cloud_agent.commands.read_activation_link", return_value="http://link"),
@@ -338,7 +338,7 @@ def test_run_daemon_event_loop_with_timeout():
 
     with (
         patch("wb.cloud_agent.commands.configure_app") as mock_config,
-        patch("wb.cloud_agent.commands.wait_for_ping"),
+        patch("wb.cloud_agent.commands.wait_for_cloud_reachable"),
         patch("wb.cloud_agent.commands.make_start_up_request"),
         patch("wb.cloud_agent.commands.send_agent_version"),
         patch("wb.cloud_agent.commands.read_activation_link", return_value="http://link"),
@@ -371,7 +371,7 @@ def test_run_daemon_event_loop_with_exception(mock_mqtt_cloud_agent):
 
     with (
         patch("wb.cloud_agent.commands.configure_app") as mock_config,
-        patch("wb.cloud_agent.commands.wait_for_ping"),
+        patch("wb.cloud_agent.commands.wait_for_cloud_reachable"),
         patch("wb.cloud_agent.commands.make_start_up_request"),
         patch("wb.cloud_agent.commands.send_agent_version"),
         patch("wb.cloud_agent.commands.read_activation_link", return_value="http://link"),
