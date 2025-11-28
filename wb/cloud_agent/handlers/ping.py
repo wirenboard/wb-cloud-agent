@@ -1,18 +1,19 @@
 import logging
-import subprocess
 import time
 
+import requests
 
-def wait_for_ping(host: str, period: int = 5) -> None:
+
+def wait_for_cloud_reachable(url: str, period: int = 5) -> None:
     while True:
-        result = subprocess.run(  # pylint: disable=subprocess-run-check
-            ["ping", "-c", "1", "-W", "2", host],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-        if result.returncode == 0:
-            logging.info("Host %s is reachable", host)
-            return
+        try:
+            response = requests.head(url, timeout=15, allow_redirects=True)
+            if 200 <= response.status_code < 400:
+                logging.info("Cloud '%s' is reachable (status %s)", url, response.status_code)
+                return
+            logging.error("Cloud '%s' is unreachable (status %s)", url, response.status_code)
+        except requests.RequestException as exc:
+            logging.exception("Cloud '%s' is unreachable due to exception: %s", url, exc)
 
-        logging.warning("Host %s is unreachable. Retrying in %s seconds...", host, period)
+        logging.info("Retrying in %s seconds...", period)
         time.sleep(period)
