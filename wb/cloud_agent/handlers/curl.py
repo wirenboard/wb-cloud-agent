@@ -1,7 +1,8 @@
 import json
 import logging
 import subprocess
-from typing import Iterable, Optional
+from collections.abc import Iterable
+from typing import Optional
 
 from wb.cloud_agent.constants import CLIENT_CERT_ERROR_MSG
 from wb.cloud_agent.settings import AppSettings
