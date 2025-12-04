@@ -52,7 +52,11 @@ def test_handle_curl_output_with_poll_interval(settings, mock_subprocess):
     settings.request_period_seconds = 10
     x_poll_interval = 42
     input_data = {"result": "ok"}
-    headers = f"HTTP/1.1 {status.OK} OK\r\nContent-Type: application/json\r\nx-poll-interval: {x_poll_interval}\r\n\r\n"
+    headers = (
+        f"HTTP/1.1 {status.OK} "
+        "OK\r\nContent-Type: application/json\r\n"
+        f"x-poll-interval: {x_poll_interval}\r\n\r\n"
+    )
     stdout = mock_subprocess(status.OK, json.dumps(input_data), headers=headers)
 
     output_data, status_code = handle_curl_output(settings, stdout)
@@ -84,7 +88,7 @@ def test_handle_curl_output_invalid_json(settings, mock_subprocess):
 
 
 def test_handle_curl_output_malformed_split_raises(settings):
-    bad_output = f'HTTP/1.1 {status.OK} OK\r\n\r\n{{"data": true}}'.encode("utf-8") # Missing delimiter
+    bad_output = f'HTTP/1.1 {status.OK} OK\r\n\r\n{{"data": true}}'.encode("utf-8")  # Missing delimiter
 
     with pytest.raises(ValueError, match="Invalid data in response"):
         handle_curl_output(settings, bad_output)

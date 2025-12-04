@@ -33,7 +33,11 @@ def test_make_event_request_update_activation_link(settings):
 
 
 def test_make_event_request_update_tunnel_config(settings):
-    event_data = {"id": "event456", "code": "update_tunnel_config", "payload": {"config": "tunnel config content"}}
+    event_data = {
+        "id": "event456",
+        "code": "update_tunnel_config",
+        "payload": {"config": "tunnel config content"},
+    }
 
     with (
         patch("wb.cloud_agent.services.tunnel.write_to_file") as mock_write,
@@ -53,7 +57,11 @@ def test_make_event_request_update_tunnel_config(settings):
 
 
 def test_make_event_request_update_metrics_config(settings):
-    event_data = {"id": "event789", "code": "update_metrics_config", "payload": {"config": "metrics config content"}}
+    event_data = {
+        "id": "event789",
+        "code": "update_metrics_config",
+        "payload": {"config": "metrics config content"},
+    }
 
     with (
         patch("wb.cloud_agent.services.metrics.write_to_file") as mock_write,
@@ -109,7 +117,10 @@ def test_make_event_request_unknown_event(settings):
     "event_data, match_str",
     [
         ({"id": "event123", "code": "update_activation_link", "payload": None}, "Empty payload"),
-        ({"code": "update_tunnel_config", "payload": {"activationLink": "http://example.com"}}, "Unknown event id"),
+        (
+            {"code": "update_tunnel_config", "payload": {"activationLink": "http://example.com"}},
+            "Unknown event id",
+        ),
     ],
 )
 def test_make_event_request(settings, event_data, match_str):
