@@ -140,9 +140,10 @@ def run_daemon(options) -> Optional[int]:
             except subprocess.TimeoutExpired:
                 logging.debug("Timeout when executing request for events sent")
                 continue
-            except Exception:  # pylint:disable=broad-exception-caught
-                err_msg = "Error making request to cloud!"
-                logging.exception(err_msg)
+            except Exception as exc:  # pylint:disable=broad-exception-caught
+                err_msg = "Error making request to cloud! Retrying..."
+                logging.error(err_msg)
+                logging.debug("Traceback details: %s", exc)
                 mqtt.publish_ctrl("status", err_msg)
             else:
                 mqtt.publish_ctrl("status", "ok")
