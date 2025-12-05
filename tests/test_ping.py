@@ -10,7 +10,7 @@ def test_wait_for_cloud_success_first_try():
     with patch("requests.head") as mock_head:
         mock_head.return_value.status_code = 200
 
-        wait_for_cloud_reachable("https://example.com", period=5)
+        wait_for_cloud_reachable("https://example.com", interval=5)
 
         mock_head.assert_called_once_with("https://example.com", timeout=15, allow_redirects=True)
 
@@ -24,7 +24,7 @@ def test_wait_for_cloud_success_after_retries():
             MagicMock(status_code=200),  # success
         ]
 
-        wait_for_cloud_reachable("https://cloud", period=2)
+        wait_for_cloud_reachable("https://cloud", interval=2)
 
         assert mock_head.call_count == 3
         assert mock_sleep.call_count == 2
@@ -39,7 +39,7 @@ def test_wait_for_cloud_exception_then_success():
             MagicMock(status_code=200),  # success
         ]
 
-        wait_for_cloud_reachable("https://cloud", period=3)
+        wait_for_cloud_reachable("https://cloud", interval=3)
 
         assert mock_head.call_count == 2
         mock_sleep.assert_called_once_with(3)
@@ -53,6 +53,6 @@ def test_wait_for_cloud_custom_period():
             MagicMock(status_code=200),  # OK
         ]
 
-        wait_for_cloud_reachable("http://localhost", period=10)
+        wait_for_cloud_reachable("http://localhost", interval=10)
 
         mock_sleep.assert_called_once_with(10)

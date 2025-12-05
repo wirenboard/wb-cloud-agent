@@ -107,6 +107,8 @@ def run_daemon(options) -> Optional[int]:
     settings = configure_app(provider_name=options.provider_name)
     settings.broker_url = options.broker or settings.broker_url
 
+    logging.info("Cloud Agent starting: %s", settings.cloud_base_url)
+
     wait_for_cloud_reachable(settings.cloud_base_url, settings.ping_period_seconds)
 
     mqtt = MQTTCloudAgent(settings, on_message)
@@ -128,12 +130,14 @@ def run_daemon(options) -> Optional[int]:
     mqtt.publish_ctrl("cloud_base_url", settings.cloud_base_url)
     mqtt.publish_ctrl("status", "connecting")
 
+    logging.info("Startup completed — agent running")
+
     with ExitStack() as stack:
         stack.callback(mqtt.remove_vdev)
 
         while True:
             start = time.perf_counter()
-            logging.debug("Starting request for events sent")
+            logging.debug("Sending event request")
 
             try:
                 make_event_request(settings, mqtt)
@@ -149,5 +153,5 @@ def run_daemon(options) -> Optional[int]:
                 mqtt.publish_ctrl("status", "ok")
 
             request_time = time.perf_counter() - start
-            logging.debug("Request for events sent done in: %s ms.", int(request_time * 1000))
+            logging.debug("Event request completed in %s ms", int(request_time * 1000))
             time.sleep(settings.request_period_seconds)
