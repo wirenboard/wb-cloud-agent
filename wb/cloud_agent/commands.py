@@ -6,7 +6,7 @@ from typing import Optional
 from urllib.parse import urlparse
 
 from wb.cloud_agent.handlers.events import event_delete_controller, make_event_request
-from wb.cloud_agent.handlers.ping import wait_for_cloud_reachable
+from wb.cloud_agent.handlers.ping import NETWORK_ERRORS, wait_for_cloud_reachable
 from wb.cloud_agent.handlers.startup import (
     make_start_up_request,
     on_message,
@@ -114,8 +114,8 @@ def run_daemon(options) -> Optional[int]:
     mqtt = MQTTCloudAgent(settings, on_message)
     try:
         mqtt.start(update_status=True)
-    except Exception as ex:  # pylint:disable=broad-exception-caught
-        logging.error("Error starting MQTT client: %s", ex)
+    except Exception as exc:  # pylint:disable=broad-exception-caught
+        logging.error("Error starting MQTT client: %s", exc)
 
     try:
         make_start_up_request(settings, mqtt)
@@ -147,9 +147,13 @@ def run_daemon(options) -> Optional[int]:
                 logging.debug("Timeout when executing request for events sent")
                 continue
             except Exception as exc:  # pylint:disable=broad-exception-caught
-                err_msg = "Error making request to cloud! Retrying..."
-                logging.error(err_msg)
-                logging.debug("Traceback details: %s", exc)
+                if isinstance(exc, NETWORK_ERRORS):
+                    err_msg = "Network or Cloud is unreachable! Retrying..."
+                    logging.info(err_msg)
+                    logging.debug("Network error details: %s", exc)
+                else:
+                    err_msg = "Error making request to cloud! Retrying..."
+                    logging.exception(err_msg)
                 mqtt.publish_ctrl("status", err_msg)
             else:
                 mqtt.publish_ctrl("status", "ok")
