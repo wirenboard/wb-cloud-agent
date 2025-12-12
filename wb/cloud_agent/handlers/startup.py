@@ -2,7 +2,7 @@ import logging
 from http import HTTPStatus as status
 
 from wb.cloud_agent import __version__ as agent_package_version
-from wb.cloud_agent import telegraf_package_version
+from wb.cloud_agent import frpc_package_version, telegraf_package_version
 from wb.cloud_agent.constants import UNKNOWN_LINK
 from wb.cloud_agent.handlers.curl import do_curl
 from wb.cloud_agent.mqtt import MQTTCloudAgent
@@ -32,7 +32,10 @@ def make_start_up_request(settings: AppSettings, mqtt: MQTTCloudAgent):
 
 def send_packages_version(settings: AppSettings):
     logging.info(
-        "Sending package versions: agent=%s, telegraf=%s", agent_package_version, telegraf_package_version
+        "Sending package versions: agent=%s, telegraf=%s, frpc=%s",
+        agent_package_version,
+        telegraf_package_version,
+        frpc_package_version,
     )
 
     _status_data, http_status = do_curl(
@@ -42,6 +45,7 @@ def send_packages_version(settings: AppSettings):
         params={
             "agent_version": agent_package_version,
             "telegraf_version": telegraf_package_version,
+            "frpc_version": frpc_package_version,
             "crypto_engine_key": settings.client_cert_engine_key,
         },
     )
