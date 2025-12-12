@@ -1,8 +1,9 @@
 wb-cloud-agent (1.6.7) stable; urgency=medium
 
+  * Internal logic for sending package version to cloud
   * Fix wb-cloud-agent startup failing if internet is down for some time (about 1 hour)
 
- -- Denis Smagin <denis.smagin@wirenboard.com>  Thu, 21 Nov 2025 11:00:00 +0100
+ -- Arseniy Astafev <arseniy.astafev@wirenboard.com>  Fri, 12 Dec 2025 15:00:00 +0300
 
 wb-cloud-agent (1.6.6) stable; urgency=medium
 
