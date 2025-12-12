@@ -104,6 +104,21 @@ def parse_headers(header_section: str) -> dict[str, str]:
     return headers
 
 
+def get_apt_package_version(package_name: str) -> str:
+    """Get version of installed APT package using dpkg-query."""
+    try:
+        result = subprocess.run(
+            ["dpkg-query", "--showformat=${Version}", "--show", package_name],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=5,
+        )
+        return result.stdout.strip()
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError):
+        return "unknown"
+
+
 def handle_connection_state(prev_value: bool, new_value: bool, msg: str, mqtt: "MQTTCloudAgent") -> bool:
     if prev_value != new_value:
         logging.info(msg)
