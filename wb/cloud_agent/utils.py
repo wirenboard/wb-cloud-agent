@@ -108,5 +108,5 @@ def set_connection_state_and_log(current_value: bool, new_value: bool) -> bool:
         if new_value:
             logging.info("Cloud Agent successfully connected to the cloud!")
         else:
-            logging.info("Cloud Agent disconnected from the cloud")
+            logging.info("Cloud Agent disconnected from the cloud. Trying to reconnect...")
     return new_value
