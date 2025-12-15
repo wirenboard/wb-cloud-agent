@@ -4,13 +4,12 @@ import subprocess
 import sys
 from functools import cache
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 from urllib.parse import urljoin
 
 from tabulate import tabulate
 
 if TYPE_CHECKING:
-    from wb.cloud_agent.mqtt import MQTTCloudAgent
     from wb.cloud_agent.settings import Provider
 
 
@@ -104,8 +103,10 @@ def parse_headers(header_section: str) -> dict[str, str]:
     return headers
 
 
-def handle_error_log(err_msg: str, exc: Exception, mqtt: Optional["MQTTCloudAgent"]) -> None:
-    logging.error(err_msg)
-    logging.debug("Details: %s", exc)
-    if mqtt:
-        mqtt.publish_ctrl("status", err_msg)
+def set_connection_state_and_log(current_value: bool, new_value: bool) -> bool:
+    if current_value != new_value:
+        if new_value:
+            logging.info("Cloud Agent successfully connected to the cloud!")
+        else:
+            logging.info("Cloud Agent disconnected from the cloud")
+    return new_value

@@ -23,7 +23,7 @@ from wb.cloud_agent.settings import (
     load_providers_data,
 )
 from wb.cloud_agent.utils import (
-    handle_error_log,
+    set_connection_state_and_log,
     show_providers_table,
     start_and_enable_service,
 )
@@ -143,7 +143,7 @@ def run_daemon(options) -> Optional[int]:
 
     with ExitStack() as stack:
         stack.callback(mqtt.remove_vdev)
-        disconnected = True
+        connected = False
 
         while True:
             start = time.perf_counter()
@@ -151,20 +151,23 @@ def run_daemon(options) -> Optional[int]:
 
             try:
                 make_event_request(settings, mqtt)
-                if disconnected:
-                    logging.info("Cloud Agent successfully connected to the cloud!")
-                    disconnected = False
+                connected = set_connection_state_and_log(connected, True)
                 mqtt.publish_ctrl("status", "ok")
-            except subprocess.TimeoutExpired:
-                logging.debug("Timeout when executing request for events sent")
-                disconnected = True
-                continue
-            except CloudNetworkError as exc:
-                handle_error_log("Network or Cloud is unreachable! Retrying...", exc, mqtt)
-                disconnected = True
-            except Exception as exc:  # pylint:disable=broad-exception-caught
-                handle_error_log("Error making request to cloud! Retrying...", exc, mqtt)
-                disconnected = True
 
-            logging.debug("Event request completed in %s ms", int(time.perf_counter() - start * 1000))
+            except subprocess.TimeoutExpired as exc:
+                connected = set_connection_state_and_log(connected, False)
+                logging.debug("Request timeout: %s", exc)
+                mqtt.publish_ctrl("status", "Request timeout. Retrying...")
+
+            except CloudNetworkError as exc:
+                connected = set_connection_state_and_log(connected, False)
+                logging.debug("Network error details: %s", exc)
+                mqtt.publish_ctrl("status", "Network or Cloud is unreachable! Retrying...")
+
+            except Exception:  # pylint:disable=broad-exception-caught
+                connected = set_connection_state_and_log(connected, False)
+                logging.exception("Error making request to cloud! Retrying...")
+                mqtt.publish_ctrl("status", "Error making request to cloud! Retrying...")
+
+            logging.debug("Event request completed in %s ms", int((time.perf_counter() - start) * 1000))
             time.sleep(settings.request_period_seconds)
