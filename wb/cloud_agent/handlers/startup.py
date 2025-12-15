@@ -32,10 +32,11 @@ def make_start_up_request(settings: AppSettings, mqtt: MQTTCloudAgent):
 
 def send_packages_version(settings: AppSettings):
     logging.info(
-        "Sending package versions: agent=%s, telegraf=%s, frpc=%s",
+        "Sending package versions: agent=%s, telegraf=%s, frpc=%s, engine_key=%s",
         agent_package_version,
         telegraf_package_version,
         frpc_package_version,
+        settings.client_cert_engine_key,
     )
 
     _status_data, http_status = do_curl(
