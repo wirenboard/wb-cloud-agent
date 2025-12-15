@@ -6,7 +6,11 @@ from typing import Optional
 from urllib.parse import urlparse
 
 from wb.cloud_agent.handlers.events import event_delete_controller, make_event_request
-from wb.cloud_agent.handlers.ping import NETWORK_ERRORS, wait_for_cloud_reachable
+from wb.cloud_agent.handlers.ping import (
+    NETWORK_ERRORS,
+    CloudUnreachableError,
+    wait_for_cloud_reachable,
+)
 from wb.cloud_agent.handlers.startup import (
     make_start_up_request,
     on_message,
@@ -108,7 +112,12 @@ def run_daemon(options) -> Optional[int]:
     settings.broker_url = options.broker or settings.broker_url
     logging.info("====== Cloud Agent started (provider: %s) ======", settings.cloud_base_url)
 
-    wait_for_cloud_reachable(settings.cloud_base_url, settings.ping_period_seconds)
+    try:
+        wait_for_cloud_reachable(settings.cloud_base_url, settings.ping_period_seconds)
+    except CloudUnreachableError as exc:
+        logging.error(str(exc))
+        logging.debug("Cloud reachability failure details", exc_info=exc)
+        return 1
 
     mqtt = MQTTCloudAgent(settings, on_message)
     try:
@@ -145,14 +154,13 @@ def run_daemon(options) -> Optional[int]:
             except subprocess.TimeoutExpired:
                 logging.debug("Timeout when executing request for events sent")
                 continue
-            except Exception as exc:  # pylint:disable=broad-exception-caught
-                if isinstance(exc, NETWORK_ERRORS):
-                    err_msg = "Network or Cloud is unreachable! Retrying..."
-                    logging.info(err_msg)
-                    logging.debug("Network error details: %s", exc)
-                else:
-                    err_msg = "Error making request to cloud! Retrying..."
-                    logging.exception(err_msg)
+            except NETWORK_ERRORS as exc:
+                err_msg = "Network or Cloud is unreachable! Retrying..."
+                logging.info(err_msg)
+                logging.debug("Network error details: %s", exc)
+            except Exception:  # pylint:disable=broad-exception-caught
+                err_msg = "Error making request to cloud! Retrying..."
+                logging.exception(err_msg)
                 mqtt.publish_ctrl("status", err_msg)
             else:
                 mqtt.publish_ctrl("status", "ok")

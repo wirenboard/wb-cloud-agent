@@ -13,6 +13,10 @@ NETWORK_ERRORS = (
 )
 
 
+class CloudUnreachableError(Exception):
+    """Cloud is unreachable after multiple attempts."""
+
+
 def wait_for_cloud_reachable(url: str, interval: int = 5, max_retries: int = 100) -> None:
     logging.info("Start checking cloud reachability (interval: %ss, max_attempts: %s)", interval, max_retries)
 
@@ -38,11 +42,11 @@ def wait_for_cloud_reachable(url: str, interval: int = 5, max_retries: int = 100
                 url,
                 exc,
             )
-        except Exception:  # pylint:disable=broad-exception-caught
-            logging.exception("Unexpected error during cloud reachability check")
+        except Exception as exc:  # pylint:disable=broad-exception-caught
+            raise CloudUnreachableError("Unexpected error during cloud reachability check") from exc
 
         if attempt < max_retries:
             logging.debug("Retrying in %s seconds...", interval)
             time.sleep(interval)
 
-    logging.info("Cloud reachability - FAILED (%s attempts). Exiting...", max_retries)
+    raise CloudUnreachableError(f"Cloud '{url}' is unreachable after {max_retries} attempts")
