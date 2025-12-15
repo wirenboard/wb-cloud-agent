@@ -143,29 +143,28 @@ def run_daemon(options) -> Optional[int]:
 
     with ExitStack() as stack:
         stack.callback(mqtt.remove_vdev)
-        show_connect_message = True
+        disconnected = True
 
         while True:
             start = time.perf_counter()
             logging.debug("Sending event request")
 
-            if show_connect_message:
-                logging.info("Cloud Agent successfully connected to the cloud!")
-                show_connect_message = False
-
             try:
                 make_event_request(settings, mqtt)
+                if disconnected:
+                    logging.info("Cloud Agent successfully connected to the cloud!")
+                    disconnected = False
+                mqtt.publish_ctrl("status", "ok")
             except subprocess.TimeoutExpired:
                 logging.debug("Timeout when executing request for events sent")
+                disconnected = True
                 continue
             except CloudNetworkError as exc:
                 handle_error_log("Network or Cloud is unreachable! Retrying...", exc, mqtt)
-                show_connect_message = True
+                disconnected = True
             except Exception as exc:  # pylint:disable=broad-exception-caught
                 handle_error_log("Error making request to cloud! Retrying...", exc, mqtt)
-            else:
-                mqtt.publish_ctrl("status", "ok")
+                disconnected = True
 
-            request_time = time.perf_counter() - start
-            logging.debug("Event request completed in %s ms", int(request_time * 1000))
+            logging.debug("Event request completed in %s ms", int(time.perf_counter() - start * 1000))
             time.sleep(settings.request_period_seconds)
