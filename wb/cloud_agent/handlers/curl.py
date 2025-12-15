@@ -11,6 +11,10 @@ from wb.cloud_agent.utils import parse_headers
 DATA_DELIMITER = "|||"
 
 
+class CloudNetworkError(OSError):
+    """Network-level error while communicating with the cloud."""
+
+
 def do_curl(
     settings: AppSettings,
     method: str = "get",
@@ -68,11 +72,10 @@ def do_curl(
                     cert_file=settings.client_cert_file, cert_engine_key=settings.client_cert_engine_key
                 )
             ) from e
-        if e.returncode == 6:
+        if e.returncode in (6, 7, 28):
             logging.debug(e)
-            raise RuntimeError(
-                f"{endpoint} Error. Curl couldnt find the IP address "
-                f"by domain name: {settings.cloud_base_url}"
+            raise CloudNetworkError(
+                f"{endpoint} Network error while accessing {settings.cloud_base_url}"
             ) from e
         raise e
 

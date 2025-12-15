@@ -4,12 +4,13 @@ import subprocess
 import sys
 from functools import cache
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 from urllib.parse import urljoin
 
 from tabulate import tabulate
 
 if TYPE_CHECKING:
+    from wb.cloud_agent.mqtt import MQTTCloudAgent
     from wb.cloud_agent.settings import Provider
 
 
@@ -101,3 +102,10 @@ def parse_headers(header_section: str) -> dict[str, str]:
             name, value = line.split(":", 1)
             headers[name.strip()] = value.strip()
     return headers
+
+
+def handle_error_log(err_msg: str, exc: Exception, mqtt: Optional["MQTTCloudAgent"]) -> None:
+    logging.error(err_msg)
+    logging.debug("Details: %s", exc)
+    if mqtt:
+        mqtt.publish_ctrl("status", err_msg)
