@@ -23,7 +23,7 @@ from wb.cloud_agent.settings import (
     load_providers_data,
 )
 from wb.cloud_agent.utils import (
-    set_connection_state_and_log,
+    handle_connection_state,
     show_providers_table,
     start_and_enable_service,
 )
@@ -143,7 +143,7 @@ def run_daemon(options) -> Optional[int]:
 
     with ExitStack() as stack:
         stack.callback(mqtt.remove_vdev)
-        connected = False
+        was_connected = False
 
         while True:
             start = time.perf_counter()
@@ -151,23 +151,22 @@ def run_daemon(options) -> Optional[int]:
 
             try:
                 make_event_request(settings, mqtt)
-                connected = set_connection_state_and_log(connected, True)
-                mqtt.publish_ctrl("status", "ok")
+                conn_state, msg, exc_info = True, "Cloud Agent is successfully connected to the cloud!", None
 
             except subprocess.TimeoutExpired as exc:
-                connected = set_connection_state_and_log(connected, False)
-                logging.debug("Request timeout: %s", exc)
-                mqtt.publish_ctrl("status", "Request timeout. Retrying...")
+                conn_state, msg, exc_info = False, "Request timeout. Retrying...", exc
 
             except CloudNetworkError as exc:
-                connected = set_connection_state_and_log(connected, False)
-                logging.debug("Network error details: %s", exc)
-                mqtt.publish_ctrl("status", "Network or Cloud is unreachable! Retrying...")
+                conn_state, msg, exc_info = False, "Network or Cloud is unreachable! Retrying...", exc
 
             except Exception:  # pylint:disable=broad-exception-caught
-                connected = set_connection_state_and_log(connected, False)
-                logging.exception("Error making request to cloud! Retrying...")
-                mqtt.publish_ctrl("status", "Error making request to cloud! Retrying...")
+                logging.exception("Cloud connection exception")
+                conn_state, msg, exc_info = False, "Error making request to cloud! Retrying...", None
+
+            was_connected = handle_connection_state(was_connected, conn_state, msg, mqtt)
+
+            if exc_info is not None:
+                logging.debug(msg, exc_info=exc_info)
 
             logging.debug("Event request completed in %s ms", int((time.perf_counter() - start) * 1000))
             time.sleep(settings.request_period_seconds)

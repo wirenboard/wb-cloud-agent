@@ -10,6 +10,7 @@ from urllib.parse import urljoin
 from tabulate import tabulate
 
 if TYPE_CHECKING:
+    from wb.cloud_agent.mqtt import MQTTCloudAgent
     from wb.cloud_agent.settings import Provider
 
 
@@ -103,10 +104,9 @@ def parse_headers(header_section: str) -> dict[str, str]:
     return headers
 
 
-def set_connection_state_and_log(current_value: bool, new_value: bool) -> bool:
-    if current_value != new_value:
-        if new_value:
-            logging.info("Cloud Agent successfully connected to the cloud!")
-        else:
-            logging.info("Cloud Agent disconnected from the cloud. Trying to reconnect...")
+def handle_connection_state(prev_value: bool, new_value: bool, msg: str, mqtt: "MQTTCloudAgent") -> bool:
+    if prev_value != new_value:
+        logging.info(msg)
+
+    mqtt.publish_ctrl("status", msg)
     return new_value
