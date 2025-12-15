@@ -5,7 +5,7 @@ from subprocess import CalledProcessError
 import pytest
 
 from wb.cloud_agent.constants import CLIENT_CERT_ERROR_MSG
-from wb.cloud_agent.handlers.curl import do_curl, handle_curl_output
+from wb.cloud_agent.handlers.curl import CloudNetworkError, do_curl, handle_curl_output
 
 
 def test_do_curl_success_response(settings, mock_subprocess):
@@ -94,15 +94,16 @@ def test_handle_curl_output_malformed_split_raises(settings):
         handle_curl_output(settings, bad_output)
 
 
-def test_do_curl_dns_resolution_error(mock_subprocess_run, settings):
+@pytest.mark.parametrize("return_code", [6, 7, 28])
+def test_do_curl_network_errors(mock_subprocess_run, settings, return_code):
     mock_subprocess_run.side_effect = CalledProcessError(
-        returncode=6, cmd=["curl"], output=b"", stderr=b"Could not resolve host"
+        returncode=return_code, cmd=["curl"], output=b"", stderr=b"Could not resolve host"
     )
 
-    with pytest.raises(RuntimeError) as exc_info:
+    with pytest.raises(CloudNetworkError) as exc_info:
         do_curl(settings=settings, endpoint="test/")
 
-    assert "Curl couldnt find the IP address" in str(exc_info.value)
+    assert "Network error while accessing" in str(exc_info.value)
     assert settings.cloud_base_url in str(exc_info.value)
 
 

@@ -15,6 +15,7 @@ from wb.cloud_agent.commands import (
     run_daemon,
     show_providers,
 )
+from wb.cloud_agent.handlers.curl import CloudNetworkError
 
 
 @pytest.fixture
@@ -290,7 +291,7 @@ def test_run_daemon_startup_failure():
         patch("wb.cloud_agent.commands.wait_for_cloud_reachable") as mock_wait,
         patch(
             "wb.cloud_agent.commands.make_start_up_request",
-            side_effect=RuntimeError("Startup failed"),
+            side_effect=CloudNetworkError("Startup failed"),
         ),
         patch("wb.cloud_agent.commands.send_agent_version"),
     ):
@@ -392,7 +393,7 @@ def test_run_daemon_event_loop_with_exception(mock_mqtt_cloud_agent):
 
         # First call: Exception, second call: success and status ok, third: KeyboardInterrupt
         mock_event.side_effect = [
-            RuntimeError("Network error"),
+            CloudNetworkError("Network error"),
             None,
             KeyboardInterrupt(),
         ]
