@@ -7,7 +7,7 @@ from wb.cloud_agent.constants import UNKNOWN_LINK
 from wb.cloud_agent.handlers.startup import (
     make_start_up_request,
     on_message,
-    send_agent_version,
+    send_packages_version,
 )
 
 
@@ -95,11 +95,11 @@ def test_make_start_up_request_missing_activation_link_field(settings):
             make_start_up_request(settings, mock_mqtt)
 
 
-def test_send_agent_version_success(settings):
+def test_send_packages_version_success(settings):
     with patch("wb.cloud_agent.handlers.startup.do_curl") as mock_curl:
         mock_curl.return_value = ({"result": "ok"}, status.OK)
 
-        send_agent_version(settings)
+        send_packages_version(settings)
 
         mock_curl.assert_called_once()
         args = mock_curl.call_args
@@ -108,11 +108,11 @@ def test_send_agent_version_success(settings):
         assert "agent_version" in args[1]["params"]
 
 
-def test_send_agent_version_failure(settings):
+def test_send_packages_version_failure(settings):
     with patch("wb.cloud_agent.handlers.startup.do_curl") as mock_curl:
         mock_curl.return_value = ({"error": "bad request"}, status.BAD_REQUEST)
 
-        send_agent_version(settings)
+        send_packages_version(settings)
 
 
 def test_on_message_success(settings):

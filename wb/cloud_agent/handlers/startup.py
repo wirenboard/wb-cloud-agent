@@ -1,7 +1,8 @@
 import logging
 from http import HTTPStatus as status
 
-from wb.cloud_agent import __version__ as package_version
+from wb.cloud_agent import __version__ as agent_package_version
+from wb.cloud_agent import frpc_package_version, telegraf_package_version
 from wb.cloud_agent.constants import UNKNOWN_LINK
 from wb.cloud_agent.handlers.curl import do_curl
 from wb.cloud_agent.mqtt import MQTTCloudAgent
@@ -29,15 +30,30 @@ def make_start_up_request(settings: AppSettings, mqtt: MQTTCloudAgent):
     return status_data
 
 
-def send_agent_version(settings: AppSettings):
+def send_packages_version(settings: AppSettings):
+    logging.info(
+        "Sending package versions: agent=%s, telegraf=%s, frpc=%s, engine_key=%s",
+        agent_package_version,
+        telegraf_package_version,
+        frpc_package_version,
+        settings.client_cert_engine_key,
+    )
+
     _status_data, http_status = do_curl(
         settings=settings,
         method="put",
         endpoint="update_device_data/",
-        params={"agent_version": package_version},
+        params={
+            "agent_version": agent_package_version,
+            "telegraf_version": telegraf_package_version,
+            "frpc_version": frpc_package_version,
+            "crypto_engine_key": settings.client_cert_engine_key,
+        },
     )
     if http_status != status.OK:
-        logging.error("Not a %s status while making send_agent_version request: %s", status.OK, http_status)
+        logging.error(
+            "Not a %s status while making send_packages_version request: %s", status.OK, http_status
+        )
 
 
 def on_message(userdata: dict, message):

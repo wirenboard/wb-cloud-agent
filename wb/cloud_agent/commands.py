@@ -11,7 +11,7 @@ from wb.cloud_agent.handlers.ping import CloudUnreachableError, wait_for_cloud_r
 from wb.cloud_agent.handlers.startup import (
     make_start_up_request,
     on_message,
-    send_agent_version,
+    send_packages_version,
 )
 from wb.cloud_agent.mqtt import MQTTCloudAgent
 from wb.cloud_agent.services.activation import read_activation_link
@@ -128,7 +128,7 @@ def run_daemon(options) -> Optional[int]:
 
     try:
         make_start_up_request(settings, mqtt)
-        send_agent_version(settings)
+        send_packages_version(settings)
     except CloudNetworkError as exc:
         logging.error("Startup request failed: %s", exc)
         return 1
