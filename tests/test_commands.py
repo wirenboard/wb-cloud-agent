@@ -293,7 +293,7 @@ def test_run_daemon_startup_failure():
             "wb.cloud_agent.commands.make_start_up_request",
             side_effect=CloudNetworkError("Startup failed"),
         ),
-        patch("wb.cloud_agent.commands.send_agent_version"),
+        patch("wb.cloud_agent.commands.send_packages_version"),
     ):
         mock_settings = MagicMock()
         mock_settings.cloud_base_url = "https://example.com"
@@ -319,7 +319,7 @@ def test_run_daemon_with_custom_broker():
         patch("wb.cloud_agent.commands.configure_app") as mock_config,
         patch("wb.cloud_agent.commands.wait_for_cloud_reachable"),
         patch("wb.cloud_agent.commands.make_start_up_request"),
-        patch("wb.cloud_agent.commands.send_agent_version"),
+        patch("wb.cloud_agent.commands.send_packages_version"),
         patch("wb.cloud_agent.commands.read_activation_link", return_value="http://link"),
         patch("wb.cloud_agent.commands.make_event_request"),
         patch("time.sleep", side_effect=KeyboardInterrupt),
@@ -347,7 +347,7 @@ def test_run_daemon_event_loop_with_timeout():
         patch("wb.cloud_agent.commands.configure_app") as mock_config,
         patch("wb.cloud_agent.commands.wait_for_cloud_reachable"),
         patch("wb.cloud_agent.commands.make_start_up_request"),
-        patch("wb.cloud_agent.commands.send_agent_version"),
+        patch("wb.cloud_agent.commands.send_packages_version"),
         patch("wb.cloud_agent.commands.read_activation_link", return_value="http://link"),
         patch("wb.cloud_agent.commands.make_event_request") as mock_event,
         patch("time.sleep"),
@@ -380,7 +380,7 @@ def test_run_daemon_event_loop_with_exception(mock_mqtt_cloud_agent):
         patch("wb.cloud_agent.commands.configure_app") as mock_config,
         patch("wb.cloud_agent.commands.wait_for_cloud_reachable"),
         patch("wb.cloud_agent.commands.make_start_up_request"),
-        patch("wb.cloud_agent.commands.send_agent_version"),
+        patch("wb.cloud_agent.commands.send_packages_version"),
         patch("wb.cloud_agent.commands.read_activation_link", return_value="http://link"),
         patch("wb.cloud_agent.commands.make_event_request") as mock_event,
         patch("time.sleep"),
