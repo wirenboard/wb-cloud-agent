@@ -123,5 +123,5 @@ def handle_connection_state(prev_value: bool, new_value: bool, msg: str, mqtt: "
     if prev_value != new_value:
         logging.info(msg)
 
-    mqtt.publish_ctrl("status", msg)
+    mqtt.publish_ctrl("status", "ok" if new_value else msg)
     return new_value
