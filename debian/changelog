@@ -1,3 +1,9 @@
+wb-cloud-agent (1.6.9) stable; urgency=medium
+
+  * Fix cloud connection error message in status publishing
+
+ -- Denis Smagin <denis.smagin@wirenboard.com>  Thu, 24 Dec 2025 12:45:00 +0100
+
 wb-cloud-agent (1.6.8) stable; urgency=medium
 
   * Internal logic for sending package version to cloud
