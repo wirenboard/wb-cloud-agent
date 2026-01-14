@@ -46,6 +46,12 @@ if [ "$1" = "configure" ]; then
   fi
 fi
 
+# Restart all running provider instances after upgrade
+# dh_installsystemd cannot restart template units automatically
+if [ "$1" = "configure" ]; then
+    /usr/lib/wb-cloud-agent/activate-providers.sh || true
+fi
+
 if [[ -e "/usr/sbin/policy-rc.d" ]] && [[ "$(cat /usr/sbin/policy-rc.d)" == "exit 101" ]]; then
     echo "rootfs building mode, append +update-from-cloud to firmware-compatible"
     grep -qF "+update-from-cloud " /var/lib/wb-image-update/firmware-compatible || echo -n "+update-from-cloud " >> /var/lib/wb-image-update/firmware-compatible
