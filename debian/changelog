@@ -1,8 +1,9 @@
 wb-cloud-agent (1.6.10) stable; urgency=medium
 
   * Fix service restart after package upgrade (template units are not restarted by debhelper)
+  * Use try-restart to avoid starting disabled/stopped services
 
- -- Denis Smagin <denis.smagin@wirenboard.com>  Tue, 14 Jan 2026 20:00:00 +0100
+ -- Denis Smagin <denis.smagin@wirenboard.com>  Wed, 15 Jan 2026 20:00:00 +0100
 
 wb-cloud-agent (1.6.9) stable; urgency=medium
 
