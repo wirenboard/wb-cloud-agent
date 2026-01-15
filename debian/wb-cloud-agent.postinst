@@ -49,11 +49,7 @@ fi
 # Restart all running provider instances after upgrade
 # dh_installsystemd cannot restart template units automatically
 if [ "$1" = "configure" ]; then
-    old="${2:-}"
-    new="$(dpkg-query -W -f='${Version}' wb-cloud-agent 2>/dev/null || echo)"
-    if [ -n "$old" ] && [ -n "$new" ] && dpkg --compare-versions "$old" ne "$new"; then
-        /usr/lib/wb-cloud-agent/activate-providers.sh || true
-    fi
+    /usr/lib/wb-cloud-agent/activate-providers.sh || true
 fi
 
 if [[ -e "/usr/sbin/policy-rc.d" ]] && [[ "$(cat /usr/sbin/policy-rc.d)" == "exit 101" ]]; then
