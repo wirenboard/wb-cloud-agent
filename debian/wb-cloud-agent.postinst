@@ -46,7 +46,7 @@ if [ "$1" = "configure" ]; then
   fi
 fi
 
-# Restart all running provider instances after upgrade
+# Restart all running provider instances after upgrade,
 # dh_installsystemd cannot restart template units automatically
 if [ "$1" = "configure" ]; then
     /usr/lib/wb-cloud-agent/activate-providers.sh || true
