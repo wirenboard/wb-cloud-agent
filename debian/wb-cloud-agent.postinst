@@ -46,6 +46,8 @@ if [ "$1" = "configure" ]; then
   fi
   # Restart all running provider instances after upgrade
   if [ -d /etc/wb-cloud-agent/providers ]; then
+    # Reload systemd units to apply updated unit files before restarting instances
+    systemctl daemon-reload 2>/dev/null || true
     for provider in /etc/wb-cloud-agent/providers/*; do
       [ -d "$provider" ] || continue
       provider_name="$(basename "$provider")"
