@@ -51,7 +51,7 @@ if [ "$1" = "configure" ]; then
     for provider in /etc/wb-cloud-agent/providers/*; do
       [ -d "$provider" ] || continue
       provider_name="${provider##*/}"
-      deb-systemd-invoke try-restart "wb-cloud-agent@$provider_name" || true
+      deb-systemd-invoke try-restart "wb-cloud-agent@$provider_name" || :
     done
   fi
 fi
