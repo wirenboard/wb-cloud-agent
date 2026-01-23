@@ -14,7 +14,7 @@ from wb.cloud_agent.utils import stop_and_disable_service
 
 
 def stop_services_and_del_configs(settings: AppSettings, provider_name: str) -> None:
-    logging.debug("Deleting provider: %s", settings.provider_name)
+    logging.debug("Deleting provider: %s", provider_name)
 
     activation_link = read_activation_link(settings)
 
