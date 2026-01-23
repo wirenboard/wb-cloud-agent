@@ -19,7 +19,7 @@ def test_stop_services_and_del_configs_unknown_link(settings, tmp_path):
         patch("wb.cloud_agent.services.lifecycle.event_delete_controller", return_value=0) as mock_delete,
         patch("wb.cloud_agent.services.lifecycle.stop_and_disable_service") as mock_stop,
         patch("wb.cloud_agent.services.lifecycle.delete_provider_config") as mock_del_config,
-        patch("builtins.print") as mock_print,
+        patch("wb.cloud_agent.services.lifecycle.logging") as mock_logging,
     ):
         stop_services_and_del_configs(settings, provider_name)
 
@@ -37,7 +37,7 @@ def test_stop_services_and_del_configs_unknown_link(settings, tmp_path):
 
         assert mock_del_config.call_count == 2
 
-        mock_print.assert_called_once_with(f"Provider {provider_name} successfully deleted")
+        mock_logging.info.assert_called_once_with("Provider %s successfully deleted", provider_name)
 
 
 def test_stop_services_and_del_configs_with_activation_link(settings, tmp_path):
@@ -54,7 +54,7 @@ def test_stop_services_and_del_configs_with_activation_link(settings, tmp_path):
         patch("wb.cloud_agent.services.lifecycle.event_delete_controller") as mock_delete,
         patch("wb.cloud_agent.services.lifecycle.stop_and_disable_service") as mock_stop,
         patch("wb.cloud_agent.services.lifecycle.delete_provider_config") as mock_del_config,
-        patch("builtins.print") as mock_print,
+        patch("wb.cloud_agent.services.lifecycle.logging") as mock_logging,
     ):
         stop_services_and_del_configs(settings, provider_name)
 
@@ -63,7 +63,7 @@ def test_stop_services_and_del_configs_with_activation_link(settings, tmp_path):
         assert mock_stop.call_count == 3
         assert mock_del_config.call_count == 2
 
-        mock_print.assert_called_once()
+        mock_logging.info.assert_called_once_with("Provider %s successfully deleted", provider_name)
 
 
 def test_stop_services_and_del_configs_thread_timeout(settings, tmp_path):

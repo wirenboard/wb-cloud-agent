@@ -150,12 +150,12 @@ def test_stop_and_disable_service(mock_subprocess_run):
     stop_and_disable_service("test.service")
 
     assert mock_subprocess_run.call_count == 2
-    # First call: stop
-    stop_call = mock_subprocess_run.call_args_list[0]
-    assert stop_call[0][0] == ["systemctl", "stop", "test.service"]
-    # Second call: disable
-    disable_call = mock_subprocess_run.call_args_list[1]
+    # First call: disable (changed order to prevent process killing itself)
+    disable_call = mock_subprocess_run.call_args_list[0]
     assert disable_call[0][0] == ["systemctl", "disable", "test.service"]
+    # Second call: stop
+    stop_call = mock_subprocess_run.call_args_list[1]
+    assert stop_call[0][0] == ["systemctl", "stop", "test.service"]
 
 
 def test_show_providers_table_empty(mock_print):

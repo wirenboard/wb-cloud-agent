@@ -3,6 +3,7 @@ from http import HTTPStatus as status
 
 from wb.cloud_agent.constants import UNBIND_CTRL_REQUEST_TIMEOUT
 from wb.cloud_agent.handlers.curl import do_curl
+from wb.cloud_agent.handlers.provider import delete_provider
 from wb.cloud_agent.mqtt import MQTTCloudAgent
 from wb.cloud_agent.services.activation import update_activation_link
 from wb.cloud_agent.services.diagnostics import fetch_diagnostics
@@ -15,6 +16,11 @@ HANDLERS = {
     "update_tunnel_config": update_tunnel_config,
     "update_metrics_config": update_metrics_config,
     "fetch_diagnostics": fetch_diagnostics,
+    "delete_provider": lambda _, __, ___: None,  # Stub for suppressing logging
+}
+
+POST_HANDLERS = {
+    "delete_provider": delete_provider,
 }
 
 
@@ -47,6 +53,10 @@ def make_event_request(settings: AppSettings, mqtt: MQTTCloudAgent):
     logging.debug("Event '%s' handled successfully, event id %s", code, event_id)
 
     event_confirm(settings, event_id)
+
+    post_handler = POST_HANDLERS.get(code)
+    if post_handler:
+        post_handler(settings, payload, mqtt)
 
 
 def event_confirm(settings: AppSettings, event_id: str) -> None:
