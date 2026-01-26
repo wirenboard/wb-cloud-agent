@@ -67,9 +67,6 @@ def start_and_enable_service(service: str, restart: bool = False, timeout: int =
 
 
 def stop_and_disable_service(service: str, timeout: int = 120) -> None:
-    logging.debug("Stopping service %s", service)
-    subprocess.run(["systemctl", "stop", service], check=True, timeout=timeout)
-
     logging.debug("Disabling service %s", service)
     result = subprocess.run(
         ["systemctl", "disable", service],
@@ -83,6 +80,9 @@ def stop_and_disable_service(service: str, timeout: int = 120) -> None:
         logging.debug("Disabling service stdout: %s", result.stdout.strip())
     if result.stderr:
         logging.debug("Disabling service stderr: %s", result.stderr.strip())
+
+    logging.debug("Stopping service %s", service)
+    subprocess.run(["systemctl", "stop", service], check=True, timeout=timeout)
 
 
 def show_providers_table(providers: list["Provider"]) -> None:

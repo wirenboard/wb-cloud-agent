@@ -1,3 +1,4 @@
+import logging
 import threading
 
 from wb.cloud_agent.constants import (
@@ -13,6 +14,8 @@ from wb.cloud_agent.utils import stop_and_disable_service
 
 
 def stop_services_and_del_configs(settings: AppSettings, provider_name: str) -> None:
+    logging.debug("Deleting provider: %s", provider_name)
+
     activation_link = read_activation_link(settings)
 
     if activation_link == UNKNOWN_LINK:
@@ -29,4 +32,4 @@ def stop_services_and_del_configs(settings: AppSettings, provider_name: str) -> 
     if activation_link == UNKNOWN_LINK:
         thread.join(timeout=UNBIND_CTRL_REQUEST_TIMEOUT + 1)
 
-    print(f"Provider {provider_name} successfully deleted")
+    logging.info("Provider %s successfully deleted", provider_name)
