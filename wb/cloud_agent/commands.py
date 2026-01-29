@@ -26,6 +26,7 @@ from wb.cloud_agent.utils import (
     handle_connection_state,
     show_providers_table,
     start_and_enable_service,
+    validate_provider_name,
 )
 
 
@@ -37,6 +38,9 @@ def show_providers(_options) -> int:
 
 
 def add_provider(options) -> int:
+    if options.name:
+        validate_provider_name(options.name)
+
     provider_name = options.name or urlparse(options.base_url).netloc
     settings = configure_app(provider_name=provider_name)
 
