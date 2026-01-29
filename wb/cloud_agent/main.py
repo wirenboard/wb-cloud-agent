@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import re
 from argparse import ArgumentParser, ArgumentTypeError, Namespace
 from urllib.parse import urlparse
 
@@ -28,7 +29,10 @@ def parse_args() -> Namespace:
         help="Cloud Provider base URL, e.g. https://wirenboard.cloud",
     )
     add_provider_parser.add_argument(
-        "--name", help="Cloud Provider name to add (override url hostname)", required=False
+        "--name",
+        help="Cloud Provider name to add (override url hostname)",
+        required=False,
+        type=validate_provider_name,
     )
     add_provider_parser.set_defaults(func=add_provider)
 
@@ -82,6 +86,14 @@ def validate_url(value: str) -> str:
     parsed = urlparse(value)
     if parsed.scheme not in ("http", "https") or not parsed.netloc or parsed.path not in ("", "/"):
         raise ArgumentTypeError(f"Invalid URL: {value}")
+    return value
+
+
+def validate_provider_name(value: str) -> str:
+    if not re.fullmatch(r"[a-zA-Z0-9:._-]+", value):
+        raise ArgumentTypeError(
+            "Provider name may contain only english letters, digits, and ':', '.', '_', '-' characters."
+        )
     return value
 
 
