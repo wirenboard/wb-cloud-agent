@@ -2,7 +2,7 @@ wb-cloud-agent (1.6.12) stable; urgency=medium
 
   * Add validation for provider name to prevent invalid characters and whitespace.
 
- -- Denis Smagin <denis.smagin@wirenboard.com>  Wed, 30 Jan 2026 12:00:00 +0100
+ -- Denis Smagin <denis.smagin@wirenboard.com>  Thu, 29 Jan 2026 18:00:00 +0100
 
 wb-cloud-agent (1.6.11) stable; urgency=medium
 
