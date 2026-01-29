@@ -44,3 +44,40 @@ def test_base_url_validator_with_invalid_urls(set_argv, capsys, invalid_url):
     _, err = capsys.readouterr()
     assert exc_info.value.code == 2
     assert f"Invalid URL: {invalid_url}" in err
+
+
+def test_provider_name_validator_with_valid_name(set_argv):
+    valid_name = "valid_name:-123."
+    set_argv(
+        [
+            "wb-cloud-agent",
+            "add-provider",
+            "--name",
+            valid_name,
+            "https://cloud-staging.wirenboard.com/",
+        ],
+    )
+    parse_args()
+
+
+@pytest.mark.parametrize(
+    "invalid_name",
+    ["with spaces", "with/slash", "with!special@#chars$", " ", "кириллица", "名字"],
+)
+def test_provider_name_validator_with_invalid_name(set_argv, capsys, invalid_name):
+    set_argv(
+        [
+            "wb-cloud-agent",
+            "add-provider",
+            "--name",
+            invalid_name,
+            "https://cloud-staging.wirenboard.com/",
+        ],
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        parse_args()
+
+    _, err = capsys.readouterr()
+    assert exc_info.value.code == 2
+    assert f"Provider name may contain only" in err
