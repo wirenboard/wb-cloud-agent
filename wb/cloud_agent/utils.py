@@ -130,4 +130,6 @@ def handle_connection_state(prev_value: bool, new_value: bool, msg: str, mqtt: "
 
 def validate_provider_name(name: str) -> None:
     if not re.fullmatch(r"[a-zA-Z0-9:._-]+", name):
-        raise ValueError("Provider name may contain only english letters, digits, and ':', '.', '_', '-' characters.")
+        raise ValueError(
+            "Provider name may contain only english letters, digits, and ':', '.', '_', '-' characters."
+        )
