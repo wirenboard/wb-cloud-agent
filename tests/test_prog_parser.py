@@ -80,4 +80,4 @@ def test_provider_name_validator_with_invalid_name(set_argv, capsys, invalid_nam
 
     _, err = capsys.readouterr()
     assert exc_info.value.code == 2
-    assert f"Provider name may contain only" in err
+    assert "Provider name may contain only" in err
