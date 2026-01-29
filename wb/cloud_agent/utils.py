@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 import subprocess
 import sys
 from functools import cache
@@ -125,3 +126,8 @@ def handle_connection_state(prev_value: bool, new_value: bool, msg: str, mqtt: "
 
     mqtt.publish_ctrl("status", "ok" if new_value else msg)
     return new_value
+
+
+def validate_provider_name(name: str) -> None:
+    if not re.fullmatch(r"[a-zA-Z0-9:._-]+", name):
+        raise ValueError("Provider name may contain only english letters, digits, and ':', '.', '_', '-' characters.")
