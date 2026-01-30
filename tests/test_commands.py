@@ -84,7 +84,7 @@ def test_add_provider_success(mock_mqtt_cloud_agent):
 
 @pytest.mark.usefixtures("mock_mqtt_cloud_agent")
 def test_add_provider_with_custom_name():
-    options = Namespace(base_url="https://example.com", name="custom_name")
+    options = Namespace(base_url="https://example.com", name="custom_name:-123.")
 
     with (
         patch("wb.cloud_agent.commands.configure_app") as mock_config,
@@ -99,7 +99,7 @@ def test_add_provider_with_custom_name():
         result = add_provider(options)
 
         assert result == 0
-        mock_gen.assert_called_once_with("custom_name", "https://example.com")
+        mock_gen.assert_called_once_with("custom_name:-123.", "https://example.com")
 
 
 @pytest.mark.usefixtures("mock_mqtt_cloud_agent")
