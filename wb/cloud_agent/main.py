@@ -92,7 +92,7 @@ def validate_url(value: str) -> str:
 def validate_provider_name(value: str) -> str:
     if not re.fullmatch(r"[a-zA-Z0-9:._-]+", value):
         raise ArgumentTypeError(
-            "Provider name may contain only english letters, digits, and ':', '.', '_', '-' characters."
+            "Provider name may contain only Latin letters, digits, and ':', '.', '_', '-' characters."
         )
     return value
 
