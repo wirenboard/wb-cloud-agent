@@ -24,7 +24,7 @@ def test_app_settings_with_config_file(tmp_path):
     config_file = config_dir / "wb-cloud-agent.conf"
     config_data = {
         "CLIENT_CERT_ENGINE_KEY": "ATECCx08:00:04:C0:00",
-        "CLOUD_BASE_URL": "https://custom.cloud.com",
+        "CLOUD_BASE_URL": "https://custom.cloud.com/",
         "LOG_LEVEL": "DEBUG",
     }
     config_file.write_text(json.dumps(config_data))
@@ -129,7 +129,7 @@ def test_generate_provider_config(tmp_path):
         patch("wb.cloud_agent.settings.DEFAULT_PROVIDER_CONF_FILE", str(default_conf_file)),
         patch("wb.cloud_agent.settings.PROVIDERS_CONF_DIR", str(providers_dir)),
     ):
-        generate_provider_config("new_provider", "https://new.cloud.com")
+        generate_provider_config("new_provider", "https://new.cloud.com/")
 
         new_conf_file = providers_dir / "new_provider" / "wb-cloud-agent.conf"
         assert new_conf_file.exists()

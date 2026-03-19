@@ -6,6 +6,7 @@ import pytest
 from wb.cloud_agent.settings import AppSettings
 from wb.cloud_agent.utils import (
     get_controller_url,
+    normalize_base_url,
     parse_headers,
     read_json_config,
     read_plaintext_config,
@@ -32,6 +33,15 @@ def test_get_controller_url(mock_serial_number, settings: AppSettings):
         get_controller_url(settings.cloud_base_url)
         == f"{settings.cloud_base_url}/controllers/{mock_serial_number}"
     )
+
+
+def test_get_controller_url_with_trailing_slash(mock_serial_number):
+    assert get_controller_url("https://wirenboard.cloud/") == f"https://wirenboard.cloud/controllers/{mock_serial_number}"
+
+
+def test_normalize_base_url():
+    assert normalize_base_url("https://wirenboard.cloud/") == "https://wirenboard.cloud"
+    assert normalize_base_url("https://wirenboard.cloud") == "https://wirenboard.cloud"
 
 
 def test_parse_headers_basic():

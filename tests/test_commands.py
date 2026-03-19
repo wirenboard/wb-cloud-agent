@@ -60,7 +60,7 @@ def test_show_providers_with_data():
 
 @pytest.mark.usefixtures("mock_mqtt_cloud_agent")
 def test_add_provider_success(mock_mqtt_cloud_agent):
-    options = Namespace(base_url="https://example.com", name=None)
+    options = Namespace(base_url="https://example.com/", name=None)
 
     with (
         patch("wb.cloud_agent.commands.configure_app") as mock_config,
@@ -84,7 +84,7 @@ def test_add_provider_success(mock_mqtt_cloud_agent):
 
 @pytest.mark.usefixtures("mock_mqtt_cloud_agent")
 def test_add_provider_with_custom_name():
-    options = Namespace(base_url="https://example.com", name="custom_name:-123.")
+    options = Namespace(base_url="https://example.com/", name="custom_name:-123.")
 
     with (
         patch("wb.cloud_agent.commands.configure_app") as mock_config,
@@ -115,6 +115,28 @@ def test_add_provider_already_exists():
 
         assert result == 1
         mock_print.assert_called_once_with("Provider example.com already exists")
+
+
+@pytest.mark.usefixtures("mock_mqtt_cloud_agent")
+def test_add_provider_with_duplicate_url():
+    options = Namespace(base_url="https://example.com/", name="custom_name")
+    existing_provider = MagicMock()
+    existing_provider.config = {"CLOUD_BASE_URL": "https://example.com"}
+
+    with (
+        patch("wb.cloud_agent.commands.configure_app"),
+        patch("wb.cloud_agent.commands.get_provider_names", return_value=["example.com"]),
+        patch("wb.cloud_agent.commands.load_providers_data", return_value=[existing_provider]),
+        patch("wb.cloud_agent.commands.generate_provider_config") as mock_gen,
+        patch("wb.cloud_agent.commands.start_and_enable_service") as mock_service,
+        patch("builtins.print") as mock_print,
+    ):
+        result = add_provider(options)
+
+        assert result == 1
+        mock_gen.assert_not_called()
+        mock_service.assert_not_called()
+        mock_print.assert_called_once_with("Provider with URL https://example.com already exists")
 
 
 @pytest.mark.usefixtures("mock_mqtt_cloud_agent")
