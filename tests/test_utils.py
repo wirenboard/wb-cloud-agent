@@ -36,7 +36,10 @@ def test_get_controller_url(mock_serial_number, settings: AppSettings):
 
 
 def test_get_controller_url_with_trailing_slash(mock_serial_number):
-    assert get_controller_url("https://wirenboard.cloud/") == f"https://wirenboard.cloud/controllers/{mock_serial_number}"
+    assert (
+        get_controller_url("https://wirenboard.cloud/")
+        == f"https://wirenboard.cloud/controllers/{mock_serial_number}"
+    )
 
 
 def test_normalize_base_url():

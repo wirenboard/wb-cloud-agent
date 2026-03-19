@@ -54,7 +54,9 @@ def add_provider(options) -> int:
         return 1
 
     existing_providers = load_providers_data(providers)
-    if any(normalize_base_url(provider.config["CLOUD_BASE_URL"]) == base_url for provider in existing_providers):
+    if any(
+        normalize_base_url(provider.config["CLOUD_BASE_URL"]) == base_url for provider in existing_providers
+    ):
         print(f"Provider with URL {base_url} already exists")
         return 1
 
