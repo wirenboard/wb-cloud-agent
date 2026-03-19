@@ -24,6 +24,7 @@ from wb.cloud_agent.settings import (
 )
 from wb.cloud_agent.utils import (
     handle_connection_state,
+    normalize_base_url,
     show_providers_table,
     start_and_enable_service,
 )
@@ -37,7 +38,8 @@ def show_providers(_options) -> int:
 
 
 def add_provider(options) -> int:
-    provider_name = options.name or urlparse(options.base_url).netloc
+    base_url = normalize_base_url(options.base_url)
+    provider_name = options.name or urlparse(base_url).netloc
     settings = configure_app(provider_name=provider_name)
 
     try:
@@ -51,7 +53,14 @@ def add_provider(options) -> int:
         print(f"Provider {provider_name} already exists")
         return 1
 
-    generate_provider_config(provider_name, options.base_url)
+    existing_providers = load_providers_data(providers)
+    if any(
+        normalize_base_url(provider.config["CLOUD_BASE_URL"]) == base_url for provider in existing_providers
+    ):
+        print(f"Provider with URL {base_url} already exists")
+        return 1
+
+    generate_provider_config(provider_name, base_url)
     start_and_enable_service(f"wb-cloud-agent@{provider_name}.service")
 
     try:

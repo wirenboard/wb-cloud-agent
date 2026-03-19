@@ -1,3 +1,10 @@
+wb-cloud-agent (1.6.13) stable; urgency=medium
+
+  * Normalize provider base URL to avoid double slash in controller URL
+  * Prevent adding multiple providers with the same URL
+
+ -- Denis Smagin <denis.smagin@wirenboard.com>  Thu, 19 Mar 2026 14:00:00 +0100
+
 wb-cloud-agent (1.6.12) stable; urgency=medium
 
   * Add validation for provider name to prevent invalid characters and whitespace.

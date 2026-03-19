@@ -19,6 +19,7 @@ from wb.cloud_agent.constants import (
 )
 from wb.cloud_agent.utils import (
     get_controller_url,
+    normalize_base_url,
     read_json_config,
     read_plaintext_config,
 )
@@ -71,6 +72,7 @@ class AppSettings:  # pylint: disable=too-many-instance-attributes disable=too-f
         if not self.skip_conf_file and self.config_file.exists():
             self.apply_conf_file()
 
+        self.cloud_base_url = normalize_base_url(self.cloud_base_url)
         self.cloud_agent_url = self.base_url_to_agent_url(self.cloud_base_url)
 
     def apply_conf_file(self) -> None:
@@ -80,7 +82,7 @@ class AppSettings:  # pylint: disable=too-many-instance-attributes disable=too-f
             setattr(self, key.lower(), val)
 
     def base_url_to_agent_url(self, base_url: str) -> str:
-        parsed = urlparse(base_url)
+        parsed = urlparse(normalize_base_url(base_url))
         netloc = f"agent.{parsed.netloc}"
         return urlunparse((parsed.scheme, netloc, CLOUD_AGENT_URL_POSTFIX, "", "", ""))
 
@@ -104,7 +106,7 @@ def setup_log(settings: AppSettings) -> None:
 
 def generate_provider_config(provider: str, base_url: str) -> None:
     conf = read_json_config(Path(DEFAULT_PROVIDER_CONF_FILE))
-    conf["CLOUD_BASE_URL"] = base_url
+    conf["CLOUD_BASE_URL"] = normalize_base_url(base_url)
 
     conf_dir = Path(PROVIDERS_CONF_DIR) / provider
     if not conf_dir.exists():

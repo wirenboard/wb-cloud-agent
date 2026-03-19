@@ -19,9 +19,13 @@ def get_ctrl_serial_number() -> str:
     return subprocess.check_output("wb-gen-serial -s", shell=True).decode().strip()
 
 
+def normalize_base_url(base_url: str) -> str:
+    return base_url.rstrip("/")
+
+
 def get_controller_url(base_url: str) -> str:
     ctrl_serial_number = get_ctrl_serial_number()
-    return urljoin(base_url, f"controllers/{ctrl_serial_number}")
+    return urljoin(normalize_base_url(base_url), f"controllers/{ctrl_serial_number}")
 
 
 def read_json_config(config_path: Path) -> dict[str, str]:
