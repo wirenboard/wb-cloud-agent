@@ -21,7 +21,10 @@ fi
 
 if [ "$1" = "purge" ]; then
     rm -f /etc/wb-cloud-agent.conf
+    rm -f /etc/wb-cloud-agent.conf.default
     rm -fr /etc/wb-cloud-agent
+    rm -fr /etc/wb-cloud-agent.default
+    rm -fr /var/lib/wb-cloud-agent
 fi
 
 #DEBHELPER#
