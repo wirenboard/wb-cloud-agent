@@ -73,7 +73,8 @@ def send_packages_version(settings: AppSettings):
     package_versions = collect_package_versions(settings)
 
     logging.info(
-        "Sending package versions: agent=%s, frpc=%s, python=%s, engine_key=%s, mqttrpc=%s, paho_mqtt=%s, wb_mqtt_db=%s",
+        "Sending package versions: agent=%s, frpc=%s, python=%s, engine_key=%s,"
+        " mqttrpc=%s, paho_mqtt=%s, wb_mqtt_db=%s",
         package_versions["agent_version"],
         package_versions["frpc_version"],
         package_versions["python_version"],
