@@ -176,8 +176,7 @@ def update_metrics_config(settings: AppSettings, payload: dict, mqtt: MQTTCloudA
         _ensure_service_is_active(settings.metrics_service)
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
         logging.warning(
-            "Metrics service %s did not become active immediately: %s. "
-            "Monitoring thread will track it.",
+            "Metrics service %s did not become active immediately: %s. Monitoring thread will track it.",
             settings.metrics_service,
             exc,
         )
