@@ -1,0 +1,14 @@
+[Unit]
+Description=metrics collector for Wiren Board Cloud (%i)
+After=network.target mosquitto.service wb-mqtt-db.service
+Wants=mosquitto.service wb-mqtt-db.service
+
+[Service]
+Type=simple
+ExecCondition=/usr/bin/test -f /var/lib/wb-cloud-agent/providers/%i/metrics_collector.py
+ExecStart=/usr/bin/python3 -u /var/lib/wb-cloud-agent/providers/%i/metrics_collector.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

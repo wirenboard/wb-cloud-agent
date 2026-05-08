@@ -26,6 +26,17 @@ should_cleanup() {
 if [ "$1" = "configure" ]; then
   old="${2:-}"
   new="$(dpkg-query -W -f='${Version}' wb-cloud-agent 2>/dev/null || echo)"
+  if dpkg --compare-versions "$new" ge "1.7.0~"; then
+    # Since 1.7.0 controller metrics are collected by wb-cloud-agent-metrics@.
+    # Stop and disable old Telegraf instances that may still be enabled from previous packages.
+    systemctl list-units --full --all 'wb-cloud-agent-telegraf@*.service' --no-legend 2>/dev/null \
+      | awk '{print $1}' \
+      | while read -r unit; do
+          [ -n "$unit" ] || continue
+          deb-systemd-invoke stop "$unit" 2>/dev/null || true
+          deb-systemd-invoke disable "$unit" 2>/dev/null || true
+        done
+  fi
   if should_cleanup "$old" "$new"; then
 
     echo "Cleaning up deprecated wb-cloud-agent service and files"
@@ -33,8 +44,8 @@ if [ "$1" = "configure" ]; then
     deb-systemd-invoke disable wb-cloud-agent 2>/dev/null || true
     deb-systemd-invoke stop wb-cloud-agent-telegraf 2>/dev/null || true
     deb-systemd-invoke disable wb-cloud-agent-telegraf 2>/dev/null || true
-    deb-systemd-invoke stop wb-cloud-agent.wb-cloud-agent-frpc 2>/dev/null || true
-    deb-systemd-invoke disable wb-cloud-agent.wb-cloud-agent-frpc 2>/dev/null || true
+    deb-systemd-invoke stop wb-cloud-agent-frpc 2>/dev/null || true
+    deb-systemd-invoke disable wb-cloud-agent-frpc 2>/dev/null || true
 
     # Delete deprecated files if exists
     rm -f /var/lib/wb-cloud-agent/telegraf.conf

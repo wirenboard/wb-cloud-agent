@@ -7,9 +7,6 @@ export PYBUILD_NAME=wb_cloud_agent
 	dh $@ --with python3 --buildsystem=pybuild
 
 override_dh_installsystemd:
-	dh_installsystemd --name=wb-cloud-agent
 	dh_installsystemd --name=wb-cloud-agent@
-	dh_installsystemd --name=wb-cloud-agent-telegraf --no-start --no-enable
-	dh_installsystemd --name=wb-cloud-agent-telegraf@ --no-start --no-enable
-	dh_installsystemd --name=wb-cloud-agent-frpc --no-start --no-enable
 	dh_installsystemd --name=wb-cloud-agent-frpc@ --no-start --no-enable
+	dh_installsystemd --name=wb-cloud-agent-metrics@ --no-start --no-enable
