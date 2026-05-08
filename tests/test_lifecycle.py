@@ -30,7 +30,7 @@ def test_stop_services_and_del_configs_unknown_link(settings, tmp_path):
         expected_services = [
             f"wb-cloud-agent@{provider_name}.service",
             f"wb-cloud-agent-frpc@{provider_name}.service",
-            f"wb-cloud-agent-telegraf@{provider_name}.service",
+            f"wb-cloud-agent-metrics@{provider_name}.service",
         ]
         for service in expected_services:
             mock_stop.assert_any_call(service)
