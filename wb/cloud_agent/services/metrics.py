@@ -25,6 +25,8 @@ from wb.cloud_agent.utils import (
     write_to_file,
 )
 
+_monitor_threads: dict[str, threading.Thread] = {}
+
 
 def _safe_stop_and_disable_service(service: str) -> None:
     try:
@@ -159,8 +161,7 @@ def update_metrics_config(settings: AppSettings, payload: dict, mqtt: MQTTCloudA
         return
 
     if "script" not in payload:
-        logging.error("Metrics config event payload has no collector script, skipping")
-        return
+        raise ValueError("Metrics config event payload has no collector script")
 
     write_to_file(
         fpath=settings.metrics_script,
@@ -174,10 +175,13 @@ def update_metrics_config(settings: AppSettings, payload: dict, mqtt: MQTTCloudA
     _ensure_service_is_active(settings.metrics_service)
     write_activation_link(settings, UNKNOWN_LINK, mqtt)
 
-    thread = threading.Thread(
-        target=_monitor_metrics_service,
-        args=(settings, settings.metrics_service),
-        daemon=True,
-        name=f"metrics-health-{settings.provider_name}",
-    )
-    thread.start()
+    existing = _monitor_threads.get(settings.provider_name)
+    if existing is None or not existing.is_alive():
+        thread = threading.Thread(
+            target=_monitor_metrics_service,
+            args=(settings, settings.metrics_service),
+            daemon=True,
+            name=f"metrics-health-{settings.provider_name}",
+        )
+        _monitor_threads[settings.provider_name] = thread
+        thread.start()

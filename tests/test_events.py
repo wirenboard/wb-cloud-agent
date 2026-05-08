@@ -106,6 +106,25 @@ def test_make_event_request_does_not_confirm_failed_metrics_config(settings):
         mock_confirm.assert_not_called()
 
 
+def test_make_event_request_does_not_confirm_metrics_config_without_script(settings):
+    event_data = {
+        "id": "event789",
+        "code": "update_metrics_config",
+        "payload": {},
+    }
+
+    with (
+        patch("wb.cloud_agent.handlers.events.do_curl") as mock_curl,
+        patch("wb.cloud_agent.handlers.events.event_confirm") as mock_confirm,
+    ):
+        mock_curl.return_value = (event_data, status.OK)
+
+        with pytest.raises(ValueError, match="no collector script"):
+            make_event_request(settings, mqtt=MagicMock())
+
+        mock_confirm.assert_not_called()
+
+
 def test_make_event_request_fetch_diagnostics(settings, tmp_path):
     settings.diag_archive = tmp_path
     event_data = {"id": "event999", "code": "fetch_diagnostics", "payload": {"some": "data"}}

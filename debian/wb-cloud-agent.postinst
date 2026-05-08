@@ -29,7 +29,7 @@ if [ "$1" = "configure" ]; then
   if dpkg --compare-versions "$new" ge "1.7.0~"; then
     # Since 1.7.0 controller metrics are collected by wb-cloud-agent-metrics@.
     # Stop and disable old Telegraf instances that may still be enabled from previous packages.
-    systemctl list-units --full --all 'wb-cloud-agent-telegraf@*.service' --no-legend 2>/dev/null \
+    systemctl list-unit-files 'wb-cloud-agent-telegraf@*.service' --no-legend 2>/dev/null \
       | awk '{print $1}' \
       | while read -r unit; do
           [ -n "$unit" ] || continue
