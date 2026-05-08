@@ -53,6 +53,7 @@ class AppSettings:  # pylint: disable=too-many-instance-attributes disable=too-f
     cloud_agent_url: str = f"https://agent.wirenboard.cloud{CLOUD_AGENT_URL_POSTFIX}"
     request_period_seconds: int = 10
     ping_period_seconds: int = 10
+    metrics_log_enabled: bool = True
 
     def __init__(self, /, **kwargs: dict[str, Any]) -> None:
         for key, val in kwargs.items():
@@ -60,9 +61,12 @@ class AppSettings:  # pylint: disable=too-many-instance-attributes disable=too-f
 
         self.config_file: Path = Path(f"{PROVIDERS_CONF_DIR}/{self.provider_name}/wb-cloud-agent.conf")
         self.frp_service: str = f"wb-cloud-agent-frpc@{self.provider_name}.service"
-        self.telegraf_service: str = f"wb-cloud-agent-telegraf@{self.provider_name}.service"
+        self.metrics_service: str = f"wb-cloud-agent-metrics@{self.provider_name}.service"
         self.frp_config: Path = Path(f"{APP_DATA_PROVIDERS_DIR}/{self.provider_name}/frpc.conf")
-        self.telegraf_config: Path = Path(f"{APP_DATA_PROVIDERS_DIR}/{self.provider_name}/telegraf.conf")
+        self.metrics_script: Path = Path(
+            f"{APP_DATA_PROVIDERS_DIR}/{self.provider_name}/metrics_collector.py"
+        )
+        self.metrics_last_uid: Path = Path(f"{APP_DATA_PROVIDERS_DIR}/{self.provider_name}/metrics_last_uid")
         self.activation_link_config: Path = Path(
             f"{APP_DATA_PROVIDERS_DIR}/{self.provider_name}/activation_link.conf"
         )

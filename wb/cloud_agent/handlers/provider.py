@@ -14,7 +14,7 @@ def delete_provider(settings: AppSettings, _: dict, __: MQTTCloudAgent) -> None:
     logging.debug("Deleting provider: %s", settings.provider_name)
 
     stop_and_disable_service(f"wb-cloud-agent-frpc@{settings.provider_name}.service")
-    stop_and_disable_service(f"wb-cloud-agent-telegraf@{settings.provider_name}.service")
+    stop_and_disable_service(f"wb-cloud-agent-metrics@{settings.provider_name}.service")
 
     delete_provider_config(PROVIDERS_CONF_DIR, settings.provider_name)
     delete_provider_config(APP_DATA_PROVIDERS_DIR, settings.provider_name)

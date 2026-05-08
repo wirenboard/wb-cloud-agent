@@ -7,5 +7,4 @@ try:
 except PackageNotFoundError:
     __version__ = "unknown"
 
-telegraf_package_version = get_apt_package_version("telegraf-wb-cloud-agent")
 frpc_package_version = get_apt_package_version("frpc")
