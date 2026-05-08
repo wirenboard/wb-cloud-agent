@@ -172,7 +172,15 @@ def update_metrics_config(settings: AppSettings, payload: dict, mqtt: MQTTCloudA
     )
     os.chmod(settings.metrics_script, 0o755)
     start_and_enable_service(settings.metrics_service, restart=True)
-    _ensure_service_is_active(settings.metrics_service)
+    try:
+        _ensure_service_is_active(settings.metrics_service)
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+        logging.warning(
+            "Metrics service %s did not become active immediately: %s. "
+            "Monitoring thread will track it.",
+            settings.metrics_service,
+            exc,
+        )
     write_activation_link(settings, UNKNOWN_LINK, mqtt)
 
     existing = _monitor_threads.get(settings.provider_name)
