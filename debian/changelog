@@ -6,6 +6,12 @@ wb-cloud-agent (1.7.0) stable; urgency=medium
 
  -- Arseniy Astafev <arseniy.astafev@wirenboard.com>  Fri, 08 May 2026 11:00:00 +0300
 
+wb-cloud-agent (1.6.14) stable; urgency=medium
+
+  * Remove /var/lib/wb-cloud-agent on package purge
+
+ -- Nikolay Korotkiy <nikolay.korotkiy@wirenboard.com>  Wed, 29 Apr 2026 14:10:00 +0400
+
 wb-cloud-agent (1.6.13) stable; urgency=medium
 
   * Normalize provider base URL to avoid double slash in controller URL
