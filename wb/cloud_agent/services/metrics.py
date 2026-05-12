@@ -152,6 +152,11 @@ def _monitor_metrics_service(settings: AppSettings, service: str, stop_event: th
                         consecutive_error_windows,
                     )
                 consecutive_error_windows = 0
+
+        logging.info(
+            "Stopping metrics health monitor for provider %s after monitoring window completed",
+            settings.provider_name,
+        )
     except Exception as exc:  # noqa: BLE001  # pylint: disable=broad-exception-caught
         logging.warning("Metrics health monitor failed unexpectedly: %s", exc)
     finally:
