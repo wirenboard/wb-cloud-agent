@@ -1,3 +1,4 @@
+import threading
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -151,6 +152,45 @@ def test_update_metrics_config_disabled(settings):
 
         mock_stop.assert_called_once_with(settings.metrics_service)
         mock_write.assert_called_once_with(settings, UNKNOWN_LINK, mock_mqtt)
+
+
+def test_update_metrics_config_restarts_existing_monitor(settings, tmp_path):
+    mock_mqtt = MagicMock()
+    settings.metrics_script = tmp_path / "metrics_collector.py"
+    settings.metrics_service = "wb-cloud-agent-metrics@default.service"
+    settings.broker_url = "tcp://localhost:1883"
+
+    old_stop_event = threading.Event()
+    old_thread = MagicMock()
+    old_thread.is_alive.return_value = True
+
+    payload = {"script": 'BROKER = "$BROKER_URL"'}
+
+    with (
+        patch.dict(
+            "wb.cloud_agent.services.metrics._monitor_threads",
+            {settings.provider_name: old_thread},
+            clear=True,
+        ),
+        patch.dict(
+            "wb.cloud_agent.services.metrics._monitor_stop_events",
+            {settings.provider_name: old_stop_event},
+            clear=True,
+        ),
+        patch("wb.cloud_agent.services.metrics.start_and_enable_service"),
+        patch("wb.cloud_agent.services.metrics._ensure_service_is_active"),
+        patch("wb.cloud_agent.services.metrics.os.chmod"),
+        patch("wb.cloud_agent.services.metrics.write_activation_link"),
+        patch("wb.cloud_agent.services.metrics.threading.Thread") as mock_thread,
+    ):
+        new_thread = MagicMock()
+        mock_thread.return_value = new_thread
+
+        update_metrics_config(settings, payload, mock_mqtt)
+
+        assert old_stop_event.is_set()
+        mock_thread.assert_called_once()
+        new_thread.start.assert_called_once()
 
 
 def test_update_metrics_config_without_script_fails_before_confirm(settings):
