@@ -5,6 +5,7 @@ from contextlib import ExitStack
 from typing import Optional
 from urllib.parse import urlparse
 
+from wb.cloud_agent import __version__ as agent_package_version
 from wb.cloud_agent.handlers.curl import CloudNetworkError
 from wb.cloud_agent.handlers.events import event_delete_controller, make_event_request
 from wb.cloud_agent.handlers.ping import CloudUnreachableError, wait_for_cloud_reachable
@@ -120,7 +121,11 @@ def del_controller_from_cloud(options) -> int:
 def run_daemon(options) -> Optional[int]:
     settings = configure_app(provider_name=options.provider_name)
     settings.broker_url = options.broker or settings.broker_url
-    logging.info("====== Cloud Agent started (provider: %s) ======", settings.cloud_base_url)
+    logging.info(
+        "====== Cloud Agent started (version: %s, provider: %s) ======",
+        agent_package_version,
+        settings.cloud_base_url,
+    )
 
     try:
         wait_for_cloud_reachable(settings.cloud_base_url, settings.ping_period_seconds)

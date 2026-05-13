@@ -1,5 +1,8 @@
+import threading
 from pathlib import Path
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from wb.cloud_agent.constants import UNKNOWN_LINK
 from wb.cloud_agent.services.activation import (
@@ -69,41 +72,130 @@ def test_update_tunnel_config(settings, tmp_path):
 
 def test_update_metrics_config(settings, tmp_path):
     mock_mqtt = MagicMock()
-    settings.telegraf_config = tmp_path / "telegraf.conf"
-    settings.telegraf_service = "wb-cloud-agent-telegraf@default.service"
+    settings.metrics_script = tmp_path / "metrics_collector.py"
+    settings.metrics_service = "wb-cloud-agent-metrics@default.service"
     settings.broker_url = "tcp://localhost:1883"
 
-    payload = {"config": '[[outputs.mqtt]]\nservers = ["$BROKER_URL"]'}
+    payload = {"script": 'BROKER = "$BROKER_URL"'}
 
     with (
         patch("wb.cloud_agent.services.metrics.start_and_enable_service") as mock_service,
+        patch("wb.cloud_agent.services.metrics._ensure_service_is_active") as mock_active,
+        patch("wb.cloud_agent.services.metrics.os.chmod"),
         patch("wb.cloud_agent.services.metrics.write_activation_link") as mock_write,
     ):
         update_metrics_config(settings, payload, mock_mqtt)
 
-        content = settings.telegraf_config.read_text()
+        content = settings.metrics_script.read_text()
         assert "tcp://localhost:1883" in content
-        mock_service.assert_called_once_with(settings.telegraf_service, restart=True)
+        mock_service.assert_called_once_with(settings.metrics_service, restart=True)
+        mock_active.assert_called_once_with(settings.metrics_service)
         mock_write.assert_called_once_with(settings, UNKNOWN_LINK, mock_mqtt)
 
 
 def test_update_metrics_config_template_substitution(settings, tmp_path):
     mock_mqtt = MagicMock()
-    settings.telegraf_config = tmp_path / "telegraf.conf"
-    settings.telegraf_service = "wb-cloud-agent-telegraf@default.service"
+    settings.metrics_script = tmp_path / "metrics_collector.py"
+    settings.metrics_service = "wb-cloud-agent-metrics@default.service"
     settings.broker_url = "tcp://192.168.1.100:1883"
 
-    payload = {"config": '[[outputs.mqtt]]\nservers = ["$BROKER_URL"]\ntopic = "metrics"'}
+    payload = {"script": 'BROKER = "$BROKER_URL"\nPROVIDER = "$PROVIDER_NAME"'}
 
     with (
         patch("wb.cloud_agent.services.metrics.start_and_enable_service"),
+        patch("wb.cloud_agent.services.metrics._ensure_service_is_active"),
+        patch("wb.cloud_agent.services.metrics.os.chmod"),
         patch("wb.cloud_agent.services.metrics.write_activation_link"),
     ):
         update_metrics_config(settings, payload, mock_mqtt)
 
-        content = settings.telegraf_config.read_text()
+        content = settings.metrics_script.read_text()
         assert "tcp://192.168.1.100:1883" in content
         assert "$BROKER_URL" not in content
+        assert settings.provider_name in content
+
+
+def test_update_metrics_config_script(settings, tmp_path):
+    mock_mqtt = MagicMock()
+    settings.metrics_script = tmp_path / "metrics_collector.py"
+    settings.metrics_service = "wb-cloud-agent-metrics@default.service"
+    settings.broker_url = "tcp://localhost:1883"
+
+    payload = {"script": 'BROKER = "$BROKER_URL"\nPROVIDER = "$PROVIDER_NAME"'}
+
+    with (
+        patch("wb.cloud_agent.services.metrics.start_and_enable_service") as mock_service,
+        patch("wb.cloud_agent.services.metrics._ensure_service_is_active") as mock_active,
+        patch("wb.cloud_agent.services.metrics.os.chmod") as mock_chmod,
+        patch("wb.cloud_agent.services.metrics.write_activation_link") as mock_write,
+    ):
+        update_metrics_config(settings, payload, mock_mqtt)
+
+        content = settings.metrics_script.read_text()
+        assert "tcp://localhost:1883" in content
+        assert "default" in content
+        assert "$BROKER_URL" not in content
+        mock_chmod.assert_called_once_with(settings.metrics_script, 0o755)
+        mock_service.assert_called_once_with(settings.metrics_service, restart=True)
+        mock_active.assert_called_once_with(settings.metrics_service)
+        mock_write.assert_called_once_with(settings, UNKNOWN_LINK, mock_mqtt)
+
+
+def test_update_metrics_config_disabled(settings):
+    mock_mqtt = MagicMock()
+
+    with (
+        patch("wb.cloud_agent.services.metrics._safe_stop_and_disable_service") as mock_stop,
+        patch("wb.cloud_agent.services.metrics.write_activation_link") as mock_write,
+    ):
+        update_metrics_config(settings, {"enabled": False}, mock_mqtt)
+
+        mock_stop.assert_called_once_with(settings.metrics_service)
+        mock_write.assert_called_once_with(settings, UNKNOWN_LINK, mock_mqtt)
+
+
+def test_update_metrics_config_restarts_existing_monitor(settings, tmp_path):
+    mock_mqtt = MagicMock()
+    settings.metrics_script = tmp_path / "metrics_collector.py"
+    settings.metrics_service = "wb-cloud-agent-metrics@default.service"
+    settings.broker_url = "tcp://localhost:1883"
+
+    old_stop_event = threading.Event()
+    old_thread = MagicMock()
+    old_thread.is_alive.return_value = True
+
+    payload = {"script": 'BROKER = "$BROKER_URL"'}
+
+    with (
+        patch.dict(
+            "wb.cloud_agent.services.metrics._monitor_threads",
+            {settings.provider_name: old_thread},
+            clear=True,
+        ),
+        patch.dict(
+            "wb.cloud_agent.services.metrics._monitor_stop_events",
+            {settings.provider_name: old_stop_event},
+            clear=True,
+        ),
+        patch("wb.cloud_agent.services.metrics.start_and_enable_service"),
+        patch("wb.cloud_agent.services.metrics._ensure_service_is_active"),
+        patch("wb.cloud_agent.services.metrics.os.chmod"),
+        patch("wb.cloud_agent.services.metrics.write_activation_link"),
+        patch("wb.cloud_agent.services.metrics.threading.Thread") as mock_thread,
+    ):
+        new_thread = MagicMock()
+        mock_thread.return_value = new_thread
+
+        update_metrics_config(settings, payload, mock_mqtt)
+
+        assert old_stop_event.is_set()
+        mock_thread.assert_called_once()
+        new_thread.start.assert_called_once()
+
+
+def test_update_metrics_config_without_script_fails_before_confirm(settings):
+    with pytest.raises(ValueError, match="no collector script"):
+        update_metrics_config(settings, {"enabled": True}, MagicMock())
 
 
 def test_fetch_diagnostics(settings, tmp_path):

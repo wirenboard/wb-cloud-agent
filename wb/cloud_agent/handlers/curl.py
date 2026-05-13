@@ -94,6 +94,11 @@ def handle_curl_output(settings: AppSettings, stdout: bytes) -> tuple[dict, int]
         settings.request_period_seconds = poll_interval
         logging.debug("A new poll interval has been set: %s", settings.request_period_seconds)
 
+    metrics_log_enabled_str = response_headers.get("x-metrics-log-enabled")
+    if metrics_log_enabled_str is not None:
+        settings.metrics_log_enabled = metrics_log_enabled_str.strip() == "1"
+        logging.debug("Metrics log reporting enabled: %s", settings.metrics_log_enabled)
+
     split_result = decoded_result.split(DATA_DELIMITER)
     if len(split_result) != 2:
         raise ValueError(f"Invalid data in response: {split_result}")

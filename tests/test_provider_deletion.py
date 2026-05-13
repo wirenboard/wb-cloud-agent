@@ -29,10 +29,10 @@ def test_delete_provider_success(settings, mock_provider_patches):
     # Call the function (event data and mqtt client are ignored)
     delete_provider(settings, {}, None)
 
-    # Verify services were stopped (all 3: frpc, telegraf, main agent)
+    # Verify services were stopped (all 3: frpc, metrics, main agent)
     assert mocks["stop"].call_count == 3
     mocks["stop"].assert_any_call(f"wb-cloud-agent-frpc@{settings.provider_name}.service")
-    mocks["stop"].assert_any_call(f"wb-cloud-agent-telegraf@{settings.provider_name}.service")
+    mocks["stop"].assert_any_call(f"wb-cloud-agent-metrics@{settings.provider_name}.service")
     mocks["stop"].assert_any_call(f"wb-cloud-agent@{settings.provider_name}.service")
 
     # Verify configs were deleted
@@ -52,7 +52,7 @@ def test_delete_provider_with_custom_provider_name(settings, mock_provider_patch
 
     # Verify custom provider name is used in all service calls
     mocks["stop"].assert_any_call("wb-cloud-agent-frpc@custom-provider-123.service")
-    mocks["stop"].assert_any_call("wb-cloud-agent-telegraf@custom-provider-123.service")
+    mocks["stop"].assert_any_call("wb-cloud-agent-metrics@custom-provider-123.service")
     mocks["stop"].assert_any_call("wb-cloud-agent@custom-provider-123.service")
 
 
@@ -68,9 +68,9 @@ def test_delete_provider_stops_services_in_correct_order(settings, mock_provider
 
     delete_provider(settings, {}, None)
 
-    # Verify order: frpc and telegraf stopped before main agent
+    # Verify order: frpc and metrics stopped before main agent
     assert call_order[0] == f"wb-cloud-agent-frpc@{settings.provider_name}.service"
-    assert call_order[1] == f"wb-cloud-agent-telegraf@{settings.provider_name}.service"
+    assert call_order[1] == f"wb-cloud-agent-metrics@{settings.provider_name}.service"
     assert call_order[2] == f"wb-cloud-agent@{settings.provider_name}.service"
 
 

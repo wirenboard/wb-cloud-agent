@@ -42,7 +42,7 @@ def make_event_request(settings: AppSettings, mqtt: MQTTCloudAgent):
         raise ValueError("Unknown event id: " + str(event_id))
 
     payload = event_data.get("payload")
-    if not payload:
+    if payload is None:
         raise ValueError("Empty payload")
 
     if handler:

@@ -105,6 +105,13 @@ dmypy.json
 
 # End of https://www.gitignore.io/api/python
 
+# Copilot customization
+.github/agents/
+.github/instructions/
+.github/prompts/
+.github/skills/
+.github/copilot-instructions.md
+
 # IDE stuff
 .vscode
 .idea

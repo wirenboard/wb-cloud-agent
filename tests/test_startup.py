@@ -5,6 +5,7 @@ import pytest
 
 from wb.cloud_agent.constants import UNKNOWN_LINK
 from wb.cloud_agent.handlers.startup import (
+    collect_package_versions,
     make_start_up_request,
     on_message,
     send_packages_version,
@@ -96,8 +97,20 @@ def test_make_start_up_request_missing_activation_link_field(settings):
 
 
 def test_send_packages_version_success(settings):
-    with patch("wb.cloud_agent.handlers.startup.do_curl") as mock_curl:
+    with (
+        patch("wb.cloud_agent.handlers.startup.do_curl") as mock_curl,
+        patch("wb.cloud_agent.handlers.startup.collect_package_versions") as mock_collect_versions,
+    ):
         mock_curl.return_value = ({"result": "ok"}, status.OK)
+        mock_collect_versions.return_value = {
+            "agent_version": "1.7.0",
+            "frpc_version": "0.51.3",
+            "python_version": "3.9.2",
+            "mqttrpc_version": "1.3.5",
+            "paho_mqtt_version": "1.5.1",
+            "wb_mqtt_db_version": "2.13.0",
+            "crypto_engine_key": settings.client_cert_engine_key,
+        }
 
         send_packages_version(settings)
 
@@ -106,6 +119,31 @@ def test_send_packages_version_success(settings):
         assert args[1]["method"] == "put"
         assert args[1]["endpoint"] == "update_device_data/"
         assert "agent_version" in args[1]["params"]
+        assert args[1]["params"]["python_version"] == "3.9.2"
+        assert args[1]["params"]["mqttrpc_version"] == "1.3.5"
+        assert args[1]["params"]["paho_mqtt_version"] == "1.5.1"
+        assert args[1]["params"]["wb_mqtt_db_version"] == "2.13.0"
+        assert args[1]["params"]["crypto_engine_key"] == settings.client_cert_engine_key
+
+
+def test_collect_package_versions():
+    with (
+        patch("wb.cloud_agent.handlers.startup.get_apt_package_version", return_value="1.2.3"),
+        patch("wb.cloud_agent.handlers.startup.platform.python_version", return_value="3.9.2"),
+        patch("wb.cloud_agent.handlers.startup.agent_package_version", "1.7.0"),
+        patch("wb.cloud_agent.handlers.startup.frpc_package_version", "0.51.3"),
+    ):
+        got = collect_package_versions(MagicMock(client_cert_engine_key="ATECCx08:00:02:C0:00"))
+
+    assert got == {
+        "agent_version": "1.7.0",
+        "frpc_version": "0.51.3",
+        "python_version": "3.9.2",
+        "mqttrpc_version": "1.2.3",
+        "paho_mqtt_version": "1.2.3",
+        "wb_mqtt_db_version": "1.2.3",
+        "crypto_engine_key": "ATECCx08:00:02:C0:00",
+    }
 
 
 def test_send_packages_version_failure(settings):
