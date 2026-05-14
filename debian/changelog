@@ -1,3 +1,9 @@
+wb-cloud-agent (1.7.1) stable; urgency=medium
+
+  * Drop direct paho-socket dependency; use wb_common.mqtt_client.MQTTClient in metrics collector.
+
+ -- Arseniy Astafev <arseniy.astafev@wirenboard.com>  Thu, 14 May 2026 13:00:00 +0300
+
 wb-cloud-agent (1.7.0) stable; urgency=medium
 
   * Add cloud-delivered metrics collector service.
