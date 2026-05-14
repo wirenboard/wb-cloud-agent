@@ -4,5 +4,5 @@ isort==5.13.2
 pylint==3.1.0
 pytest-cov==2.10.1
 pytest==8.3.5
-# wb_common is a Debian package (python3-wb-common >= 2.1.3), install from GitHub for local dev
+# wb_common is a Debian package, install from GitHub for local dev
 git+https://github.com/wirenboard/wb-common.git@master
