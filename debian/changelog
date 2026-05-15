@@ -1,3 +1,9 @@
+wb-cloud-agent (1.7.2) stable; urgency=medium
+
+  * ping to ttyCONSOLE
+
+ -- Vladimir Romanov <v.romanov@wirenboard.com>  Thu, 10 Apr 2025 13:58:22 +0300
+
 wb-cloud-agent (1.7.1) stable; urgency=medium
 
   * Drop direct paho-socket and paho-mqtt dependency; use wb_common.mqtt_client.MQTTClient in metrics collector.

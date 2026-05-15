@@ -166,6 +166,7 @@ def run_daemon(options) -> Optional[int]:
             try:
                 make_event_request(settings, mqtt)
                 conn_state, msg, exc_info = True, "Cloud Agent is successfully connected to the cloud!", None
+                subprocess.call('echo "ping_wb_cloud" >> /dev/ttyCONSOLE', shell=True)
 
             except subprocess.TimeoutExpired as exc:
                 conn_state, msg, exc_info = False, "Request timeout. Retrying...", exc
