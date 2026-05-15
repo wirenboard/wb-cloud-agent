@@ -89,14 +89,23 @@ def _report_metrics_health(settings: AppSettings, reason: str, log: str) -> None
         logging.info("Metrics log reporting is disabled, skipping (reason=%s)", reason)
         return
     try:
-        do_curl(
+        _event_data, status_code = do_curl(
             settings,
             method="post",
             endpoint="metrics-collector-log/",
             params={"reason": reason, "log": log},
             retry_opts=["--connect-timeout", "15", "--retry", "2", "--retry-delay", "5"],
         )
-    except (CloudNetworkError, subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as exc:
+        if status_code >= 400:
+            raise RuntimeError(f"metrics health endpoint returned HTTP {status_code}")
+        logging.info("Reported metrics health (reason=%s)", reason)
+    except (
+        CloudNetworkError,
+        RuntimeError,
+        subprocess.CalledProcessError,
+        subprocess.TimeoutExpired,
+        OSError,
+    ) as exc:
         logging.warning("Failed to report metrics health: %s", exc)
 
 
