@@ -95,6 +95,7 @@ def _report_metrics_health(settings: AppSettings, reason: str, log: str) -> None
             endpoint="metrics-collector-log/",
             params={"reason": reason, "log": log},
             retry_opts=["--connect-timeout", "15", "--retry", "2", "--retry-delay", "5"],
+            compress_request_body=True,
         )
         if status_code >= 400:
             raise RuntimeError(f"metrics health endpoint returned HTTP {status_code}")

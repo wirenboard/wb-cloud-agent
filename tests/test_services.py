@@ -214,6 +214,7 @@ def test_report_metrics_health_logs_success(settings, caplog):
         endpoint="metrics-collector-log/",
         params={"reason": "persistent_errors", "log": "traceback"},
         retry_opts=["--connect-timeout", "15", "--retry", "2", "--retry-delay", "5"],
+        compress_request_body=True,
     )
     assert "Reported metrics health" in caplog.text
 

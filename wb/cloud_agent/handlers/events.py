@@ -23,6 +23,10 @@ POST_HANDLERS = {
     "delete_provider": delete_provider,
 }
 
+NON_CRITICAL_EVENTS = {
+    "update_metrics_config",
+}
+
 
 def make_event_request(settings: AppSettings, mqtt: MQTTCloudAgent):
     event_data, http_status = do_curl(settings=settings, method="get", endpoint="events/")
@@ -46,9 +50,23 @@ def make_event_request(settings: AppSettings, mqtt: MQTTCloudAgent):
         raise ValueError("Empty payload")
 
     if handler:
-        handler(settings, payload, mqtt)
+        try:
+            handler(settings, payload, mqtt)
+        except Exception:  # pylint: disable=broad-exception-caught
+            if code not in NON_CRITICAL_EVENTS:
+                raise
+
+            logging.exception(
+                "Non-critical event '%s' with id %s failed. Confirming it to keep the event queue unblocked.",
+                code,
+                event_id,
+            )
+            event_confirm(settings, event_id)
+            return
     else:
-        logging.warning("Got an unknown event '%s'. Try to update wb-cloud-agent package.", code)
+        logging.warning(
+            "Got an unknown event '%s' with id %s. Try to update wb-cloud-agent package.", code, event_id
+        )
 
     logging.debug("Event '%s' handled successfully, event id %s", code, event_id)
 
