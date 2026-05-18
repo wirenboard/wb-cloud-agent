@@ -1,8 +1,10 @@
 wb-cloud-agent (1.7.2) stable; urgency=medium
 
-  * Improve logging
+  * Confirm failed non-critical metrics config events to keep the event queue unblocked.
+  * Send metrics collector logs compressed and include them in cloud error reports.
+  * Increase collected metrics journal log size in health reports.
 
- -- Arseniy Astafev <arseniy.astafev@wirenboard.com>  Fri, 15 May 2026 16:00:00 +0300
+ -- Arseniy Astafev <arseniy.astafev@wirenboard.com>  Mon, 18 May 2026 19:00:00 +0300
 
 wb-cloud-agent (1.7.1) stable; urgency=medium
 
