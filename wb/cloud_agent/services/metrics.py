@@ -66,11 +66,10 @@ def _collect_service_journal(service: str, since_seconds: int) -> str:
             str(METRICS_HEALTH_JOURNAL_LINES),
         ],
         capture_output=True,
-        text=True,
         timeout=15,
         check=False,
     )
-    return result.stdout[:METRICS_HEALTH_JOURNAL_MAX_BYTES]
+    return result.stdout[:METRICS_HEALTH_JOURNAL_MAX_BYTES].decode("utf-8", errors="ignore")
 
 
 def _count_collector_errors(journal: str) -> int:
@@ -103,6 +102,7 @@ def _report_metrics_health(settings: AppSettings, reason: str, log: str) -> None
     except (
         CloudNetworkError,
         RuntimeError,
+        ValueError,
         subprocess.CalledProcessError,
         subprocess.TimeoutExpired,
         OSError,
