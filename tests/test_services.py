@@ -14,6 +14,7 @@ from wb.cloud_agent.services.activation import (
 from wb.cloud_agent.services.diagnostics import fetch_diagnostics
 from wb.cloud_agent.services.metrics import (
     _collect_service_journal,
+    _monitor_metrics_service,
     _report_metrics_health,
     update_metrics_config,
 )
@@ -207,7 +208,7 @@ def test_report_metrics_health_logs_success(settings, caplog):
     caplog.set_level(logging.INFO)
 
     with patch("wb.cloud_agent.services.metrics.do_curl", return_value=({}, 204)) as mock_curl:
-        _report_metrics_health(settings, "persistent_errors", "traceback")
+        reported = _report_metrics_health(settings, "persistent_errors", "traceback")
 
     mock_curl.assert_called_once_with(
         settings,
@@ -217,21 +218,41 @@ def test_report_metrics_health_logs_success(settings, caplog):
         retry_opts=["--connect-timeout", "15", "--retry", "2", "--retry-delay", "5"],
         compress_request_body=True,
     )
+    assert reported is True
     assert "Reported metrics health" in caplog.text
 
 
 def test_report_metrics_health_warns_on_backend_error(settings, caplog):
     with patch("wb.cloud_agent.services.metrics.do_curl", return_value=({}, 500)):
-        _report_metrics_health(settings, "persistent_errors", "traceback")
+        reported = _report_metrics_health(settings, "persistent_errors", "traceback")
 
+    assert reported is False
     assert "Failed to report metrics health: metrics health endpoint returned HTTP 500" in caplog.text
 
 
 def test_report_metrics_health_warns_on_invalid_response(settings, caplog):
     with patch("wb.cloud_agent.services.metrics.do_curl", side_effect=ValueError("Invalid data in response")):
-        _report_metrics_health(settings, "persistent_errors", "traceback")
+        reported = _report_metrics_health(settings, "persistent_errors", "traceback")
 
+    assert reported is False
     assert "Failed to report metrics health: Invalid data in response" in caplog.text
+
+
+def test_monitor_metrics_service_logs_stop_after_successful_report(settings, caplog):
+    caplog.set_level(logging.INFO)
+    stop_event = threading.Event()
+
+    with (
+        patch("wb.cloud_agent.services.metrics.METRICS_HEALTH_CHECK_COUNT", 1),
+        patch("wb.cloud_agent.services.metrics.METRICS_HEALTH_CHECK_INTERVAL_S", 0),
+        patch("wb.cloud_agent.services.metrics._is_service_failed", return_value=True),
+        patch("wb.cloud_agent.services.metrics._collect_service_journal", return_value="traceback"),
+        patch("wb.cloud_agent.services.metrics._report_metrics_health", return_value=True),
+    ):
+        _monitor_metrics_service(settings, settings.metrics_service, stop_event)
+
+    assert "Stopping metrics health monitor" in caplog.text
+    assert "after reporting metrics health (reason=service_failed)" in caplog.text
 
 
 def test_collect_service_journal_limits_utf8_bytes():
