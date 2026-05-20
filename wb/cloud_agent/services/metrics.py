@@ -54,7 +54,7 @@ def _is_service_failed(service: str) -> bool:
 
 
 def _collect_service_journal(service: str, since_seconds: int) -> str:
-    """Return the last METRICS_HEALTH_JOURNAL_LINES lines, capped at METRICS_HEALTH_JOURNAL_MAX_BYTES."""
+    """Return the last journal lines, capped at METRICS_HEALTH_JOURNAL_MAX_BYTES."""
     result = subprocess.run(
         [
             "journalctl",
@@ -112,6 +112,15 @@ def _report_metrics_health(settings: AppSettings, reason: str, log: str) -> bool
         return False
 
 
+def _report_metrics_health_and_log_stop(settings: AppSettings, reason: str, log: str) -> None:
+    if _report_metrics_health(settings, reason, log):
+        logging.info(
+            "Stopping metrics health monitor for provider %s after reporting metrics health (reason=%s)",
+            settings.provider_name,
+            reason,
+        )
+
+
 def _monitor_metrics_service(settings: AppSettings, service: str, stop_event: threading.Event) -> None:
     """Monitor the metrics service after a config update for up to 60 minutes.
 
@@ -127,19 +136,17 @@ def _monitor_metrics_service(settings: AppSettings, service: str, stop_event: th
         consecutive_error_windows = 0
         for _ in range(METRICS_HEALTH_CHECK_COUNT):
             if stop_event.wait(METRICS_HEALTH_CHECK_INTERVAL_S):
-                logging.info("Metrics service monitor for %s was restarted by a newer config update", service)
+                logging.info(
+                    "Metrics service monitor for %s was restarted by a newer config update",
+                    service,
+                )
                 return
 
             if _is_service_failed(service):
                 logging.warning("Metrics service %s entered failed state", service)
                 total_seconds = METRICS_HEALTH_CHECK_INTERVAL_S * METRICS_HEALTH_CHECK_COUNT
                 log = _collect_service_journal(service, total_seconds)
-                if _report_metrics_health(settings, "service_failed", log):
-                    logging.info(
-                        "Stopping metrics health monitor for provider %s after reporting metrics health (reason=%s)",
-                        settings.provider_name,
-                        "service_failed",
-                    )
+                _report_metrics_health_and_log_stop(settings, "service_failed", log)
                 return
 
             journal = _collect_service_journal(service, METRICS_HEALTH_CHECK_INTERVAL_S)
@@ -159,12 +166,7 @@ def _monitor_metrics_service(settings: AppSettings, service: str, stop_event: th
                         METRICS_HEALTH_CHECK_INTERVAL_S * METRICS_HEALTH_CONSECUTIVE_ERROR_WINDOWS
                     )
                     log = _collect_service_journal(service, report_seconds)
-                    if _report_metrics_health(settings, "persistent_errors", log):
-                        logging.info(
-                            "Stopping metrics health monitor for provider %s after reporting metrics health (reason=%s)",
-                            settings.provider_name,
-                            "persistent_errors",
-                        )
+                    _report_metrics_health_and_log_stop(settings, "persistent_errors", log)
                     return
             else:
                 if consecutive_error_windows > 0:
