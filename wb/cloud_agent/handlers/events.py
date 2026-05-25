@@ -61,7 +61,7 @@ def make_event_request(settings: AppSettings, mqtt: MQTTCloudAgent):
                 code,
                 event_id,
             )
-            event_confirm(settings, event_id)
+            event_confirm(settings, event_id, applied=False)
             return
     else:
         logging.warning(
@@ -77,9 +77,12 @@ def make_event_request(settings: AppSettings, mqtt: MQTTCloudAgent):
         post_handler(settings, payload, mqtt)
 
 
-def event_confirm(settings: AppSettings, event_id: str) -> None:
+def event_confirm(settings: AppSettings, event_id: str, applied: bool = True) -> None:
     _event_data, http_status = do_curl(
-        settings=settings, method="post", endpoint="events/" + event_id + "/confirm/"
+        settings=settings,
+        method="post",
+        endpoint="events/" + event_id + "/confirm/",
+        params={"applied": applied},
     )
     if http_status != status.NO_CONTENT:
         raise ValueError(f"Not a {status.NO_CONTENT} status on event confirmation: {http_status}")

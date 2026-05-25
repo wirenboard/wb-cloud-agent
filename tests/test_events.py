@@ -102,7 +102,7 @@ def test_make_event_request_confirms_failed_metrics_config(settings):
 
         make_event_request(settings, mqtt=MagicMock())
 
-        mock_confirm.assert_called_once_with(settings, "event789")
+        mock_confirm.assert_called_once_with(settings, "event789", applied=False)
 
 
 def test_make_event_request_confirms_metrics_config_without_script(settings):
@@ -120,7 +120,7 @@ def test_make_event_request_confirms_metrics_config_without_script(settings):
 
         make_event_request(settings, mqtt=MagicMock())
 
-        mock_confirm.assert_called_once_with(settings, "event789")
+        mock_confirm.assert_called_once_with(settings, "event789", applied=False)
 
 
 def test_make_event_request_fetch_diagnostics(settings, tmp_path):
