@@ -112,7 +112,7 @@ def _report_metrics_health(settings: AppSettings, reason: str, log: str) -> bool
         return False
 
 
-def _report_metrics_health_and_log_stop(settings: AppSettings, reason: str, log: str) -> None:
+def report_metrics_health(settings: AppSettings, reason: str, log: str) -> None:
     if _report_metrics_health(settings, reason, log):
         logging.info(
             "Stopping metrics health monitor for provider %s after reporting metrics health (reason=%s)",
@@ -146,7 +146,7 @@ def _monitor_metrics_service(settings: AppSettings, service: str, stop_event: th
                 logging.warning("Metrics service %s entered failed state", service)
                 total_seconds = METRICS_HEALTH_CHECK_INTERVAL_S * METRICS_HEALTH_CHECK_COUNT
                 log = _collect_service_journal(service, total_seconds)
-                _report_metrics_health_and_log_stop(settings, "service_failed", log)
+                report_metrics_health(settings, "service_failed", log)
                 return
 
             journal = _collect_service_journal(service, METRICS_HEALTH_CHECK_INTERVAL_S)
@@ -166,7 +166,7 @@ def _monitor_metrics_service(settings: AppSettings, service: str, stop_event: th
                         METRICS_HEALTH_CHECK_INTERVAL_S * METRICS_HEALTH_CONSECUTIVE_ERROR_WINDOWS
                     )
                     log = _collect_service_journal(service, report_seconds)
-                    _report_metrics_health_and_log_stop(settings, "persistent_errors", log)
+                    report_metrics_health(settings, "persistent_errors", log)
                     return
             else:
                 if consecutive_error_windows > 0:
