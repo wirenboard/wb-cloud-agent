@@ -1,3 +1,4 @@
+import logging
 import threading
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -11,7 +12,12 @@ from wb.cloud_agent.services.activation import (
     write_activation_link,
 )
 from wb.cloud_agent.services.diagnostics import fetch_diagnostics
-from wb.cloud_agent.services.metrics import update_metrics_config
+from wb.cloud_agent.services.metrics import (
+    _collect_service_journal,
+    _monitor_metrics_service,
+    _report_metrics_health,
+    update_metrics_config,
+)
 from wb.cloud_agent.services.tunnel import update_tunnel_config
 
 
@@ -196,6 +202,69 @@ def test_update_metrics_config_restarts_existing_monitor(settings, tmp_path):
 def test_update_metrics_config_without_script_fails_before_confirm(settings):
     with pytest.raises(ValueError, match="no collector script"):
         update_metrics_config(settings, {"enabled": True}, MagicMock())
+
+
+def test_report_metrics_health_logs_success(settings, caplog):
+    caplog.set_level(logging.INFO)
+
+    with patch("wb.cloud_agent.services.metrics.do_curl", return_value=({}, 204)) as mock_curl:
+        reported = _report_metrics_health(settings, "persistent_errors", "traceback")
+
+    mock_curl.assert_called_once_with(
+        settings,
+        method="post",
+        endpoint="metrics-collector-log/",
+        params={"reason": "persistent_errors", "log": "traceback"},
+        retry_opts=["--connect-timeout", "15", "--retry", "2", "--retry-delay", "5"],
+        compress_request_body=True,
+    )
+    assert reported is True
+    assert "Reported metrics health" in caplog.text
+
+
+def test_report_metrics_health_warns_on_backend_error(settings, caplog):
+    with patch("wb.cloud_agent.services.metrics.do_curl", return_value=({}, 500)):
+        reported = _report_metrics_health(settings, "persistent_errors", "traceback")
+
+    assert reported is False
+    assert "Failed to report metrics health: metrics health endpoint returned HTTP 500" in caplog.text
+
+
+def test_report_metrics_health_warns_on_invalid_response(settings, caplog):
+    with patch("wb.cloud_agent.services.metrics.do_curl", side_effect=ValueError("Invalid data in response")):
+        reported = _report_metrics_health(settings, "persistent_errors", "traceback")
+
+    assert reported is False
+    assert "Failed to report metrics health: Invalid data in response" in caplog.text
+
+
+def test_monitor_metrics_service_logs_stop_after_successful_report(settings, caplog):
+    caplog.set_level(logging.INFO)
+    stop_event = threading.Event()
+
+    with (
+        patch("wb.cloud_agent.services.metrics.METRICS_HEALTH_CHECK_COUNT", 1),
+        patch("wb.cloud_agent.services.metrics.METRICS_HEALTH_CHECK_INTERVAL_S", 0),
+        patch("wb.cloud_agent.services.metrics._is_service_failed", return_value=True),
+        patch("wb.cloud_agent.services.metrics._collect_service_journal", return_value="traceback"),
+        patch("wb.cloud_agent.services.metrics._report_metrics_health", return_value=True),
+    ):
+        _monitor_metrics_service(settings, settings.metrics_service, stop_event)
+
+    assert "Stopping metrics health monitor" in caplog.text
+    assert "after reporting metrics health (reason=service_failed)" in caplog.text
+
+
+def test_collect_service_journal_limits_utf8_bytes():
+    with (
+        patch("wb.cloud_agent.services.metrics.METRICS_HEALTH_JOURNAL_MAX_BYTES", 5),
+        patch("subprocess.run", return_value=MagicMock(stdout="абв".encode("utf-8"))) as mock_run,
+    ):
+        journal = _collect_service_journal("wb-cloud-agent-metrics@default.service", 600)
+
+    assert journal == "аб"
+    assert len(journal.encode("utf-8")) <= 5
+    mock_run.assert_called_once()
 
 
 def test_fetch_diagnostics(settings, tmp_path):

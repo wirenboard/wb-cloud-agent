@@ -112,6 +112,10 @@ dmypy.json
 .github/skills/
 .github/copilot-instructions.md
 
+# Claude Code
+CLAUDE.md
+.mcp.json
+
 # IDE stuff
 .vscode
 .idea

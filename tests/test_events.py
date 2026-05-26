@@ -83,7 +83,7 @@ def test_make_event_request_update_metrics_config(settings):
         mock_confirm.assert_called_once_with(settings, "event789")
 
 
-def test_make_event_request_does_not_confirm_failed_metrics_config(settings):
+def test_make_event_request_confirms_failed_metrics_config(settings):
     event_data = {
         "id": "event789",
         "code": "update_metrics_config",
@@ -100,13 +100,12 @@ def test_make_event_request_does_not_confirm_failed_metrics_config(settings):
     ):
         mock_curl.return_value = (event_data, status.OK)
 
-        with pytest.raises(RuntimeError):
-            make_event_request(settings, mqtt=MagicMock())
+        make_event_request(settings, mqtt=MagicMock())
 
-        mock_confirm.assert_not_called()
+        mock_confirm.assert_called_once_with(settings, "event789", applied=False)
 
 
-def test_make_event_request_does_not_confirm_metrics_config_without_script(settings):
+def test_make_event_request_confirms_metrics_config_without_script(settings):
     event_data = {
         "id": "event789",
         "code": "update_metrics_config",
@@ -119,10 +118,9 @@ def test_make_event_request_does_not_confirm_metrics_config_without_script(setti
     ):
         mock_curl.return_value = (event_data, status.OK)
 
-        with pytest.raises(ValueError, match="no collector script"):
-            make_event_request(settings, mqtt=MagicMock())
+        make_event_request(settings, mqtt=MagicMock())
 
-        mock_confirm.assert_not_called()
+        mock_confirm.assert_called_once_with(settings, "event789", applied=False)
 
 
 def test_make_event_request_fetch_diagnostics(settings, tmp_path):

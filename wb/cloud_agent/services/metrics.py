@@ -54,7 +54,7 @@ def _is_service_failed(service: str) -> bool:
 
 
 def _collect_service_journal(service: str, since_seconds: int) -> str:
-    """Return the last METRICS_HEALTH_JOURNAL_LINES lines, capped at METRICS_HEALTH_JOURNAL_MAX_BYTES."""
+    """Return the last journal lines, capped at METRICS_HEALTH_JOURNAL_MAX_BYTES."""
     result = subprocess.run(
         [
             "journalctl",
@@ -66,11 +66,10 @@ def _collect_service_journal(service: str, since_seconds: int) -> str:
             str(METRICS_HEALTH_JOURNAL_LINES),
         ],
         capture_output=True,
-        text=True,
         timeout=15,
         check=False,
     )
-    return result.stdout[:METRICS_HEALTH_JOURNAL_MAX_BYTES]
+    return result.stdout[:METRICS_HEALTH_JOURNAL_MAX_BYTES].decode("utf-8", errors="ignore")
 
 
 def _count_collector_errors(journal: str) -> int:
@@ -84,20 +83,42 @@ def _count_collector_errors(journal: str) -> int:
     return sum(1 for line in journal.splitlines() if METRICS_HEALTH_ERROR_MARKER in line)
 
 
-def _report_metrics_health(settings: AppSettings, reason: str, log: str) -> None:
+def _report_metrics_health(settings: AppSettings, reason: str, log: str) -> bool:
     if not settings.metrics_log_enabled:
         logging.info("Metrics log reporting is disabled, skipping (reason=%s)", reason)
-        return
+        return False
     try:
-        do_curl(
+        _event_data, status_code = do_curl(
             settings,
             method="post",
             endpoint="metrics-collector-log/",
             params={"reason": reason, "log": log},
             retry_opts=["--connect-timeout", "15", "--retry", "2", "--retry-delay", "5"],
+            compress_request_body=True,
         )
-    except (CloudNetworkError, subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as exc:
+        if status_code >= 400:
+            raise RuntimeError(f"metrics health endpoint returned HTTP {status_code}")
+        logging.info("Reported metrics health (reason=%s)", reason)
+        return True
+    except (
+        CloudNetworkError,
+        RuntimeError,
+        ValueError,
+        subprocess.CalledProcessError,
+        subprocess.TimeoutExpired,
+        OSError,
+    ) as exc:
         logging.warning("Failed to report metrics health: %s", exc)
+        return False
+
+
+def report_metrics_health(settings: AppSettings, reason: str, log: str) -> None:
+    if _report_metrics_health(settings, reason, log):
+        logging.info(
+            "Stopping metrics health monitor for provider %s after reporting metrics health (reason=%s)",
+            settings.provider_name,
+            reason,
+        )
 
 
 def _monitor_metrics_service(settings: AppSettings, service: str, stop_event: threading.Event) -> None:
@@ -115,14 +136,17 @@ def _monitor_metrics_service(settings: AppSettings, service: str, stop_event: th
         consecutive_error_windows = 0
         for _ in range(METRICS_HEALTH_CHECK_COUNT):
             if stop_event.wait(METRICS_HEALTH_CHECK_INTERVAL_S):
-                logging.info("Metrics service monitor for %s was restarted by a newer config update", service)
+                logging.info(
+                    "Metrics service monitor for %s was restarted by a newer config update",
+                    service,
+                )
                 return
 
             if _is_service_failed(service):
                 logging.warning("Metrics service %s entered failed state", service)
                 total_seconds = METRICS_HEALTH_CHECK_INTERVAL_S * METRICS_HEALTH_CHECK_COUNT
                 log = _collect_service_journal(service, total_seconds)
-                _report_metrics_health(settings, "service_failed", log)
+                report_metrics_health(settings, "service_failed", log)
                 return
 
             journal = _collect_service_journal(service, METRICS_HEALTH_CHECK_INTERVAL_S)
@@ -142,7 +166,7 @@ def _monitor_metrics_service(settings: AppSettings, service: str, stop_event: th
                         METRICS_HEALTH_CHECK_INTERVAL_S * METRICS_HEALTH_CONSECUTIVE_ERROR_WINDOWS
                     )
                     log = _collect_service_journal(service, report_seconds)
-                    _report_metrics_health(settings, "persistent_errors", log)
+                    report_metrics_health(settings, "persistent_errors", log)
                     return
             else:
                 if consecutive_error_windows > 0:

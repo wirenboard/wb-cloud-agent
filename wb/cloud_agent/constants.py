@@ -28,8 +28,8 @@ METRICS_HEALTH_CHECK_COUNT = 6  # monitor for 60 minutes total
 METRICS_HEALTH_ERROR_WINDOW_THRESHOLD = 3
 # Consecutive "bad" windows before sending a report (3 windows = 30 min).
 METRICS_HEALTH_CONSECUTIVE_ERROR_WINDOWS = 3
-METRICS_HEALTH_JOURNAL_LINES = 200  # lines to include in the report
-METRICS_HEALTH_JOURNAL_MAX_BYTES = 8192  # byte cap on the report log
+METRICS_HEALTH_JOURNAL_LINES = 1000  # lines to include in the report
+METRICS_HEALTH_JOURNAL_MAX_BYTES = 262144  # byte cap on the report log
 # Marker text that distinguishes ERROR-level entries from metrics_collector.py.
 # The script uses format="%(levelname)s wb-cloud-metrics: ...", so this string
 # appears only in genuine ERROR/EXCEPTION calls, not in WARNING or INFO lines.

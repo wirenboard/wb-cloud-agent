@@ -1,3 +1,4 @@
+import gzip
 import json
 from http import HTTPStatus as status
 from subprocess import CalledProcessError
@@ -136,6 +137,22 @@ def test_do_curl_post_method_with_params(mock_subprocess_run, settings, mock_sub
     assert "-X" in args
     assert "POST" in args
     assert "-d" in args
+
+
+def test_do_curl_post_method_with_gzip_body(mock_subprocess_run, settings, mock_subprocess):
+    mock_subprocess(status.OK, '{"result": "success"}')
+    params = {"key": "value", "number": 123}
+    data, code = do_curl(settings, method="post", params=params, compress_request_body=True)
+
+    assert data == {"result": "success"}
+    assert code == 200
+
+    args = mock_subprocess_run.call_args[0][0]
+    kwargs = mock_subprocess_run.call_args.kwargs
+    assert "Content-Encoding: gzip" in args
+    assert "--data-binary" in args
+    assert "@-" in args
+    assert gzip.decompress(kwargs["input"]) == json.dumps(params).encode("utf-8")
 
 
 def test_do_curl_put_method(mock_subprocess_run, settings, mock_subprocess):

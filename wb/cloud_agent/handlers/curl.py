@@ -1,3 +1,4 @@
+import gzip
 import json
 import logging
 import subprocess
@@ -15,21 +16,29 @@ class CloudNetworkError(OSError):
     """Network-level error while communicating with the cloud."""
 
 
-def do_curl(
+def do_curl(  # pylint: disable=too-many-arguments
     settings: AppSettings,
     method: str = "get",
     endpoint: str = "",
     params: Optional[dict] = None,
     retry_opts: Optional[Iterable[str]] = None,
+    compress_request_body: bool = False,
 ) -> tuple[dict, int]:
     output_format = DATA_DELIMITER + '{"code":"%{response_code}"}'
+    request_body: Optional[bytes] = None
 
     if method == "get":
         command = ["curl"]
     elif method in ("post", "put", "delete"):
         command = ["curl", "-X", method.upper()]
         if params:
-            command += ["-H", "Content-Type: application/json", "-d", json.dumps(params)]
+            json_payload = json.dumps(params).encode("utf-8")
+            command += ["-H", "Content-Type: application/json"]
+            if compress_request_body:
+                request_body = gzip.compress(json_payload, compresslevel=1)
+                command += ["-H", "Content-Encoding: gzip", "--data-binary", "@-"]
+            else:
+                command += ["-d", json_payload.decode("utf-8")]
     elif method == "multipart-post":
         command = ["curl", "-X", "POST", "-F", f"file=@{params}"]
     else:
@@ -64,7 +73,7 @@ def do_curl(
     ]
 
     try:
-        result = subprocess.run(command, timeout=360, check=True, capture_output=True)
+        result = subprocess.run(command, input=request_body, timeout=360, check=True, capture_output=True)
     except subprocess.CalledProcessError as e:
         if e.returncode == 58:
             raise RuntimeError(
