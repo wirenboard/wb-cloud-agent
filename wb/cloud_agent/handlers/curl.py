@@ -16,7 +16,7 @@ class CloudNetworkError(OSError):
     """Network-level error while communicating with the cloud."""
 
 
-def do_curl(  # pylint: disable=too-many-arguments
+def do_curl(  # pylint: disable=too-many-arguments,too-many-positional-arguments
     settings: AppSettings,
     method: str = "get",
     endpoint: str = "",
