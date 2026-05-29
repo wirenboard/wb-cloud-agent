@@ -5,4 +5,3 @@ buildDebSbuild defaultTargets: "bullseye-host",
                defaultRunCoverage: true,
                defaultCoverageMin: "59",
                defaultDoCoverallsReporting: true
-
