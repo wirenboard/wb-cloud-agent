@@ -293,7 +293,18 @@ def test_reconcile_noop_when_already_current(cloud_vars_settings):
 def test_bundled_template_renders_with_all_substitutions(cloud_vars_settings):
     """The shipped template must have every placeholder filled by the agent."""
     settings = cloud_vars_settings
-    template_path = Path(__file__).resolve().parents[1] / "metrics_collector.py.tpl"
+    # During the deb build pytest runs from a copied .pybuild/.../build tree, so the
+    # repo-root template is not a fixed number of levels up — walk up until we find it.
+    template_path = next(
+        (
+            parent / "metrics_collector.py.tpl"
+            for parent in Path(__file__).resolve().parents
+            if (parent / "metrics_collector.py.tpl").is_file()
+        ),
+        None,
+    )
+    if template_path is None:
+        pytest.skip("bundled metrics_collector.py.tpl not found in the source tree")
     conf = {
         "vars": dict(CLOUD_VARS),
         "mqtt_client_id": "wb-cloud-agent-metrics-fixedaaa",

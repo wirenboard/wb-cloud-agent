@@ -45,7 +45,7 @@ except ImportError:  # pragma: no cover - dependencies are installed on controll
 
 
 # ── Identity ──────────────────────────────────────────────────────────────────────────────
-VERSION = "1.0.9"
+VERSION = "1.0.10"
 CREATED_AT = "$created_at"
 
 # ── Connection / authentication ───────────────────────────────────────────────────────────
@@ -782,7 +782,7 @@ def _wait_until_service_active() -> bool:
             WB_MQTT_DB_SERVICE_NAME,
         )
         return True
-    logger.error(
+    logger.warning(
         "%s is '%s' on the controller — skipping cycle (no RPC attempted).",
         WB_MQTT_DB_SERVICE_NAME,
         state,
@@ -806,7 +806,7 @@ def _handle_rpc_timeout(mqtt_client: Any, rpc: Any) -> tuple[Any, Any, bool]:
 
     state = get_service_state(WB_MQTT_DB_SERVICE_NAME)
     if state is not None and state != "active":
-        logger.error(
+        logger.warning(
             "wb-mqtt-db RPC timed out and %s is '%s' — service is DOWN on the controller. "
             "Pausing RPC attempts until it is restored.",
             WB_MQTT_DB_SERVICE_NAME,
