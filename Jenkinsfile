@@ -1,4 +1,5 @@
 buildDebSbuild defaultTargets: "bullseye-host",
+               defaultWbdevImage: "contactless/devenv:latest_bullseye",
                defaultRunLintian: true,
                defaultRunPythonChecks: true,
                defaultAngryPylint: true,
