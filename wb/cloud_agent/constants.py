@@ -16,6 +16,34 @@ CLIENT_CERT_ERROR_MSG = (
 
 UNBIND_CTRL_REQUEST_TIMEOUT = 7
 
+# Metrics collector script template shipped with the package and rendered locally
+# for agents that receive only substitution variables from the cloud (not the full script).
+METRICS_COLLECTOR_TEMPLATE_PATH = "/usr/lib/wb-cloud-agent/metrics_collector.py.tpl"
+METRICS_COLLECTOR_CRYPTO_ENGINE = "ateccx08"
+# Variables supplied by the cloud; everything else is filled in by the agent itself.
+# Must stay in sync with the backend's build_metrics_collector_vars().
+METRICS_TEMPLATE_CLOUD_VARS = (
+    "metrics_url",
+    "measurement_name",
+    "interval_seconds",
+    "rpc_timeout_seconds",
+    "get_channels_rpc_timeout_seconds",
+    "max_records",
+    "channel_batch_size",
+    "channels_refresh_interval_seconds",
+    "catch_up_batch_sleep_seconds",
+    "static_refresh_interval",
+    "catch_up_max_records",
+    "catch_up_sleep_seconds",
+    "curl_connect_timeout_seconds",
+    "curl_max_time_seconds",
+    "send_batch_size",
+    "max_request_bytes",
+    "send_max_retries",
+    "send_rate_limit_retry_delay_seconds",
+    "static_retained_topics",
+)
+
 # Health monitoring for metrics collector service after update delivery.
 # After the script is deployed and the service is restarted, a background daemon
 # thread monitors the service for METRICS_HEALTH_CHECK_INTERVAL_S * METRICS_HEALTH_CHECK_COUNT

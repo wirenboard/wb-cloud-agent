@@ -60,22 +60,24 @@ def test_make_event_request_update_metrics_config(settings):
     event_data = {
         "id": "event789",
         "code": "update_metrics_config",
-        "payload": {"script": "metrics script content"},
+        "payload": {"vars": {"metrics_url": "https://m/write"}},
     }
 
     with (
+        patch("wb.cloud_agent.services.metrics.render_metrics_script", return_value="SCRIPT"),
         patch("wb.cloud_agent.services.metrics.write_to_file") as mock_write,
         patch("wb.cloud_agent.services.metrics.start_and_enable_service") as mock_service,
         patch("wb.cloud_agent.services.metrics._ensure_service_is_active") as mock_active,
         patch("wb.cloud_agent.services.metrics.os.chmod") as mock_chmod,
         patch("wb.cloud_agent.services.metrics.write_activation_link") as mock_link,
+        patch("wb.cloud_agent.services.metrics.threading.Thread"),
         patch("wb.cloud_agent.handlers.events.do_curl") as mock_curl,
         patch("wb.cloud_agent.handlers.events.event_confirm") as mock_confirm,
     ):
         mock_curl.return_value = (event_data, status.OK)
         make_event_request(settings, mqtt=MagicMock())
 
-        mock_write.assert_called_once()
+        assert mock_write.call_count == 2  # variables config + rendered script
         mock_service.assert_called_once()
         mock_active.assert_called_once_with(settings.metrics_service)
         mock_chmod.assert_called_once()
@@ -87,14 +89,16 @@ def test_make_event_request_confirms_failed_metrics_config(settings):
     event_data = {
         "id": "event789",
         "code": "update_metrics_config",
-        "payload": {"script": "metrics script content"},
+        "payload": {"vars": {"metrics_url": "https://m/write"}},
     }
 
     with (
+        patch("wb.cloud_agent.services.metrics.render_metrics_script", return_value="SCRIPT"),
         patch("wb.cloud_agent.services.metrics.write_to_file"),
         patch("wb.cloud_agent.services.metrics.start_and_enable_service"),
         patch("wb.cloud_agent.services.metrics._ensure_service_is_active", side_effect=RuntimeError),
         patch("wb.cloud_agent.services.metrics.os.chmod"),
+        patch("wb.cloud_agent.services.metrics.threading.Thread"),
         patch("wb.cloud_agent.handlers.events.do_curl") as mock_curl,
         patch("wb.cloud_agent.handlers.events.event_confirm") as mock_confirm,
     ):

@@ -66,6 +66,9 @@ class AppSettings:  # pylint: disable=too-many-instance-attributes disable=too-f
         self.metrics_script: Path = Path(
             f"{APP_DATA_PROVIDERS_DIR}/{self.provider_name}/metrics_collector.py"
         )
+        self.metrics_vars_config: Path = Path(
+            f"{APP_DATA_PROVIDERS_DIR}/{self.provider_name}/metrics_collector.conf"
+        )
         self.metrics_last_uid: Path = Path(f"{APP_DATA_PROVIDERS_DIR}/{self.provider_name}/metrics_last_uid")
         self.activation_link_config: Path = Path(
             f"{APP_DATA_PROVIDERS_DIR}/{self.provider_name}/activation_link.conf"
