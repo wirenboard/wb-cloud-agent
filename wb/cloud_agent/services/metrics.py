@@ -1,10 +1,19 @@
+from __future__ import annotations
+
+import json
 import logging
 import os
+import random
+import string
 import subprocess
 import threading
+from datetime import datetime, timezone
+from pathlib import Path
 from string import Template
 
 from wb.cloud_agent.constants import (
+    METRICS_COLLECTOR_CRYPTO_ENGINE,
+    METRICS_COLLECTOR_TEMPLATE_PATH,
     METRICS_HEALTH_CHECK_COUNT,
     METRICS_HEALTH_CHECK_INTERVAL_S,
     METRICS_HEALTH_CONSECUTIVE_ERROR_WINDOWS,
@@ -12,6 +21,7 @@ from wb.cloud_agent.constants import (
     METRICS_HEALTH_ERROR_WINDOW_THRESHOLD,
     METRICS_HEALTH_JOURNAL_LINES,
     METRICS_HEALTH_JOURNAL_MAX_BYTES,
+    METRICS_TEMPLATE_CLOUD_VARS,
     UNKNOWN_LINK,
 )
 from wb.cloud_agent.handlers.curl import CloudNetworkError, do_curl
@@ -190,6 +200,91 @@ def _monitor_metrics_service(settings: AppSettings, service: str, stop_event: th
             _monitor_threads.pop(settings.provider_name, None)
 
 
+def _escape_template_value(value: object) -> object:
+    """Neutralise a string so it cannot break out of the ``"..."`` literal it lands in.
+
+    ``json.dumps`` returns a valid quoted string with quotes and backslashes escaped;
+    dropping the outer quotes keeps the escaped contents. Non-strings pass through and
+    rely on the ``int()``/``float()`` wrappers in the template.
+    """
+    if isinstance(value, str):
+        return json.dumps(value)[1:-1]
+    return value
+
+
+def _generate_mqtt_client_id() -> str:
+    suffix = "".join(random.choices(string.ascii_letters + string.digits, k=8))
+    return f"wb-cloud-agent-metrics-{suffix}"
+
+
+def _load_vars_conf(settings: AppSettings) -> dict | None:
+    try:
+        return json.loads(settings.metrics_vars_config.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return None
+    except (OSError, ValueError) as exc:
+        logging.warning("Cannot read metrics vars config %s: %s", settings.metrics_vars_config, exc)
+        return None
+
+
+def _build_vars_conf(settings: AppSettings, raw_vars: dict) -> dict:
+    # Keep only known cloud variables; everything else the agent fills in itself.
+    existing = _load_vars_conf(settings) or {}
+    return {
+        "vars": {key: raw_vars[key] for key in METRICS_TEMPLATE_CLOUD_VARS if key in raw_vars},
+        "mqtt_client_id": existing.get("mqtt_client_id") or _generate_mqtt_client_id(),
+        "created_at": datetime.now(timezone.utc).isoformat(sep=" "),
+    }
+
+
+def render_metrics_script(settings: AppSettings, conf: dict) -> str:
+    # Agent-owned values are applied last so a payload cannot override them
+    # (e.g. inject its own crypto_engine_key).
+    substitution = dict(conf.get("vars", {}))
+    substitution.update(
+        created_at=conf["created_at"],
+        mqtt_broker_url=settings.broker_url,
+        mqtt_client_id=conf["mqtt_client_id"],
+        crypto_engine=METRICS_COLLECTOR_CRYPTO_ENGINE,
+        crypto_engine_key=settings.client_cert_engine_key,
+        state_file=str(settings.metrics_last_uid),
+    )
+    template = Path(METRICS_COLLECTOR_TEMPLATE_PATH).read_text(encoding="utf-8")
+    return Template(template).substitute(
+        {key: _escape_template_value(value) for key, value in substitution.items()}
+    )
+
+
+def reconcile_metrics_script(settings: AppSettings) -> None:
+    """Re-render the collector script from the bundled template on agent start.
+
+    Lets a script fix shipped in a new package version take effect without waiting for the
+    cloud: the variables saved on the previous config update are reused. Does nothing until
+    the cloud has sent the first config (no vars file yet).
+    """
+    try:
+        conf = _load_vars_conf(settings)
+        if not conf:
+            return
+        rendered = render_metrics_script(settings, conf)
+        try:
+            if settings.metrics_script.read_text(encoding="utf-8") == rendered:
+                return
+        except FileNotFoundError:
+            pass
+        logging.info(
+            "Re-rendering metrics collector script from bundled template for provider %s",
+            settings.provider_name,
+        )
+        write_to_file(fpath=settings.metrics_script, contents=rendered)
+        os.chmod(settings.metrics_script, 0o755)
+        start_and_enable_service(settings.metrics_service, restart=True)
+    except Exception as exc:  # noqa: BLE001  # pylint: disable=broad-exception-caught
+        logging.warning(
+            "Cannot reconcile metrics collector script for provider %s: %s", settings.provider_name, exc
+        )
+
+
 def update_metrics_config(settings: AppSettings, payload: dict, mqtt: MQTTCloudAgent) -> None:
     if payload.get("enabled") is False:
         logging.info("Disabling metrics collection for provider %s", settings.provider_name)
@@ -198,18 +293,17 @@ def update_metrics_config(settings: AppSettings, payload: dict, mqtt: MQTTCloudA
         write_activation_link(settings, UNKNOWN_LINK, mqtt)
         return
 
-    if "script" not in payload:
-        raise ValueError("Metrics config event payload has no collector script")
+    # Security: the collector script ships with this package and is rendered locally from
+    # cloud-supplied variables. A script delivered in the payload is never written or run.
+    raw_vars = payload.get("vars")
+    if not raw_vars:
+        raise ValueError("Metrics config event payload has no variables")
+    conf = _build_vars_conf(settings, raw_vars)
+    write_to_file(fpath=settings.metrics_vars_config, contents=json.dumps(conf, indent=2))
 
     logging.info("Applying metrics collector config for provider %s", settings.provider_name)
 
-    write_to_file(
-        fpath=settings.metrics_script,
-        contents=Template(payload["script"]).safe_substitute(
-            BROKER_URL=settings.broker_url,
-            PROVIDER_NAME=settings.provider_name,
-        ),
-    )
+    write_to_file(fpath=settings.metrics_script, contents=render_metrics_script(settings, conf))
     os.chmod(settings.metrics_script, 0o755)
     start_and_enable_service(settings.metrics_service, restart=True)
     try:

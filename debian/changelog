@@ -1,3 +1,12 @@
+wb-cloud-agent (1.8.1~wb100) stable; urgency=medium
+
+  * Backport to bullseye (wb-2606): render the metrics collector from the
+    template bundled in the package using cloud-supplied variables; a script
+    delivered in the payload is no longer written or executed. Excludes the
+    Debian 13 port, keeping the bullseye-compatible curl dependency.
+
+ -- Arseniy Astafev <arseniy.astafev@wirenboard.com>  Mon, 15 Jun 2026 15:00:00 +0300
+
 wb-cloud-agent (1.7.2) stable; urgency=medium
 
   * Confirm failed non-critical metrics config events to keep the event queue unblocked.

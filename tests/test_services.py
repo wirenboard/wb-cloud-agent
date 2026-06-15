@@ -1,3 +1,4 @@
+import json
 import logging
 import threading
 from pathlib import Path
@@ -16,6 +17,8 @@ from wb.cloud_agent.services.metrics import (
     _collect_service_journal,
     _monitor_metrics_service,
     _report_metrics_health,
+    reconcile_metrics_script,
+    render_metrics_script,
     update_metrics_config,
 )
 from wb.cloud_agent.services.tunnel import update_tunnel_config
@@ -76,77 +79,6 @@ def test_update_tunnel_config(settings, tmp_path):
         mock_write.assert_called_once_with(settings, UNKNOWN_LINK, mock_mqtt)
 
 
-def test_update_metrics_config(settings, tmp_path):
-    mock_mqtt = MagicMock()
-    settings.metrics_script = tmp_path / "metrics_collector.py"
-    settings.metrics_service = "wb-cloud-agent-metrics@default.service"
-    settings.broker_url = "tcp://localhost:1883"
-
-    payload = {"script": 'BROKER = "$BROKER_URL"'}
-
-    with (
-        patch("wb.cloud_agent.services.metrics.start_and_enable_service") as mock_service,
-        patch("wb.cloud_agent.services.metrics._ensure_service_is_active") as mock_active,
-        patch("wb.cloud_agent.services.metrics.os.chmod"),
-        patch("wb.cloud_agent.services.metrics.write_activation_link") as mock_write,
-    ):
-        update_metrics_config(settings, payload, mock_mqtt)
-
-        content = settings.metrics_script.read_text()
-        assert "tcp://localhost:1883" in content
-        mock_service.assert_called_once_with(settings.metrics_service, restart=True)
-        mock_active.assert_called_once_with(settings.metrics_service)
-        mock_write.assert_called_once_with(settings, UNKNOWN_LINK, mock_mqtt)
-
-
-def test_update_metrics_config_template_substitution(settings, tmp_path):
-    mock_mqtt = MagicMock()
-    settings.metrics_script = tmp_path / "metrics_collector.py"
-    settings.metrics_service = "wb-cloud-agent-metrics@default.service"
-    settings.broker_url = "tcp://192.168.1.100:1883"
-
-    payload = {"script": 'BROKER = "$BROKER_URL"\nPROVIDER = "$PROVIDER_NAME"'}
-
-    with (
-        patch("wb.cloud_agent.services.metrics.start_and_enable_service"),
-        patch("wb.cloud_agent.services.metrics._ensure_service_is_active"),
-        patch("wb.cloud_agent.services.metrics.os.chmod"),
-        patch("wb.cloud_agent.services.metrics.write_activation_link"),
-    ):
-        update_metrics_config(settings, payload, mock_mqtt)
-
-        content = settings.metrics_script.read_text()
-        assert "tcp://192.168.1.100:1883" in content
-        assert "$BROKER_URL" not in content
-        assert settings.provider_name in content
-
-
-def test_update_metrics_config_script(settings, tmp_path):
-    mock_mqtt = MagicMock()
-    settings.metrics_script = tmp_path / "metrics_collector.py"
-    settings.metrics_service = "wb-cloud-agent-metrics@default.service"
-    settings.broker_url = "tcp://localhost:1883"
-
-    payload = {"script": 'BROKER = "$BROKER_URL"\nPROVIDER = "$PROVIDER_NAME"'}
-
-    with (
-        patch("wb.cloud_agent.services.metrics.start_and_enable_service") as mock_service,
-        patch("wb.cloud_agent.services.metrics._ensure_service_is_active") as mock_active,
-        patch("wb.cloud_agent.services.metrics.os.chmod") as mock_chmod,
-        patch("wb.cloud_agent.services.metrics.write_activation_link") as mock_write,
-    ):
-        update_metrics_config(settings, payload, mock_mqtt)
-
-        content = settings.metrics_script.read_text()
-        assert "tcp://localhost:1883" in content
-        assert "default" in content
-        assert "$BROKER_URL" not in content
-        mock_chmod.assert_called_once_with(settings.metrics_script, 0o755)
-        mock_service.assert_called_once_with(settings.metrics_service, restart=True)
-        mock_active.assert_called_once_with(settings.metrics_service)
-        mock_write.assert_called_once_with(settings, UNKNOWN_LINK, mock_mqtt)
-
-
 def test_update_metrics_config_disabled(settings):
     mock_mqtt = MagicMock()
 
@@ -160,17 +92,123 @@ def test_update_metrics_config_disabled(settings):
         mock_write.assert_called_once_with(settings, UNKNOWN_LINK, mock_mqtt)
 
 
-def test_update_metrics_config_restarts_existing_monitor(settings, tmp_path):
-    mock_mqtt = MagicMock()
-    settings.metrics_script = tmp_path / "metrics_collector.py"
-    settings.metrics_service = "wb-cloud-agent-metrics@default.service"
-    settings.broker_url = "tcp://localhost:1883"
+def test_update_metrics_config_without_vars_fails_before_confirm(settings):
+    with pytest.raises(ValueError, match="no variables"):
+        update_metrics_config(settings, {"enabled": True}, MagicMock())
 
+
+def test_update_metrics_config_ignores_cloud_delivered_script(cloud_vars_settings):
+    """Security: a script in the payload must never be written or executed."""
+    settings = cloud_vars_settings
+    payload = {"enabled": True, "script": 'import os; os.system("evil")'}
+
+    with pytest.raises(ValueError, match="no variables"):
+        update_metrics_config(settings, payload, MagicMock())
+
+    assert not settings.metrics_script.exists()
+
+
+CLOUD_VARS = {
+    "metrics_url": "https://metrics.example.com/write",
+    "measurement_name": "wb_mqtt",
+    "interval_seconds": 120,
+    "rpc_timeout_seconds": 55,
+    "get_channels_rpc_timeout_seconds": 60,
+    "max_records": 1000,
+    "channel_batch_size": 500,
+    "channels_refresh_interval_seconds": 3600,
+    "catch_up_batch_sleep_seconds": 0.5,
+    "static_refresh_interval": 240,
+    "catch_up_max_records": 10000,
+    "catch_up_sleep_seconds": 4,
+    "curl_connect_timeout_seconds": 10,
+    "curl_max_time_seconds": 30,
+    "send_batch_size": 1000,
+    "max_request_bytes": 500000,
+    "send_max_retries": 3,
+    "send_rate_limit_retry_delay_seconds": 60,
+    "static_retained_topics": "/devices/system/controls/Short SN|/devices/metrics/controls/ram_total",
+}
+
+
+@pytest.mark.usefixtures("metrics_template")
+def test_update_metrics_config_cloud_vars(cloud_vars_settings):
+    settings = cloud_vars_settings
+    mock_mqtt = MagicMock()
+    payload = {"enabled": True, "vars": dict(CLOUD_VARS)}
+
+    with (
+        patch("wb.cloud_agent.services.metrics.start_and_enable_service") as mock_service,
+        patch("wb.cloud_agent.services.metrics._ensure_service_is_active"),
+        patch("wb.cloud_agent.services.metrics.os.chmod"),
+        patch("wb.cloud_agent.services.metrics.write_activation_link") as mock_write,
+        patch("wb.cloud_agent.services.metrics.threading.Thread"),
+    ):
+        update_metrics_config(settings, payload, mock_mqtt)
+
+    content = settings.metrics_script.read_text()
+    assert 'METRICS_URL = "https://metrics.example.com/write"' in content
+    assert 'BROKER_URL = "tcp://localhost:1883"' in content
+    assert 'CRYPTO_ENGINE_KEY = "ATECCx08:00:02:C0:00"' in content
+    assert 'MAX_REQUEST_BYTES = int("500000")' in content
+    assert "$" not in content
+    conf = json.loads(settings.metrics_vars_config.read_text())
+    assert conf["vars"] == CLOUD_VARS
+    assert conf["mqtt_client_id"].startswith("wb-cloud-agent-metrics-")
+    mock_service.assert_called_once_with(settings.metrics_service, restart=True)
+    mock_write.assert_called_once_with(settings, UNKNOWN_LINK, mock_mqtt)
+
+
+@pytest.mark.usefixtures("metrics_template")
+def test_cloud_vars_injection_is_escaped(cloud_vars_settings):
+    settings = cloud_vars_settings
+    malicious = 'x"; __import__("os").system("evil") #'
+    payload = {"enabled": True, "vars": dict(CLOUD_VARS, metrics_url=malicious)}
+
+    with (
+        patch("wb.cloud_agent.services.metrics.start_and_enable_service"),
+        patch("wb.cloud_agent.services.metrics._ensure_service_is_active"),
+        patch("wb.cloud_agent.services.metrics.os.chmod"),
+        patch("wb.cloud_agent.services.metrics.write_activation_link"),
+        patch("wb.cloud_agent.services.metrics.threading.Thread"),
+    ):
+        update_metrics_config(settings, payload, MagicMock())
+
+    content = settings.metrics_script.read_text()
+    metrics_line = next(line for line in content.splitlines() if line.startswith("METRICS_URL"))
+    # The malicious value stays a quoted string literal: quotes escaped, no breakout.
+    assert metrics_line == 'METRICS_URL = "x\\"; __import__(\\"os\\").system(\\"evil\\") #"'
+
+
+@pytest.mark.usefixtures("metrics_template")
+def test_cloud_vars_cannot_override_agent_keys(cloud_vars_settings):
+    settings = cloud_vars_settings
+    payload = {"enabled": True, "vars": dict(CLOUD_VARS, crypto_engine_key="EVIL")}
+
+    with (
+        patch("wb.cloud_agent.services.metrics.start_and_enable_service"),
+        patch("wb.cloud_agent.services.metrics._ensure_service_is_active"),
+        patch("wb.cloud_agent.services.metrics.os.chmod"),
+        patch("wb.cloud_agent.services.metrics.write_activation_link"),
+        patch("wb.cloud_agent.services.metrics.threading.Thread"),
+    ):
+        update_metrics_config(settings, payload, MagicMock())
+
+    content = settings.metrics_script.read_text()
+    assert 'CRYPTO_ENGINE_KEY = "ATECCx08:00:02:C0:00"' in content
+    assert "EVIL" not in content
+    conf = json.loads(settings.metrics_vars_config.read_text())
+    assert "crypto_engine_key" not in conf["vars"]
+
+
+@pytest.mark.usefixtures("metrics_template")
+def test_update_metrics_config_restarts_existing_monitor(cloud_vars_settings):
+    settings = cloud_vars_settings
     old_stop_event = threading.Event()
     old_thread = MagicMock()
     old_thread.is_alive.return_value = True
 
-    payload = {"script": 'BROKER = "$BROKER_URL"'}
+    payload = {"enabled": True, "vars": dict(CLOUD_VARS)}
 
     with (
         patch.dict(
@@ -192,16 +230,92 @@ def test_update_metrics_config_restarts_existing_monitor(settings, tmp_path):
         new_thread = MagicMock()
         mock_thread.return_value = new_thread
 
-        update_metrics_config(settings, payload, mock_mqtt)
+        update_metrics_config(settings, payload, MagicMock())
 
         assert old_stop_event.is_set()
         mock_thread.assert_called_once()
         new_thread.start.assert_called_once()
 
 
-def test_update_metrics_config_without_script_fails_before_confirm(settings):
-    with pytest.raises(ValueError, match="no collector script"):
-        update_metrics_config(settings, {"enabled": True}, MagicMock())
+def test_reconcile_no_conf_is_noop(cloud_vars_settings):
+    settings = cloud_vars_settings
+
+    with patch("wb.cloud_agent.services.metrics.start_and_enable_service") as mock_service:
+        reconcile_metrics_script(settings)
+
+    assert not settings.metrics_script.exists()
+    mock_service.assert_not_called()
+
+
+@pytest.mark.usefixtures("metrics_template")
+def test_reconcile_rerenders_when_script_outdated(cloud_vars_settings):
+    settings = cloud_vars_settings
+    settings.metrics_vars_config.write_text(
+        json.dumps(
+            {
+                "vars": dict(CLOUD_VARS),
+                "mqtt_client_id": "wb-cloud-agent-metrics-fixedaaa",
+                "created_at": "2026-01-01 00:00:00+00:00",
+            }
+        )
+    )
+    settings.metrics_script.write_text("OUTDATED")
+
+    with (
+        patch("wb.cloud_agent.services.metrics.start_and_enable_service") as mock_service,
+        patch("wb.cloud_agent.services.metrics.os.chmod"),
+    ):
+        reconcile_metrics_script(settings)
+
+    content = settings.metrics_script.read_text()
+    assert "OUTDATED" not in content
+    assert 'METRICS_URL = "https://metrics.example.com/write"' in content
+    mock_service.assert_called_once_with(settings.metrics_service, restart=True)
+
+
+@pytest.mark.usefixtures("metrics_template")
+def test_reconcile_noop_when_already_current(cloud_vars_settings):
+    settings = cloud_vars_settings
+    conf = {
+        "vars": dict(CLOUD_VARS),
+        "mqtt_client_id": "wb-cloud-agent-metrics-fixedaaa",
+        "created_at": "2026-01-01 00:00:00+00:00",
+    }
+    settings.metrics_vars_config.write_text(json.dumps(conf))
+    settings.metrics_script.write_text(render_metrics_script(settings, conf))
+
+    with patch("wb.cloud_agent.services.metrics.start_and_enable_service") as mock_service:
+        reconcile_metrics_script(settings)
+
+    mock_service.assert_not_called()
+
+
+def test_bundled_template_renders_with_all_substitutions(cloud_vars_settings):
+    """The shipped template must have every placeholder filled by the agent."""
+    settings = cloud_vars_settings
+    # During the deb build pytest runs from a copied .pybuild/.../build tree, so the
+    # repo-root template is not a fixed number of levels up — walk up until we find it.
+    template_path = next(
+        (
+            parent / "metrics_collector.py.tpl"
+            for parent in Path(__file__).resolve().parents
+            if (parent / "metrics_collector.py.tpl").is_file()
+        ),
+        None,
+    )
+    if template_path is None:
+        pytest.skip("bundled metrics_collector.py.tpl not found in the source tree")
+    conf = {
+        "vars": dict(CLOUD_VARS),
+        "mqtt_client_id": "wb-cloud-agent-metrics-fixedaaa",
+        "created_at": "2026-01-01 00:00:00+00:00",
+    }
+
+    with patch("wb.cloud_agent.services.metrics.METRICS_COLLECTOR_TEMPLATE_PATH", str(template_path)):
+        rendered = render_metrics_script(settings, conf)
+
+    assert "$" not in rendered
+    compile(rendered, "metrics_collector.py", "exec")
 
 
 def test_report_metrics_health_logs_success(settings, caplog):

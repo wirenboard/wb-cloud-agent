@@ -17,6 +17,7 @@ from wb.cloud_agent.handlers.startup import (
 from wb.cloud_agent.mqtt import MQTTCloudAgent
 from wb.cloud_agent.services.activation import read_activation_link
 from wb.cloud_agent.services.lifecycle import stop_services_and_del_configs
+from wb.cloud_agent.services.metrics import reconcile_metrics_script
 from wb.cloud_agent.settings import (
     configure_app,
     generate_provider_config,
@@ -152,6 +153,8 @@ def run_daemon(options) -> Optional[int]:
     mqtt.publish_ctrl("activation_link", read_activation_link(settings))
     mqtt.publish_ctrl("cloud_base_url", settings.cloud_base_url)
     mqtt.publish_ctrl("status", "connecting")
+
+    reconcile_metrics_script(settings)
 
     logging.info("Cloud Agent initialization - OK")
 
