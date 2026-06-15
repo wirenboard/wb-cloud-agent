@@ -1,3 +1,9 @@
+wb-cloud-agent (1.8.1-wb100) stable; urgency=medium
+
+  * Ship the metrics collector script in the package and render it locally from cloud-supplied variables.
+
+ -- Arseniy Astafev <arseniy.astafev@wirenboard.com>  Mon, 15 Jun 2026 15:00:00 +0300
+
 wb-cloud-agent (1.7.2) stable; urgency=medium
 
   * Confirm failed non-critical metrics config events to keep the event queue unblocked.
