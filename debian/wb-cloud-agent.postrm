@@ -11,10 +11,10 @@ if [ "$1" = "remove" ]; then
         echo "rootfs building mode, skip removing wb-cloud-agent devices from MQTT"
     else
         echo "Removing wb-cloud-agent devices from MQTT"
-        mqtt-delete-retained "/wb-cloud-agent/#" >/dev/null 2>/dev/null
-        mqtt-delete-retained "/devices/system__wb-cloud-agent__default/#" >/dev/null 2>/dev/null
+        mqtt-delete-retained "/wb-cloud-agent/#" >/dev/null 2>/dev/null || true
+        mqtt-delete-retained "/devices/system__wb-cloud-agent__default/#" >/dev/null 2>/dev/null || true
         for provider in $(ls /etc/wb-cloud-agent/providers); do
-            mqtt-delete-retained "/devices/system__wb-cloud-agent__$provider/#" >/dev/null 2>/dev/null
+            mqtt-delete-retained "/devices/system__wb-cloud-agent__$provider/#" >/dev/null 2>/dev/null || true
         done
     fi
 fi
