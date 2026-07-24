@@ -1,3 +1,9 @@
+wb-cloud-agent (1.8.2) stable; urgency=medium
+
+  * Fix package removal when mosquitto is stopped
+
+ -- Nikolay Korotkiy <nikolay.korotkiy@wirenboard.com>  Fri, 24 Jul 2026 10:20:00 +0400
+
 wb-cloud-agent (1.8.1) stable; urgency=medium
 
   * Ship the metrics collector script in the package and render it locally from cloud-supplied variables.
