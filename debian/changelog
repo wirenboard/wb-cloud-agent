@@ -1,3 +1,11 @@
+wb-cloud-agent (1.8.2-wbdemokit1) stable; urgency=medium
+
+  * online-demokit: mark the package version so it sorts above the release
+    build of the same base version and never collides with the next base
+    release (revision suffix, same scheme wb-initramfs used before)
+
+ -- Ekaterina Volkova <ekaterina.volkova@wirenboard.com>  Wed, 26 Aug 2026 20:36:44 +0000
+
 wb-cloud-agent (1.8.2) stable; urgency=medium
 
   * Fix package removal when mosquitto is stopped
