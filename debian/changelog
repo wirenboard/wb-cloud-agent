@@ -1,4 +1,4 @@
-wb-cloud-agent (1.8.2-wbdemokit1) stable; urgency=medium
+wb-cloud-agent (1.8.2+wbdemokit1) stable; urgency=medium
 
   * online-demokit: mark the package version so it sorts above the release
     build of the same base version and never collides with the next base
