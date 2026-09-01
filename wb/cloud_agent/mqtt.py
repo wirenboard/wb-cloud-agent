@@ -1,5 +1,6 @@
 import logging
 import threading
+from dataclasses import dataclass, field
 from typing import Optional
 
 from wb_common.mqtt_client import MQTTClient
@@ -12,6 +13,15 @@ EXIT_INVALID_ARGUMENT = 2
 EXIT_STOPPED = 7
 
 
+@dataclass
+class _ConnectionState:
+    connected: threading.Event = field(default_factory=threading.Event)
+    fatal_error: threading.Event = field(default_factory=threading.Event)
+    fatal_exit_code: Optional[int] = None
+    connect_error_reported: bool = False
+    was_disconnected: bool = False
+
+
 class MQTTCloudAgent:
     def __init__(self, settings: AppSettings, on_message=None):
         self.mqtt_prefix = settings.mqtt_prefix
@@ -19,10 +29,7 @@ class MQTTCloudAgent:
         self.controls = {}
         self.provider_name = settings.provider_name
         self.providers = None
-        self._connected = threading.Event()
-        self._fatal_error = threading.Event()
-        self._fatal_exit_code: Optional[int] = None
-        self._connect_error_reported = False
+        self._connection = _ConnectionState()
 
         self.client = MQTTClient(
             f"wb-cloud-agent@{self.provider_name}", settings.broker_url, userdata={"settings": settings}
@@ -31,8 +38,6 @@ class MQTTCloudAgent:
         self.client.on_connect_fail = self._on_connect_fail
         self.client.on_message = self._on_message
         self.client.on_disconnect = self._on_disconnect
-
-        self.was_disconnected = False
 
     def start(self, update_status=False):
         if update_status:
@@ -43,23 +48,25 @@ class MQTTCloudAgent:
     def _on_connect(self, _client, _userdata, _flags, reason_code, *_):
         code = getattr(reason_code, "value", reason_code)
         if code != 0:
-            self._connected.clear()
-            self._fatal_exit_code = EXIT_INVALID_ARGUMENT if code in MQTT_AUTH_ERROR_CODES else EXIT_FAILURE
-            self._fatal_error.set()
-            if self._fatal_exit_code == EXIT_INVALID_ARGUMENT:
+            self._connection.connected.clear()
+            self._connection.fatal_exit_code = (
+                EXIT_INVALID_ARGUMENT if code in MQTT_AUTH_ERROR_CODES else EXIT_FAILURE
+            )
+            self._connection.fatal_error.set()
+            if self._connection.fatal_exit_code == EXIT_INVALID_ARGUMENT:
                 logging.error("MQTT authentication failed (reason code %s)", code)
             else:
                 logging.error("MQTT connection rejected (reason code %s)", code)
             self.client.disconnect()
             return
 
-        if self._connect_error_reported:
+        if self._connection.connect_error_reported:
             logging.info("MQTT broker is available again")
-            self._connect_error_reported = False
+            self._connection.connect_error_reported = False
 
-        self._connected.set()
-        if self.was_disconnected:
-            self.was_disconnected = False
+        self._connection.connected.set()
+        if self._connection.was_disconnected:
+            self._connection.was_disconnected = False
             self.publish_vdev()
 
             for control, value in self.controls.items():
@@ -71,9 +78,9 @@ class MQTTCloudAgent:
         self.client.subscribe("/devices/system/controls/HW Revision", qos=2)
 
     def _on_connect_fail(self, _client, _userdata):
-        if not self._connect_error_reported and not self._fatal_error.is_set():
+        if not self._connection.connect_error_reported and not self._connection.fatal_error.is_set():
             logging.warning("MQTT broker is unreachable, waiting for it")
-            self._connect_error_reported = True
+            self._connection.connect_error_reported = True
 
     def _on_message(self, _client, userdata, message):
         assert "settings" in userdata, "No settings in userdata"
@@ -83,20 +90,28 @@ class MQTTCloudAgent:
             self.on_message(userdata, message)
 
     def _on_disconnect(self, *_args):
-        self._connected.clear()
-        self.was_disconnected = True
+        self._connection.connected.clear()
+        self._connection.was_disconnected = True
 
     def wait_for_connection(self, stop_requested: threading.Event) -> Optional[int]:
-        while not self._connected.is_set():
-            if self._fatal_error.is_set():
-                return self._fatal_exit_code or EXIT_FAILURE
+        while not self._connection.connected.is_set():
+            if self._connection.fatal_error.is_set():
+                return self._connection.fatal_exit_code or EXIT_FAILURE
             if stop_requested.wait(0.1):
                 return EXIT_STOPPED
         return None
 
     @property
     def fatal_exit_code(self) -> Optional[int]:
-        return self._fatal_exit_code
+        return self._connection.fatal_exit_code
+
+    @property
+    def was_disconnected(self) -> bool:
+        return self._connection.was_disconnected
+
+    @was_disconnected.setter
+    def was_disconnected(self, value: bool) -> None:
+        self._connection.was_disconnected = value
 
     def publish_vdev(self):
         self.client.publish(
