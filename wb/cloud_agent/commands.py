@@ -141,9 +141,7 @@ def run_daemon(options) -> int:
         stop_requested.set()
 
     mqtt = MQTTCloudAgent(settings, on_message)
-    old_handlers = {
-        signum: signal.signal(signum, request_stop) for signum in (signal.SIGTERM, signal.SIGINT)
-    }
+    old_handlers = {signum: signal.signal(signum, request_stop) for signum in (signal.SIGTERM, signal.SIGINT)}
 
     normal_stop = False
     try:
