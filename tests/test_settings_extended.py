@@ -54,6 +54,52 @@ def test_app_settings_skip_conf_file(tmp_path):
         assert settings.client_cert_engine_key == "ATECCx08:00:02:C0:00"
 
 
+def test_app_settings_with_alternative_config_file(tmp_path):
+    config_file = tmp_path / "custom.conf"
+    config_file.write_text(json.dumps({"CLOUD_BASE_URL": "https://custom.cloud"}))
+
+    settings = AppSettings(
+        provider_name="test",
+        config_file=config_file,
+        require_conf_file=True,
+    )
+
+    assert settings.config_file == config_file
+    assert settings.cloud_base_url == "https://custom.cloud"
+
+
+def test_configure_app_missing_required_config(tmp_path):
+    result = configure_app(
+        provider_name="test",
+        config_file=tmp_path / "missing.conf",
+        require_conf_file=True,
+    )
+
+    assert result == 6
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        {"CLOUD_BASE_URL": 123},
+        {"CLOUD_BASE_URL": "ftp://example.com"},
+        {"CLOUD_BASE_URL": "https://example.com", "UNKNOWN": True},
+        {"CLOUD_BASE_URL": "https://example.com", "BROKER_URL": "tcp://localhost"},
+    ],
+)
+def test_configure_app_invalid_logical_config(tmp_path, config):
+    config_file = tmp_path / "invalid.conf"
+    config_file.write_text(json.dumps(config))
+
+    result = configure_app(
+        provider_name="test",
+        config_file=config_file,
+        require_conf_file=True,
+    )
+
+    assert result == 6
+
+
 def test_configure_app_success():
     with patch("wb.cloud_agent.settings.AppSettings") as mock_settings:
         mock_instance = MagicMock()

@@ -60,6 +60,38 @@ def test_provider_name_validator_with_valid_name(set_argv):
     parse_args()
 
 
+def test_run_daemon_config_and_broker(set_argv):
+    set_argv(
+        [
+            "wb-cloud-agent",
+            "run-daemon",
+            "-c",
+            "/tmp/provider.conf",
+            "--broker",
+            "tcp://localhost:1883",
+            "provider",
+        ]
+    )
+
+    options = parse_args()
+
+    assert options.config == "/tmp/provider.conf"
+    assert options.broker == "tcp://localhost:1883"
+
+
+@pytest.mark.parametrize(
+    "broker_url",
+    ["localhost:1883", "ftp://localhost:1883", "tcp://localhost", "unix://"],
+)
+def test_run_daemon_invalid_broker(set_argv, broker_url):
+    set_argv(["wb-cloud-agent", "run-daemon", "--broker", broker_url, "provider"])
+
+    with pytest.raises(SystemExit) as exc_info:
+        parse_args()
+
+    assert exc_info.value.code == 2
+
+
 @pytest.mark.parametrize(
     "invalid_name",
     ["with spaces", "with/slash", "with!special@#chars$", " ", "кириллица", "名字"],

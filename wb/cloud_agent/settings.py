@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Optional, Union
 from urllib.parse import urlparse, urlunparse
 
+import jsonschema
 from wb_common.mqtt_client import DEFAULT_BROKER_URL
 
 from wb.cloud_agent.constants import (
@@ -22,6 +23,7 @@ from wb.cloud_agent.utils import (
     normalize_base_url,
     read_json_config,
     read_plaintext_config,
+    validate_mqtt_broker_url,
 )
 
 
@@ -55,11 +57,15 @@ class AppSettings:  # pylint: disable=too-many-instance-attributes disable=too-f
     ping_period_seconds: int = 10
     metrics_log_enabled: bool = True
 
-    def __init__(self, /, **kwargs: dict[str, Any]) -> None:
+    def __init__(self, /, **kwargs: Any) -> None:
+        config_file = kwargs.pop("config_file", None)
+        require_conf_file = kwargs.pop("require_conf_file", False)
         for key, val in kwargs.items():
             setattr(self, key, val)
 
-        self.config_file: Path = Path(f"{PROVIDERS_CONF_DIR}/{self.provider_name}/wb-cloud-agent.conf")
+        self.config_file = Path(
+            config_file or f"{PROVIDERS_CONF_DIR}/{self.provider_name}/wb-cloud-agent.conf"
+        )
         self.frp_service: str = f"wb-cloud-agent-frpc@{self.provider_name}.service"
         self.metrics_service: str = f"wb-cloud-agent-metrics@{self.provider_name}.service"
         self.frp_config: Path = Path(f"{APP_DATA_PROVIDERS_DIR}/{self.provider_name}/frpc.conf")
@@ -76,14 +82,20 @@ class AppSettings:  # pylint: disable=too-many-instance-attributes disable=too-f
         self.mqtt_prefix: str = f"/devices/system__wb-cloud-agent__{self.provider_name}"
         self.diag_archive: Path = Path("/tmp")
 
-        if not self.skip_conf_file and self.config_file.exists():
-            self.apply_conf_file()
+        if not self.skip_conf_file:
+            if self.config_file.exists():
+                self.apply_conf_file()
+            elif require_conf_file:
+                raise FileNotFoundError(self.config_file)
 
         self.cloud_base_url = normalize_base_url(self.cloud_base_url)
+        self.broker_url = validate_mqtt_broker_url(self.broker_url)
         self.cloud_agent_url = self.base_url_to_agent_url(self.cloud_base_url)
 
     def apply_conf_file(self) -> None:
         conf = read_json_config(self.config_file)
+        schema = read_json_config(Path(__file__).with_name("wb-cloud-agent.schema.json"))
+        jsonschema.Draft7Validator(schema, format_checker=jsonschema.FormatChecker()).validate(conf)
 
         for key, val in conf.items():
             setattr(self, key.lower(), val)
@@ -94,13 +106,22 @@ class AppSettings:  # pylint: disable=too-many-instance-attributes disable=too-f
         return urlunparse((parsed.scheme, netloc, CLOUD_AGENT_URL_POSTFIX, "", "", ""))
 
 
-def configure_app(**kwargs: dict[str, Any]) -> AppSettings:
+def configure_app(**kwargs: Any) -> Union[AppSettings, int]:
     try:
         settings = AppSettings(**kwargs)
-    except (FileNotFoundError, OSError, json.decoder.JSONDecodeError):
+        setup_log(settings)
+    except (
+        FileNotFoundError,
+        OSError,
+        TypeError,
+        ValueError,
+        json.decoder.JSONDecodeError,
+        jsonschema.ValidationError,
+        jsonschema.SchemaError,
+    ) as exc:
+        logging.error("Invalid wb-cloud-agent configuration: %s", exc)
         return 6  # systemd status=6/NOTCONFIGURED
 
-    setup_log(settings)
     return settings
 
 

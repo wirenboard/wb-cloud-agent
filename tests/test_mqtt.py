@@ -1,5 +1,6 @@
 # pylint: disable=redefined-outer-name, protected-access
 
+import threading
 from unittest.mock import MagicMock, call, patch
 
 import pytest
@@ -53,9 +54,7 @@ def test_start_with_update_status(mqtt_cloud_agent, settings):
         f"{settings.mqtt_prefix}/controls/status", "stopped", retain=True, qos=2
     )
     mqtt_cloud_agent.client.start.assert_called_once()
-    mqtt_cloud_agent.client.publish.assert_called_with(
-        f"{settings.mqtt_prefix}/controls/status", "starting", retain=True, qos=2
-    )
+    mqtt_cloud_agent.client.publish.assert_not_called()
 
 
 def test_on_connect_successful(mqtt_cloud_agent):
@@ -68,6 +67,36 @@ def test_on_connect_failure(mqtt_cloud_agent):
     mqtt_cloud_agent._on_connect(None, None, None, 1)
 
     mqtt_cloud_agent.client.subscribe.assert_not_called()
+    mqtt_cloud_agent.client.disconnect.assert_called_once_with()
+    assert mqtt_cloud_agent.fatal_exit_code == 1
+
+
+@pytest.mark.parametrize("reason_code", [4, 5, 134, 135])
+def test_on_connect_auth_failure(mqtt_cloud_agent, reason_code):
+    mqtt_cloud_agent._on_connect(None, None, None, reason_code)
+
+    mqtt_cloud_agent.client.subscribe.assert_not_called()
+    mqtt_cloud_agent.client.disconnect.assert_called_once_with()
+    assert mqtt_cloud_agent.fatal_exit_code == 2
+
+
+def test_wait_for_connection_success(mqtt_cloud_agent):
+    mqtt_cloud_agent._on_connect(None, None, None, 0)
+
+    assert mqtt_cloud_agent.wait_for_connection(threading.Event()) is None
+
+
+def test_wait_for_connection_stopped(mqtt_cloud_agent):
+    stop_requested = threading.Event()
+    stop_requested.set()
+
+    assert mqtt_cloud_agent.wait_for_connection(stop_requested) == 7
+
+
+def test_connect_failure_is_retried(mqtt_cloud_agent):
+    mqtt_cloud_agent._on_connect_fail(None, None)
+
+    assert mqtt_cloud_agent.fatal_exit_code is None
 
 
 def test_on_connect_after_disconnect(mqtt_cloud_agent, settings):
@@ -165,6 +194,7 @@ def test_publish_vdev(mqtt_cloud_agent, settings):
 
 
 def test_remove_vdev(mqtt_cloud_agent, settings):
+    mqtt_cloud_agent.client.is_connected.return_value = True
     mqtt_cloud_agent.remove_vdev()
 
     expected_calls = [
@@ -190,6 +220,20 @@ def test_remove_vdev(mqtt_cloud_agent, settings):
 
     for expected_call in expected_calls:
         assert expected_call in mqtt_cloud_agent.client.publish.call_args_list
+
+
+def test_remove_vdev_when_broker_is_unavailable(mqtt_cloud_agent):
+    mqtt_cloud_agent.client.is_connected.return_value = False
+
+    mqtt_cloud_agent.remove_vdev()
+
+    mqtt_cloud_agent.client.publish.assert_not_called()
+
+
+def test_stop(mqtt_cloud_agent):
+    mqtt_cloud_agent.stop()
+
+    mqtt_cloud_agent.client.stop.assert_called_once_with()
 
 
 def test_publish_ctrl(mqtt_cloud_agent, settings):

@@ -4,14 +4,15 @@ Wants=network-online.target mosquitto.service
 After=network-online.target mosquitto.service
 StartLimitIntervalSec=3600
 StartLimitBurst=100
-ConditionPathExistsGlob=/etc/wb-cloud-agent/providers/%i/*.conf
+ConditionPathExists=/etc/wb-cloud-agent/providers/%i/wb-cloud-agent.conf
 
 [Service]
 ExecStartPre=/usr/lib/wb-cloud-agent/check-certs.sh /etc/wb-cloud-agent/providers/%i/wb-cloud-agent.conf
-ExecStart=/usr/bin/wb-cloud-agent run-daemon %i
-Restart=always
+ExecStart=/usr/bin/wb-cloud-agent run-daemon -c /etc/wb-cloud-agent/providers/%i/wb-cloud-agent.conf %i
+Restart=on-failure
 RestartSec=10
-RestartPreventExitStatus=6
+RestartPreventExitStatus=2 6
+SuccessExitStatus=7
 Environment=PYTHONUNBUFFERED=1
 
 [Install]

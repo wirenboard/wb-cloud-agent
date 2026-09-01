@@ -1,3 +1,9 @@
+wb-cloud-agent (1.8.3) stable; urgency=medium
+
+  * Align cloud agent lifecycle with controller service requirements
+
+ -- Wiren Board Team <info@wirenboard.com>  Tue, 01 Sep 2026 20:00:00 +0000
+
 wb-cloud-agent (1.8.2) stable; urgency=medium
 
   * Fix package removal when mosquitto is stopped

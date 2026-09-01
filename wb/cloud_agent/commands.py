@@ -1,14 +1,14 @@
 import logging
+import signal
 import subprocess
+import threading
 import time
-from contextlib import ExitStack
-from typing import Optional
 from urllib.parse import urlparse
 
 from wb.cloud_agent import __version__ as agent_package_version
 from wb.cloud_agent.handlers.curl import CloudNetworkError
 from wb.cloud_agent.handlers.events import event_delete_controller, make_event_request
-from wb.cloud_agent.handlers.ping import CloudUnreachableError, wait_for_cloud_reachable
+from wb.cloud_agent.handlers.ping import wait_for_cloud_reachable
 from wb.cloud_agent.handlers.startup import (
     make_start_up_request,
     on_message,
@@ -119,8 +119,15 @@ def del_controller_from_cloud(options) -> int:
     return event_delete_controller(settings)
 
 
-def run_daemon(options) -> Optional[int]:
-    settings = configure_app(provider_name=options.provider_name)
+def run_daemon(options) -> int:
+    settings = configure_app(
+        provider_name=options.provider_name,
+        config_file=getattr(options, "config", None),
+        require_conf_file=True,
+    )
+    if isinstance(settings, int):
+        return settings
+
     settings.broker_url = options.broker or settings.broker_url
     logging.info(
         "====== Cloud Agent started (version: %s, provider: %s) ======",
@@ -128,41 +135,66 @@ def run_daemon(options) -> Optional[int]:
         settings.cloud_base_url,
     )
 
-    try:
-        wait_for_cloud_reachable(settings.cloud_base_url, settings.ping_period_seconds)
-    except CloudUnreachableError as exc:
-        logging.error(str(exc))
-        logging.debug("Cloud reachability failure details", exc_info=exc)
-        return 1
+    stop_requested = threading.Event()
+
+    def request_stop(_signum, _frame):
+        stop_requested.set()
 
     mqtt = MQTTCloudAgent(settings, on_message)
+    old_handlers = {
+        signum: signal.signal(signum, request_stop) for signum in (signal.SIGTERM, signal.SIGINT)
+    }
+
+    normal_stop = False
     try:
         mqtt.start(update_status=True)
-    except Exception as exc:  # pylint:disable=broad-exception-caught
-        logging.error("Error starting MQTT client: %s", exc)
+        connect_exit_code = mqtt.wait_for_connection(stop_requested)
+        if connect_exit_code is not None:
+            normal_stop = connect_exit_code == 7
+            return connect_exit_code
 
-    try:
-        make_start_up_request(settings, mqtt)
-        send_packages_version(settings)
-    except CloudNetworkError as exc:
-        logging.error("Startup request failed: %s", exc)
-        return 1
+        mqtt.update_providers_list()
+        mqtt.publish_vdev()
+        mqtt.publish_ctrl("cloud_base_url", settings.cloud_base_url)
+        mqtt.publish_ctrl("status", "connecting")
 
-    mqtt.update_providers_list()
-    mqtt.publish_vdev()
-    mqtt.publish_ctrl("activation_link", read_activation_link(settings))
-    mqtt.publish_ctrl("cloud_base_url", settings.cloud_base_url)
-    mqtt.publish_ctrl("status", "connecting")
+        cloud_reachable = wait_for_cloud_reachable(
+            settings.cloud_base_url,
+            settings.ping_period_seconds,
+            max_retries=None,
+            stop_requested=stop_requested,
+        )
+        if not cloud_reachable:
+            normal_stop = True
+            return 7
 
-    reconcile_metrics_script(settings)
+        startup_error_reported = False
+        while not stop_requested.is_set() and mqtt.fatal_exit_code is None:
+            try:
+                make_start_up_request(settings, mqtt)
+                send_packages_version(settings)
+                break
+            except (CloudNetworkError, ValueError, subprocess.TimeoutExpired) as exc:
+                if not startup_error_reported:
+                    logging.info("Cloud startup request failed; retrying")
+                    startup_error_reported = True
+                logging.debug("Cloud startup failure details", exc_info=exc)
+                mqtt.publish_ctrl("status", "Network or Cloud is unreachable! Retrying...")
+                stop_requested.wait(settings.request_period_seconds)
 
-    logging.info("Cloud Agent initialization - OK")
+        if stop_requested.is_set():
+            normal_stop = True
+            return 7
+        if mqtt.fatal_exit_code is not None:
+            return mqtt.fatal_exit_code
 
-    with ExitStack() as stack:
-        stack.callback(mqtt.remove_vdev)
+        mqtt.publish_ctrl("activation_link", read_activation_link(settings))
+        reconcile_metrics_script(settings)
+
+        logging.info("Cloud Agent initialization - OK")
+
         was_connected = False
-
-        while True:
+        while not stop_requested.is_set() and mqtt.fatal_exit_code is None:
             start = time.perf_counter()
             logging.debug("Sending event request")
 
@@ -186,4 +218,17 @@ def run_daemon(options) -> Optional[int]:
                 logging.debug(msg, exc_info=exc_info)
 
             logging.debug("Event request completed in %s ms", int((time.perf_counter() - start) * 1000))
-            time.sleep(settings.request_period_seconds)
+            stop_requested.wait(settings.request_period_seconds)
+
+        if mqtt.fatal_exit_code is not None:
+            return mqtt.fatal_exit_code
+
+        normal_stop = True
+        logging.info("Cloud Agent stopping on request")
+        return 7
+    finally:
+        if normal_stop:
+            mqtt.remove_vdev()
+        mqtt.stop()
+        for signum, handler in old_handlers.items():
+            signal.signal(signum, handler)

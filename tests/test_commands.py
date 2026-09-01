@@ -2,7 +2,7 @@
 
 import subprocess
 from argparse import Namespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 import pytest
 
@@ -22,6 +22,8 @@ from wb.cloud_agent.handlers.curl import CloudNetworkError
 def mock_mqtt_cloud_agent():
     with patch("wb.cloud_agent.commands.MQTTCloudAgent") as mock:
         mock_instance = MagicMock()
+        mock_instance.wait_for_connection.return_value = None
+        mock_instance.fatal_exit_code = None
         mock.return_value = mock_instance
         yield mock_instance
 
@@ -305,7 +307,7 @@ def test_del_controller_from_cloud_success():
 
 
 @pytest.mark.usefixtures("mock_mqtt_cloud_agent")
-def test_run_daemon_startup_failure():
+def test_run_daemon_retries_startup_failure(mock_mqtt_cloud_agent):
     options = Namespace(provider_name="test", broker=None)
 
     with (
@@ -313,24 +315,33 @@ def test_run_daemon_startup_failure():
         patch("wb.cloud_agent.commands.wait_for_cloud_reachable") as mock_wait,
         patch(
             "wb.cloud_agent.commands.make_start_up_request",
-            side_effect=CloudNetworkError("Startup failed"),
+            side_effect=[CloudNetworkError("Startup failed"), KeyboardInterrupt()],
         ),
         patch("wb.cloud_agent.commands.send_packages_version"),
     ):
         mock_settings = MagicMock()
         mock_settings.cloud_base_url = "https://example.com"
         mock_settings.broker_url = "tcp://localhost:1883"
-        mock_settings.request_period_seconds = 10
+        mock_settings.request_period_seconds = 0
         mock_settings.ping_period_seconds = 7
         mock_config.return_value = mock_settings
 
-        result = run_daemon(options)
+        with pytest.raises(KeyboardInterrupt):
+            run_daemon(options)
 
-        assert result == 1
+        mock_wait.assert_called_once_with(
+            mock_settings.cloud_base_url,
+            mock_settings.ping_period_seconds,
+            max_retries=None,
+            stop_requested=ANY,
+        )
 
-        mock_wait.assert_called_once_with(mock_settings.cloud_base_url, mock_settings.ping_period_seconds)
-
-        mock_config.assert_called_once()
+        mock_config.assert_called_once_with(
+            provider_name="test",
+            config_file=None,
+            require_conf_file=True,
+        )
+        mock_mqtt_cloud_agent.stop.assert_called_once_with()
 
 
 @pytest.mark.usefixtures("mock_mqtt_cloud_agent")
@@ -343,13 +354,12 @@ def test_run_daemon_with_custom_broker():
         patch("wb.cloud_agent.commands.make_start_up_request"),
         patch("wb.cloud_agent.commands.send_packages_version"),
         patch("wb.cloud_agent.commands.read_activation_link", return_value="http://link"),
-        patch("wb.cloud_agent.commands.make_event_request"),
-        patch("time.sleep", side_effect=KeyboardInterrupt),
-    ):  # Stop the loop
+        patch("wb.cloud_agent.commands.make_event_request", side_effect=KeyboardInterrupt),
+    ):
         mock_settings = MagicMock()
         mock_settings.cloud_base_url = "https://example.com"
         mock_settings.broker_url = "tcp://localhost:1883"
-        mock_settings.request_period_seconds = 10
+        mock_settings.request_period_seconds = 0
         mock_config.return_value = mock_settings
 
         try:
@@ -372,12 +382,11 @@ def test_run_daemon_event_loop_with_timeout():
         patch("wb.cloud_agent.commands.send_packages_version"),
         patch("wb.cloud_agent.commands.read_activation_link", return_value="http://link"),
         patch("wb.cloud_agent.commands.make_event_request") as mock_event,
-        patch("time.sleep"),
     ):
         mock_settings = MagicMock()
         mock_settings.cloud_base_url = "https://example.com"
         mock_settings.broker_url = "tcp://localhost:1883"
-        mock_settings.request_period_seconds = 10
+        mock_settings.request_period_seconds = 0
         mock_config.return_value = mock_settings
 
         mock_event.side_effect = [
@@ -405,12 +414,11 @@ def test_run_daemon_event_loop_with_exception(mock_mqtt_cloud_agent):
         patch("wb.cloud_agent.commands.send_packages_version"),
         patch("wb.cloud_agent.commands.read_activation_link", return_value="http://link"),
         patch("wb.cloud_agent.commands.make_event_request") as mock_event,
-        patch("time.sleep"),
     ):
         mock_settings = MagicMock()
         mock_settings.cloud_base_url = "https://example.com"
         mock_settings.broker_url = "tcp://localhost:1883"
-        mock_settings.request_period_seconds = 10
+        mock_settings.request_period_seconds = 0
         mock_config.return_value = mock_settings
 
         # First call: Exception, second call: success and status ok, third: KeyboardInterrupt
@@ -431,3 +439,52 @@ def test_run_daemon_event_loop_with_exception(mock_mqtt_cloud_agent):
             call for call in mock_mqtt_cloud_agent.publish_ctrl.call_args_list if call[0][0] == "status"
         ]
         assert len(status_calls) >= 2
+
+
+def test_run_daemon_graceful_stop_cleans_mqtt(mock_mqtt_cloud_agent):
+    options = Namespace(provider_name="test", broker=None, config="/tmp/test.conf")
+    mock_mqtt_cloud_agent.wait_for_connection.return_value = 7
+
+    with patch("wb.cloud_agent.commands.configure_app") as mock_config:
+        mock_settings = MagicMock()
+        mock_settings.broker_url = "tcp://localhost:1883"
+        mock_settings.cloud_base_url = "https://example.com"
+        mock_config.return_value = mock_settings
+
+        assert run_daemon(options) == 7
+
+    mock_config.assert_called_once_with(
+        provider_name="test",
+        config_file="/tmp/test.conf",
+        require_conf_file=True,
+    )
+    mock_mqtt_cloud_agent.remove_vdev.assert_called_once_with()
+    mock_mqtt_cloud_agent.stop.assert_called_once_with()
+
+
+def test_run_daemon_mqtt_auth_failure_returns_two(mock_mqtt_cloud_agent):
+    options = Namespace(provider_name="test", broker=None, config=None)
+    mock_mqtt_cloud_agent.wait_for_connection.return_value = 2
+
+    with patch("wb.cloud_agent.commands.configure_app") as mock_config:
+        mock_settings = MagicMock()
+        mock_settings.broker_url = "tcp://localhost:1883"
+        mock_settings.cloud_base_url = "https://example.com"
+        mock_config.return_value = mock_settings
+
+        assert run_daemon(options) == 2
+
+    mock_mqtt_cloud_agent.remove_vdev.assert_not_called()
+    mock_mqtt_cloud_agent.stop.assert_called_once_with()
+
+
+def test_run_daemon_invalid_config_returns_six():
+    options = Namespace(provider_name="test", broker=None, config="/tmp/bad.conf")
+
+    with (
+        patch("wb.cloud_agent.commands.configure_app", return_value=6),
+        patch("wb.cloud_agent.commands.MQTTCloudAgent") as mock_mqtt,
+    ):
+        assert run_daemon(options) == 6
+
+    mock_mqtt.assert_not_called()

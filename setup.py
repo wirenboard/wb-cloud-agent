@@ -21,4 +21,5 @@ setup(
         "wb.cloud_agent.handlers",
         "wb.cloud_agent.services",
     ],
+    package_data={"wb.cloud_agent": ["wb-cloud-agent.schema.json"]},
 )

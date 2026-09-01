@@ -5,7 +5,7 @@ import sys
 from functools import cache
 from pathlib import Path
 from typing import TYPE_CHECKING
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 
 from tabulate import tabulate
 
@@ -21,6 +21,24 @@ def get_ctrl_serial_number() -> str:
 
 def normalize_base_url(base_url: str) -> str:
     return base_url.rstrip("/")
+
+
+def validate_mqtt_broker_url(broker_url: str) -> str:
+    parsed = urlparse(broker_url)
+    if parsed.scheme == "unix":
+        if parsed.path:
+            return broker_url
+        raise ValueError("Unix MQTT broker URL must contain a socket path")
+
+    if parsed.scheme not in ("mqtt-tcp", "tcp", "ws"):
+        raise ValueError(f"Unsupported MQTT broker URL scheme: {parsed.scheme}")
+    try:
+        port = parsed.port
+    except ValueError as exc:
+        raise ValueError(f"Invalid MQTT broker port: {exc}") from exc
+    if not parsed.hostname or not port:
+        raise ValueError("Network MQTT broker URL must contain a host and a non-zero port")
+    return broker_url
 
 
 def get_controller_url(base_url: str) -> str:

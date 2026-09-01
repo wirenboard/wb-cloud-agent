@@ -3,3 +3,4 @@ wb-cloud-agent.conf /etc/
 19wb-cloud-agent /etc/wb-configs.d/
 check-certs.sh /usr/lib/wb-cloud-agent/
 metrics_collector.py.tpl /usr/lib/wb-cloud-agent/
+wb/cloud_agent/wb-cloud-agent.schema.json /usr/share/wb-mqtt-confed/schemas/

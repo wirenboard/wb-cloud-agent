@@ -1,3 +1,4 @@
+import threading
 from unittest.mock import MagicMock, patch
 
 import requests
@@ -56,3 +57,19 @@ def test_wait_for_cloud_custom_period():
         wait_for_cloud_reachable("http://localhost", interval=10)
 
         mock_sleep.assert_called_once_with(10)
+
+
+def test_wait_for_cloud_stops_between_retries():
+    stop_requested = threading.Event()
+
+    with patch("requests.head", return_value=MagicMock(status_code=503)):
+        stop_requested.set()
+
+        result = wait_for_cloud_reachable(
+            "https://cloud",
+            interval=10,
+            max_retries=None,
+            stop_requested=stop_requested,
+        )
+
+    assert result is False

@@ -1,0 +1,53 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Wiren Board Cloud Agent",
+  "type": "object",
+  "configFile": {
+    "path": "/etc/wb-cloud-agent.conf",
+    "hide": true
+  },
+  "properties": {
+    "LOG_LEVEL": {
+      "type": "string",
+      "enum": ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+      "default": "INFO"
+    },
+    "CLIENT_CERT_ENGINE_KEY": {
+      "type": "string",
+      "minLength": 1,
+      "default": "ATECCx08:00:02:C0:00"
+    },
+    "CLIENT_CERT_FILE": {
+      "type": "string",
+      "minLength": 1
+    },
+    "CLOUD_BASE_URL": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https?://",
+      "default": "https://wirenboard.cloud/"
+    },
+    "BROKER_URL": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(unix|mqtt-tcp|tcp|ws)://"
+    },
+    "REQUEST_PERIOD_SECONDS": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "PING_PERIOD_SECONDS": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "METRICS_LOG_ENABLED": {
+      "type": "boolean"
+    }
+  },
+  "required": ["CLOUD_BASE_URL"],
+  "additionalProperties": false,
+  "options": {
+    "disable_edit_json": true,
+    "disable_properties": true
+  }
+}
