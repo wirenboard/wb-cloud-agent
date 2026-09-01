@@ -143,6 +143,7 @@ def _retry_cloud_startup(settings, mqtt, stop_requested: threading.Event) -> Opt
 def _initialize_cloud_agent(settings, mqtt, stop_requested: threading.Event) -> Optional[int]:
     mqtt.update_providers_list()
     mqtt.publish_vdev()
+    mqtt.publish_ctrl("activation_link", read_activation_link(settings))
     mqtt.publish_ctrl("cloud_base_url", settings.cloud_base_url)
     mqtt.publish_ctrl("status", "connecting")
 
@@ -158,7 +159,6 @@ def _initialize_cloud_agent(settings, mqtt, stop_requested: threading.Event) -> 
     if startup_exit_code is not None:
         return startup_exit_code
 
-    mqtt.publish_ctrl("activation_link", read_activation_link(settings))
     reconcile_metrics_script(settings)
     logging.info("Cloud Agent initialization - OK")
     return None

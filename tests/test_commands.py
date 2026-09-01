@@ -462,6 +462,29 @@ def test_run_daemon_graceful_stop_cleans_mqtt(mock_mqtt_cloud_agent):
     mock_mqtt_cloud_agent.stop.assert_called_once_with()
 
 
+def test_run_daemon_publishes_cached_state_before_waiting_for_cloud(mock_mqtt_cloud_agent):
+    options = Namespace(provider_name="test", broker=None, config="/tmp/test.conf")
+
+    with (
+        patch("wb.cloud_agent.commands.configure_app") as mock_config,
+        patch("wb.cloud_agent.commands.wait_for_cloud_reachable", return_value=False),
+        patch("wb.cloud_agent.commands.read_activation_link", return_value="cached-link"),
+    ):
+        mock_settings = MagicMock()
+        mock_settings.broker_url = "tcp://localhost:1883"
+        mock_settings.cloud_base_url = "https://example.com"
+        mock_settings.ping_period_seconds = 1
+        mock_config.return_value = mock_settings
+
+        assert run_daemon(options) == 7
+
+    mock_mqtt_cloud_agent.publish_vdev.assert_called_once_with()
+    mock_mqtt_cloud_agent.publish_ctrl.assert_any_call("activation_link", "cached-link")
+    mock_mqtt_cloud_agent.publish_ctrl.assert_any_call("cloud_base_url", "https://example.com")
+    mock_mqtt_cloud_agent.publish_ctrl.assert_any_call("status", "connecting")
+    mock_mqtt_cloud_agent.remove_vdev.assert_called_once_with()
+
+
 def test_run_daemon_mqtt_auth_failure_returns_two(mock_mqtt_cloud_agent):
     options = Namespace(provider_name="test", broker=None, config=None)
     mock_mqtt_cloud_agent.wait_for_connection.return_value = 2
