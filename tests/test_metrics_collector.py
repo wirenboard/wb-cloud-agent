@@ -10,9 +10,17 @@ from tests import CLOUD_VARS
 from wb.cloud_agent.services.metrics import render_metrics_script
 
 
+def _find_source_file(relative_path: str) -> Path:
+    for parent in Path(__file__).resolve().parents:
+        candidate = parent / relative_path
+        if candidate.is_file():
+            return candidate
+    raise FileNotFoundError(f"Source file not found: {relative_path}")
+
+
 @pytest.fixture
 def collector(cloud_vars_settings):  # pylint: disable=redefined-outer-name
-    template_path = Path(__file__).resolve().parents[1] / "metrics_collector.py.tpl"
+    template_path = _find_source_file("metrics_collector.py.tpl")
     conf = {
         "vars": CLOUD_VARS,
         "mqtt_client_id": "wb-cloud-agent-metrics-test",
@@ -114,9 +122,9 @@ def test_unknown_argument_exits_with_2(collector):
 
 
 def test_metrics_unit_uses_controller_exit_policy():
-    unit = (
-        Path(__file__).resolve().parents[1] / "debian" / "wb-cloud-agent.wb-cloud-agent-metrics@.service"
-    ).read_text(encoding="utf-8")
+    unit = _find_source_file("debian/wb-cloud-agent.wb-cloud-agent-metrics@.service").read_text(
+        encoding="utf-8"
+    )
 
     assert "Restart=on-failure" in unit
     assert "RestartPreventExitStatus=2 6" in unit
