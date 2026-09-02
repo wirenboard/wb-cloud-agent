@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from tests import CLOUD_VARS
 from wb.cloud_agent.constants import UNKNOWN_LINK
 from wb.cloud_agent.services.activation import (
     read_activation_link,
@@ -106,29 +107,6 @@ def test_update_metrics_config_ignores_cloud_delivered_script(cloud_vars_setting
         update_metrics_config(settings, payload, MagicMock())
 
     assert not settings.metrics_script.exists()
-
-
-CLOUD_VARS = {
-    "metrics_url": "https://metrics.example.com/write",
-    "measurement_name": "wb_mqtt",
-    "interval_seconds": 120,
-    "rpc_timeout_seconds": 55,
-    "get_channels_rpc_timeout_seconds": 60,
-    "max_records": 1000,
-    "channel_batch_size": 500,
-    "channels_refresh_interval_seconds": 3600,
-    "catch_up_batch_sleep_seconds": 0.5,
-    "static_refresh_interval": 240,
-    "catch_up_max_records": 10000,
-    "catch_up_sleep_seconds": 4,
-    "curl_connect_timeout_seconds": 10,
-    "curl_max_time_seconds": 30,
-    "send_batch_size": 1000,
-    "max_request_bytes": 500000,
-    "send_max_retries": 3,
-    "send_rate_limit_retry_delay_seconds": 60,
-    "static_retained_topics": "/devices/system/controls/Short SN|/devices/metrics/controls/ram_total",
-}
 
 
 @pytest.mark.usefixtures("metrics_template")
