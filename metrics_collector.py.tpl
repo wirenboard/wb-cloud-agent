@@ -20,12 +20,15 @@ ILP row format::
 
 from __future__ import annotations
 
+import argparse
 import functools
 import gzip
 import logging
 import re
+import signal
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import Any, Callable
@@ -45,8 +48,16 @@ except ImportError:  # pragma: no cover - dependencies are installed on controll
 
 
 # ── Identity ──────────────────────────────────────────────────────────────────────────────
-VERSION = "1.0.10"
+VERSION = "1.0.11"
 CREATED_AT = "$created_at"
+
+EXIT_FAILURE = 1
+EXIT_INVALID_ARGUMENT = 2
+EXIT_INVALID_CONFIG = 6
+EXIT_STOPPED = 7
+MQTT_AUTH_ERROR_CODES = (4, 5, 134, 135)
+
+_STOP_REQUESTED = threading.Event()
 
 # ── Connection / authentication ───────────────────────────────────────────────────────────
 BROKER_URL = "$mqtt_broker_url"
@@ -113,6 +124,81 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s wb-cloud-metrics: %(message)s",
 )
 logger = logging.getLogger(__name__)
+
+
+class CollectorExit(RuntimeError):
+    """Request a controlled collector exit with a systemd-facing status code."""
+
+    def __init__(self, exit_code: int):
+        super().__init__(exit_code)
+        self.exit_code = exit_code
+
+
+class MQTTConnectionState:
+    """Share MQTT connection results between Paho callbacks and the main thread."""
+
+    def __init__(self) -> None:
+        self._condition = threading.Condition()
+        self._connected = False
+        self._fatal_exit_code: int | None = None
+        self._connect_failure_reported = False
+
+    def on_connect(self, _client: Any, _userdata: Any, _flags: Any, reason_code: Any, *_args: Any) -> None:
+        """Record a successful CONNACK or map a broker rejection to an exit code."""
+        code = int(getattr(reason_code, "value", reason_code))
+        with self._condition:
+            if code == 0:
+                self._connected = True
+                self._connect_failure_reported = False
+            else:
+                self._connected = False
+                self._fatal_exit_code = (
+                    EXIT_INVALID_ARGUMENT if code in MQTT_AUTH_ERROR_CODES else EXIT_FAILURE
+                )
+                logger.error("MQTT broker rejected connection (CONNACK code %s)", code)
+            self._condition.notify_all()
+
+    def on_connect_fail(self, _client: Any, _userdata: Any) -> None:
+        """Report an unavailable broker once without exposing credentials from its URL."""
+        with self._condition:
+            if not self._connect_failure_reported:
+                logger.warning("MQTT broker is unavailable, waiting for it")
+                self._connect_failure_reported = True
+
+    def on_disconnect(self, _client: Any, _userdata: Any, _reason_code: Any, *_args: Any) -> None:
+        """Record connection loss; Paho will keep reconnecting in the same process."""
+        with self._condition:
+            self._connected = False
+            self._condition.notify_all()
+
+    def wait_for_connection(self) -> int | None:
+        """Wait for CONNACK, a fatal rejection, or a service stop request."""
+        with self._condition:
+            while not self._connected and self._fatal_exit_code is None:
+                if _STOP_REQUESTED.is_set():
+                    return EXIT_STOPPED
+                self._condition.wait(0.1)
+            return self._fatal_exit_code
+
+    def wait_for_exit(self, timeout: float) -> int | None:
+        """Wait up to timeout for a fatal CONNACK or a service stop request."""
+        deadline = time.monotonic() + timeout
+        with self._condition:
+            while self._fatal_exit_code is None:
+                if _STOP_REQUESTED.is_set():
+                    return EXIT_STOPPED
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return None
+                self._condition.wait(min(remaining, 0.1))
+            return self._fatal_exit_code
+
+    def requested_exit_code(self) -> int | None:
+        """Return the currently requested controlled exit, if any."""
+        with self._condition:
+            if self._fatal_exit_code is not None:
+                return self._fatal_exit_code
+        return EXIT_STOPPED if _STOP_REQUESTED.is_set() else None
 
 
 # Characters that must be escaped in ILP tag values and field string values.
@@ -303,16 +389,28 @@ def find_start_uid(rpc: Any, channels: list[dict[str, Any]]) -> int:
     return 0
 
 
-def connect_mqtt() -> Any:
+def connect_mqtt() -> tuple[Any, MQTTConnectionState]:
     """Connect to local MQTT broker used by wb-mqtt-db RPC."""
     if MQTTClient is None:
         raise RuntimeError("python3-wb-common is not installed")
 
-    logger.info("Connecting to MQTT broker %s (client_id_prefix=%s)", BROKER_URL, CLIENT_ID)
+    logger.info("Connecting to MQTT broker (client_id_prefix=%s)", CLIENT_ID)
+    state = MQTTConnectionState()
     client = MQTTClient(CLIENT_ID, BROKER_URL)
-    client.start()
+    client.on_connect = state.on_connect
+    client.on_connect_fail = state.on_connect_fail
+    client.on_disconnect = state.on_disconnect
+    try:
+        client.start()
+        exit_code = state.wait_for_connection()
+    except Exception:
+        stop_mqtt_client(client)
+        raise
+    if exit_code is not None:
+        stop_mqtt_client(client, report_unavailable=exit_code == EXIT_STOPPED)
+        raise CollectorExit(exit_code)
     logger.info("MQTT broker connected")
-    return client
+    return client, state
 
 
 def create_rpc_client(mqtt_client: Any) -> Any:
@@ -325,26 +423,32 @@ def create_rpc_client(mqtt_client: Any) -> Any:
     return rpc
 
 
-def connect_mqtt_rpc() -> tuple[Any, Any]:
+def connect_mqtt_rpc() -> tuple[Any, Any, MQTTConnectionState]:
     """Connect to MQTT broker and create a matching MQTT-RPC client."""
-    mqtt_client = connect_mqtt()
-    return mqtt_client, create_rpc_client(mqtt_client)
+    mqtt_client, state = connect_mqtt()
+    return mqtt_client, create_rpc_client(mqtt_client), state
 
 
-def stop_mqtt_client(mqtt_client: Any) -> None:
+def stop_mqtt_client(mqtt_client: Any, report_unavailable: bool = False) -> None:
     """Stop MQTT client and keep shutdown/reconnect cleanup best-effort."""
+    if report_unavailable:
+        try:
+            if not mqtt_client.is_connected():
+                logger.error("MQTT broker is unavailable during shutdown")
+        except Exception as exc:  # pylint: disable=broad-except
+            logger.warning("Cannot determine MQTT connection state during shutdown: %s", exc)
     try:
         mqtt_client.stop()
     except Exception as exc:  # pylint: disable=broad-except
         logger.warning("Cannot stop MQTT client: %s", exc)
 
 
-def reconnect_mqtt_rpc(mqtt_client: Any) -> tuple[Any, Any]:
+def reconnect_mqtt_rpc(mqtt_client: Any) -> tuple[Any, Any, MQTTConnectionState]:
     """Recreate MQTT and MQTT-RPC clients after a failed collector iteration."""
     stop_mqtt_client(mqtt_client)
-    mqtt_client, rpc = connect_mqtt_rpc()
+    mqtt_client, rpc, state = connect_mqtt_rpc()
     logger.info("MQTT/RPC client reconnected after metrics iteration failure")
-    return mqtt_client, rpc
+    return mqtt_client, rpc, state
 
 
 @log_duration("wb-mqtt-db get_channels RPC")
@@ -418,7 +522,7 @@ def get_static_values_from_mqtt(mqtt_client: Any) -> list[dict[str, Any]]:
 
     # Retained messages are delivered immediately after subscribe on a local broker;
     # 0.5 s is enough for the async network thread to process all incoming messages.
-    time.sleep(0.5)
+    _sleep(0.5)
 
     for topic in topics:
         mqtt_client.message_callback_remove(topic)
@@ -459,7 +563,7 @@ def get_values(
     has_more = False
     for i, channel_batch in enumerate(channel_batches, 1):
         if i > 1 and inter_batch_sleep > 0:
-            time.sleep(inter_batch_sleep)
+            _sleep(inter_batch_sleep)
         logger.info(
             "wb-mqtt-db get_values RPC call %d/%d: channels=%d uid>%d limit=%d",
             i,
@@ -613,7 +717,7 @@ def send_lines(lines: list[str]) -> None:
                 attempt + 1,
                 SEND_MAX_RETRIES,
             )
-            time.sleep(SEND_RATE_LIMIT_RETRY_DELAY_SECONDS)
+            _sleep(SEND_RATE_LIMIT_RETRY_DELAY_SECONDS)
             continue
         raise RuntimeError(f"HTTP {http_code} error while sending metrics to {METRICS_URL}")
 
@@ -787,11 +891,13 @@ def _wait_until_service_active() -> bool:
         WB_MQTT_DB_SERVICE_NAME,
         state,
     )
-    time.sleep(INTERVAL_SECONDS)
+    _sleep(INTERVAL_SECONDS)
     return False
 
 
-def _handle_rpc_timeout(mqtt_client: Any, rpc: Any) -> tuple[Any, Any, bool]:
+def _handle_rpc_timeout(
+    mqtt_client: Any, rpc: Any, mqtt_state: MQTTConnectionState
+) -> tuple[Any, Any, MQTTConnectionState, bool]:
     """Decide what to do after MQTTRPCTimeoutError; return updated (mqtt_client, rpc, skip).
 
     Three outcomes:
@@ -799,10 +905,14 @@ def _handle_rpc_timeout(mqtt_client: Any, rpc: Any) -> tuple[Any, Any, bool]:
     - Broker OK, systemd says service is non-active → enter skip-mode (caller stops RPCs).
     - Broker OK, systemd says service is active (or systemctl unavailable) → just log.
     """
+    exit_code = mqtt_state.requested_exit_code()
+    if exit_code is not None:
+        raise CollectorExit(exit_code)
+
     if not mqtt_client.is_connected():
         logger.error("wb-mqtt-db RPC timed out and MQTT broker connection is down — reconnecting")
-        mqtt_client, rpc = reconnect_mqtt_rpc(mqtt_client)
-        return mqtt_client, rpc, False
+        mqtt_client, rpc, mqtt_state = reconnect_mqtt_rpc(mqtt_client)
+        return mqtt_client, rpc, mqtt_state, False
 
     state = get_service_state(WB_MQTT_DB_SERVICE_NAME)
     if state is not None and state != "active":
@@ -812,24 +922,36 @@ def _handle_rpc_timeout(mqtt_client: Any, rpc: Any) -> tuple[Any, Any, bool]:
             WB_MQTT_DB_SERVICE_NAME,
             state,
         )
-        return mqtt_client, rpc, True
+        return mqtt_client, rpc, mqtt_state, True
 
     logger.error(
         "wb-mqtt-db RPC timed out: wb-mqtt-db service is slow or not responding. "
         "Broker still connected - retrying next cycle."
     )
-    return mqtt_client, rpc, False
+    return mqtt_client, rpc, mqtt_state, False
 
 
-def run_forever() -> None:
-    """Run collector loop forever; systemd restarts the process after fatal exits."""
+def _sleep(seconds: float) -> None:
+    """Sleep until the timeout expires or a service stop is requested."""
+    if _STOP_REQUESTED.wait(seconds):
+        raise CollectorExit(EXIT_STOPPED)
+
+
+def run_forever() -> int:
+    """Run collector loop until a controlled exit; systemd handles fatal exits."""
     catch_up = False
     # Once we've confirmed wb-mqtt-db is DOWN on the controller we stop attempting RPC
     # entirely — each cycle we just probe systemd until the service comes back.
     skip_until_active = False
-    mqtt_client, rpc = connect_mqtt_rpc()
+    mqtt_client = None
+    exit_code = EXIT_FAILURE
     try:
+        mqtt_client, rpc, mqtt_state = connect_mqtt_rpc()
         while True:
+            requested_exit = mqtt_state.requested_exit_code()
+            if requested_exit is not None:
+                raise CollectorExit(requested_exit)
+
             if skip_until_active:
                 if _wait_until_service_active():
                     skip_until_active = False
@@ -841,32 +963,55 @@ def run_forever() -> None:
                 catch_up = collect_once(rpc, mqtt_client, catch_up)
             except MQTTRPCTimeoutError:
                 catch_up = False
-                mqtt_client, rpc, skip_until_active = _handle_rpc_timeout(mqtt_client, rpc)
+                mqtt_client, rpc, mqtt_state, skip_until_active = _handle_rpc_timeout(
+                    mqtt_client, rpc, mqtt_state
+                )
+            except CollectorExit:
+                raise
             except Exception as exc:  # pylint: disable=broad-except
                 catch_up = False
                 logger.exception("Metrics iteration failed: %s", exc)
-                mqtt_client, rpc = reconnect_mqtt_rpc(mqtt_client)
+                mqtt_client, rpc, mqtt_state = reconnect_mqtt_rpc(mqtt_client)
 
             sleep_seconds = CATCH_UP_SLEEP_SECONDS if catch_up else INTERVAL_SECONDS
             logger.debug("Sleeping %ds before next iteration", sleep_seconds)
-            time.sleep(sleep_seconds)
+            requested_exit = mqtt_state.wait_for_exit(sleep_seconds)
+            if requested_exit is not None:
+                raise CollectorExit(requested_exit)
+    except CollectorExit as exc:
+        exit_code = exc.exit_code
+        return exit_code
     finally:
-        stop_mqtt_client(mqtt_client)
+        if mqtt_client is not None:
+            stop_mqtt_client(mqtt_client, report_unavailable=exit_code == EXIT_STOPPED)
 
 
-def main() -> None:
+def _handle_stop_signal(signum: int, _frame: Any) -> None:
+    if not _STOP_REQUESTED.is_set():
+        logger.info("Got signal %s, stopping metrics collector", signal.Signals(signum).name)
+    _STOP_REQUESTED.set()
+
+
+def main(argv: list[str] | None = None) -> int:
     """Entrypoint for the systemd metrics collector service."""
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.parse_args(argv)
+    _STOP_REQUESTED.clear()
+    previous_handlers = {
+        signum: signal.signal(signum, _handle_stop_signal) for signum in (signal.SIGTERM, signal.SIGINT)
+    }
     logger.info("Starting metrics collector version=%s created_at=%s", VERSION, CREATED_AT)
     if not Path(CERT_FILE).exists():
         logger.warning(
             "Certificate file not found: %s — curl will fail until the agent provisions it",
             CERT_FILE,
         )
-    run_forever()
+    try:
+        return run_forever()
+    finally:
+        for signum, handler in previous_handlers.items():
+            signal.signal(signum, handler)
 
 
 if __name__ == "__main__":
-    try:
-        main()
-    except KeyboardInterrupt:
-        sys.exit(0)
+    sys.exit(main())

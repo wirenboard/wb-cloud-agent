@@ -1,6 +1,6 @@
 wb-cloud-agent (1.8.3) stable; urgency=medium
 
-  * Align cloud agent lifecycle with controller service requirements
+  * Align cloud agent and metrics collector lifecycle with controller service requirements
 
  -- Wiren Board Team <info@wirenboard.com>  Tue, 01 Sep 2026 20:00:00 +0000
 
