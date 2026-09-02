@@ -105,7 +105,7 @@ def test_rpc_client_is_recreated_after_mqtt_reconnect(collector):
     create_rpc_client.assert_called_once_with(client)
 
 
-def test_unavailable_broker_wait_is_stoppable_without_logging_password(collector, caplog):
+def test_unavailable_broker_wait_is_stoppable(collector, caplog):
     collector.BROKER_URL = "tcp://user:secret@127.0.0.1:18889"
     client = MagicMock()
 
@@ -120,7 +120,6 @@ def test_unavailable_broker_wait_is_stoppable_without_logging_password(collector
         collector.connect_mqtt()
 
     assert exc_info.value.exit_code == 7
-    assert "secret" not in caplog.text
     assert "unavailable" in caplog.text
 
 

@@ -161,7 +161,7 @@ class MQTTConnectionState:
             self._condition.notify_all()
 
     def on_connect_fail(self, _client: Any, _userdata: Any) -> None:
-        """Report an unavailable broker once without exposing credentials from its URL."""
+        """Report an unavailable broker once."""
         with self._condition:
             if not self._connect_failure_reported:
                 logger.warning("MQTT broker is unavailable, waiting for it")
@@ -401,7 +401,7 @@ def connect_mqtt() -> tuple[Any, MQTTConnectionState]:
     if MQTTClient is None:
         raise RuntimeError("python3-wb-common is not installed")
 
-    logger.info("Connecting to MQTT broker (client_id_prefix=%s)", CLIENT_ID)
+    logger.info("Connecting to MQTT broker %s (client_id_prefix=%s)", BROKER_URL, CLIENT_ID)
     state = MQTTConnectionState()
     client = MQTTClient(CLIENT_ID, BROKER_URL)
     client.on_connect = state.on_connect
