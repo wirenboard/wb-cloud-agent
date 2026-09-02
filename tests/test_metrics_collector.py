@@ -5,6 +5,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+
 from wb.cloud_agent.services.metrics import render_metrics_script
 
 COLLECTOR_VARS = {
