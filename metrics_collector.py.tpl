@@ -48,7 +48,7 @@ except ImportError:  # pragma: no cover - dependencies are installed on controll
 
 
 # ── Identity ──────────────────────────────────────────────────────────────────────────────
-VERSION = "1.0.11"
+VERSION = "1.0.12"
 CREATED_AT = "$created_at"
 
 EXIT_FAILURE = 1
@@ -142,6 +142,7 @@ class MQTTConnectionState:
         self._connected = False
         self._fatal_exit_code: int | None = None
         self._connect_failure_reported = False
+        self._connection_generation = 0
 
     def on_connect(self, _client: Any, _userdata: Any, _flags: Any, reason_code: Any, *_args: Any) -> None:
         """Record a successful CONNACK or map a broker rejection to an exit code."""
@@ -150,6 +151,7 @@ class MQTTConnectionState:
             if code == 0:
                 self._connected = True
                 self._connect_failure_reported = False
+                self._connection_generation += 1
             else:
                 self._connected = False
                 self._fatal_exit_code = (
@@ -199,6 +201,11 @@ class MQTTConnectionState:
             if self._fatal_exit_code is not None:
                 return self._fatal_exit_code
         return EXIT_STOPPED if _STOP_REQUESTED.is_set() else None
+
+    def connection_generation(self) -> int:
+        """Return the count of successful broker connections for this client."""
+        with self._condition:
+            return self._connection_generation
 
 
 # Characters that must be escaped in ILP tag values and field string values.
@@ -421,6 +428,21 @@ def create_rpc_client(mqtt_client: Any) -> Any:
     rpc = TMQTTRPCClient(mqtt_client)
     mqtt_client.on_message = rpc.on_mqtt_message
     return rpc
+
+
+def refresh_rpc_client_after_reconnect(
+    mqtt_client: Any,
+    rpc: Any,
+    mqtt_state: MQTTConnectionState,
+    rpc_connection_generation: int,
+) -> tuple[Any, int]:
+    """Recreate the RPC client after Paho reconnects and loses its reply subscriptions."""
+    current_generation = mqtt_state.connection_generation()
+    if current_generation == rpc_connection_generation:
+        return rpc, rpc_connection_generation
+
+    logger.info("MQTT broker connection restored; recreating MQTT-RPC client subscriptions")
+    return create_rpc_client(mqtt_client), current_generation
 
 
 def connect_mqtt_rpc() -> tuple[Any, Any, MQTTConnectionState]:
@@ -947,10 +969,18 @@ def run_forever() -> int:
     exit_code = EXIT_FAILURE
     try:
         mqtt_client, rpc, mqtt_state = connect_mqtt_rpc()
+        rpc_connection_generation = mqtt_state.connection_generation()
         while True:
             requested_exit = mqtt_state.requested_exit_code()
             if requested_exit is not None:
                 raise CollectorExit(requested_exit)
+
+            rpc, rpc_connection_generation = refresh_rpc_client_after_reconnect(
+                mqtt_client,
+                rpc,
+                mqtt_state,
+                rpc_connection_generation,
+            )
 
             if skip_until_active:
                 if _wait_until_service_active():
@@ -963,15 +993,19 @@ def run_forever() -> int:
                 catch_up = collect_once(rpc, mqtt_client, catch_up)
             except MQTTRPCTimeoutError:
                 catch_up = False
+                previous_mqtt_state = mqtt_state
                 mqtt_client, rpc, mqtt_state, skip_until_active = _handle_rpc_timeout(
                     mqtt_client, rpc, mqtt_state
                 )
+                if mqtt_state is not previous_mqtt_state:
+                    rpc_connection_generation = mqtt_state.connection_generation()
             except CollectorExit:
                 raise
             except Exception as exc:  # pylint: disable=broad-except
                 catch_up = False
                 logger.exception("Metrics iteration failed: %s", exc)
                 mqtt_client, rpc, mqtt_state = reconnect_mqtt_rpc(mqtt_client)
+                rpc_connection_generation = mqtt_state.connection_generation()
 
             sleep_seconds = CATCH_UP_SLEEP_SECONDS if catch_up else INTERVAL_SECONDS
             logger.debug("Sleeping %ds before next iteration", sleep_seconds)

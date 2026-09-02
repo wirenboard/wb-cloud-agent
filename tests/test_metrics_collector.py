@@ -78,6 +78,33 @@ def test_connect_mqtt_maps_auth_failure_to_exit_2(collector):
     client.stop.assert_called_once_with()
 
 
+def test_rpc_client_is_recreated_after_mqtt_reconnect(collector):
+    client = MagicMock()
+    old_rpc = MagicMock()
+    new_rpc = MagicMock()
+    state = collector.MQTTConnectionState()
+    state.on_connect(None, None, None, 0)
+    initial_generation = state.connection_generation()
+
+    unchanged_rpc, unchanged_generation = collector.refresh_rpc_client_after_reconnect(
+        client, old_rpc, state, initial_generation
+    )
+
+    assert unchanged_rpc is old_rpc
+    assert unchanged_generation == initial_generation
+
+    state.on_disconnect(None, None, 1)
+    state.on_connect(None, None, None, 0)
+    with patch.object(collector, "create_rpc_client", return_value=new_rpc) as create_rpc_client:
+        refreshed_rpc, refreshed_generation = collector.refresh_rpc_client_after_reconnect(
+            client, old_rpc, state, initial_generation
+        )
+
+    assert refreshed_rpc is new_rpc
+    assert refreshed_generation == initial_generation + 1
+    create_rpc_client.assert_called_once_with(client)
+
+
 def test_unavailable_broker_wait_is_stoppable_without_logging_password(collector, caplog):
     collector.BROKER_URL = "tcp://user:secret@127.0.0.1:18889"
     client = MagicMock()
