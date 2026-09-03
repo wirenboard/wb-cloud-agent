@@ -63,12 +63,21 @@ def test_on_connect_successful(mqtt_cloud_agent):
     mqtt_cloud_agent.client.subscribe.assert_called_once_with("/devices/system/controls/HW Revision", qos=2)
 
 
-def test_on_connect_failure(mqtt_cloud_agent):
-    mqtt_cloud_agent._on_connect(None, None, None, 1)
+@pytest.mark.parametrize("reason_code", [1, 2, 3])
+def test_on_connect_failure_is_retried_and_republished(mqtt_cloud_agent, reason_code):
+    with patch.object(mqtt_cloud_agent, "publish_vdev") as publish_vdev:
+        mqtt_cloud_agent._on_connect(None, None, None, reason_code)
 
-    mqtt_cloud_agent.client.subscribe.assert_not_called()
-    mqtt_cloud_agent.client.disconnect.assert_called_once_with()
-    assert mqtt_cloud_agent.fatal_exit_code == 1
+        mqtt_cloud_agent.client.subscribe.assert_not_called()
+        mqtt_cloud_agent.client.disconnect.assert_not_called()
+        assert mqtt_cloud_agent.fatal_exit_code is None
+        assert mqtt_cloud_agent.was_disconnected is True
+
+        mqtt_cloud_agent._on_connect(None, None, None, 0)
+
+    publish_vdev.assert_called_once_with()
+    mqtt_cloud_agent.client.subscribe.assert_called_once_with("/devices/system/controls/HW Revision", qos=2)
+    assert mqtt_cloud_agent.was_disconnected is False
 
 
 @pytest.mark.parametrize("reason_code", [4, 5, 134, 135])

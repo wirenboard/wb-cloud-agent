@@ -145,19 +145,22 @@ class MQTTConnectionState:
         self._connection_generation = 0
 
     def on_connect(self, _client: Any, _userdata: Any, _flags: Any, reason_code: Any, *_args: Any) -> None:
-        """Record a successful CONNACK or map a broker rejection to an exit code."""
+        """
+        Record a successful CONNACK, retry transient rejections, and fail authentication errors.
+        """
         code = int(getattr(reason_code, "value", reason_code))
         with self._condition:
             if code == 0:
                 self._connected = True
                 self._connect_failure_reported = False
                 self._connection_generation += 1
+            elif code in MQTT_AUTH_ERROR_CODES:
+                self._connected = False
+                self._fatal_exit_code = EXIT_INVALID_ARGUMENT
+                logger.error("MQTT authentication failed (CONNACK code %s)", code)
             else:
                 self._connected = False
-                self._fatal_exit_code = (
-                    EXIT_INVALID_ARGUMENT if code in MQTT_AUTH_ERROR_CODES else EXIT_FAILURE
-                )
-                logger.error("MQTT broker rejected connection (CONNACK code %s)", code)
+                logger.error("MQTT broker rejected connection (CONNACK code %s), waiting for retry", code)
             self._condition.notify_all()
 
     def on_connect_fail(self, _client: Any, _userdata: Any) -> None:

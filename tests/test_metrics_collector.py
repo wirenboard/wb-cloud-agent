@@ -36,22 +36,29 @@ def collector(cloud_vars_settings):  # pylint: disable=redefined-outer-name
 
 
 @pytest.mark.parametrize(
-    ("reason_code", "exit_code"),
-    [
-        (4, 2),
-        (5, 2),
-        (134, 2),
-        (135, 2),
-        (1, 1),
-        (3, 1),
-    ],
+    "reason_code",
+    [4, 5, 134, 135],
 )
-def test_mqtt_connack_failure_exit_codes(collector, reason_code, exit_code):
+def test_mqtt_auth_connack_returns_2(collector, reason_code):
     state = collector.MQTTConnectionState()
 
     state.on_connect(None, None, None, reason_code)
 
-    assert state.wait_for_connection() == exit_code
+    assert state.wait_for_connection() == 2
+
+
+@pytest.mark.parametrize("reason_code", [1, 2, 3])
+def test_other_mqtt_connack_is_retried(collector, reason_code):
+    state = collector.MQTTConnectionState()
+
+    state.on_connect(None, None, None, reason_code)
+
+    assert state.requested_exit_code() is None
+
+    state.on_connect(None, None, None, 0)
+
+    assert state.wait_for_connection() is None
+    assert state.connection_generation() == 1
 
 
 def test_connect_mqtt_waits_for_successful_connack(collector):

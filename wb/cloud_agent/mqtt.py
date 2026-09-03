@@ -49,15 +49,15 @@ class MQTTCloudAgent:
         code = getattr(reason_code, "value", reason_code)
         if code != 0:
             self._connection.connected.clear()
-            self._connection.fatal_exit_code = (
-                EXIT_INVALID_ARGUMENT if code in MQTT_AUTH_ERROR_CODES else EXIT_FAILURE
-            )
-            self._connection.fatal_error.set()
-            if self._connection.fatal_exit_code == EXIT_INVALID_ARGUMENT:
+            if code in MQTT_AUTH_ERROR_CODES:
+                self._connection.fatal_exit_code = EXIT_INVALID_ARGUMENT
+                self._connection.fatal_error.set()
                 logging.error("MQTT authentication failed (reason code %s)", code)
-            else:
-                logging.error("MQTT connection rejected (reason code %s)", code)
-            self.client.disconnect()
+                self.client.disconnect()
+                return
+
+            self._connection.was_disconnected = True
+            logging.error("MQTT connection rejected (reason code %s), waiting for retry", code)
             return
 
         if self._connection.connect_error_reported:
