@@ -1,4 +1,5 @@
 import json
+import logging
 import sys
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -14,6 +15,16 @@ PACKAGED_DEFAULT = {"LOG_LEVEL": "INFO", "CLIENT_CERT_ENGINE_KEY": "ATECCx08:00:
 @pytest.fixture
 def settings():
     return AppSettings(provider_name="default")
+
+
+@pytest.fixture(autouse=True)
+def _restore_root_logger():
+    """Undo the global logging.basicConfig(force=True) that setup_log runs in the tested code."""
+    root = logging.getLogger()
+    handlers, level = root.handlers[:], root.level
+    yield
+    root.handlers[:] = handlers
+    root.setLevel(level)
 
 
 @pytest.fixture(autouse=True)
