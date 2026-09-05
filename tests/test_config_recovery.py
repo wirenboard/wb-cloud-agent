@@ -106,6 +106,15 @@ def test_unreadable_config_is_reported_not_rebuilt(cloud_dirs):
     assert "cannot be read" in settings.config_error
 
 
+def test_config_that_cannot_be_rewritten_is_reported_not_raised(cloud_dirs):
+    write_config(cloud_dirs, "wirenboard.cloud", "")
+
+    with patch("wb.cloud_agent.settings.write_to_file", side_effect=PermissionError("read-only")):
+        settings = AppSettings(provider_name="wirenboard.cloud", recover_configs=True)
+
+    assert "cannot be rewritten" in settings.config_error
+
+
 def test_config_error_clears_once_the_file_is_restored(cloud_dirs):
     config = write_config(cloud_dirs, "mycloud", "")
     settings = AppSettings(provider_name="mycloud", recover_configs=True)

@@ -190,7 +190,11 @@ def recover_provider_config(provider_name: str, persist: bool, reason: str) -> d
         return recovered
 
     quarantined = quarantine_broken_file(config_path)
-    write_to_file(config_path, json.dumps(recovered, indent=4))
+    try:
+        write_to_file(config_path, json.dumps(recovered, indent=4))
+    except OSError as exc:
+        raise ConfigError(f"{reason} and cannot be rewritten ({exc})") from exc
+
     logging.warning(
         "Config %s %s, rebuilt from the %s%s",
         config_path,
