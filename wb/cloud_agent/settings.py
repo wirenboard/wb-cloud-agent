@@ -164,8 +164,6 @@ def recovery_source(provider_name: str) -> tuple[Optional[dict], str]:
     except ConfigError:
         pass
 
-    # Only a netloc-derived directory name identifies the provider's own cloud; a --name alias
-    # would repoint the controller at a host that does not exist, destroying the real URL.
     if not looks_like_cloud_host(provider_name):
         return None, ""
 
