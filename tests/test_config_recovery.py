@@ -77,6 +77,18 @@ def test_missing_config_rebuilt_from_packaged_default(cloud_dirs):
     assert rebuilt["CLIENT_CERT_ENGINE_KEY"] == PACKAGED_DEFAULT["CLIENT_CERT_ENGINE_KEY"]
 
 
+def test_unparsable_last_good_copy_falls_through_to_the_packaged_default(cloud_dirs):
+    config = write_config(cloud_dirs, "wirenboard.cloud", "")
+    write_last_good(cloud_dirs, "wirenboard.cloud", "{truncated")
+
+    settings = AppSettings(provider_name="wirenboard.cloud", recover_configs=True)
+
+    assert settings.config_error is None
+    assert (
+        json.loads(config.read_text())["CLIENT_CERT_ENGINE_KEY"] == PACKAGED_DEFAULT["CLIENT_CERT_ENGINE_KEY"]
+    )
+
+
 def test_broken_packaged_default_keeps_the_url_from_the_directory_name(cloud_dirs):
     cloud_dirs.default.write_text("", encoding="utf-8")
     config = write_config(cloud_dirs, "cloud-staging.wirenboard.com", "")
