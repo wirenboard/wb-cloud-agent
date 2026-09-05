@@ -6,7 +6,6 @@ import logging
 import subprocess
 from argparse import Namespace
 from itertools import count
-from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -22,36 +21,7 @@ from wb.cloud_agent.commands import (
     wait_for_usable_config,
 )
 from wb.cloud_agent.handlers.curl import CloudNetworkError
-from wb.cloud_agent.mqtt import MQTTCloudAgent
 from wb.cloud_agent.settings import configure_app
-
-
-class FakeMqttClient:
-    """Paho stand-in: a publish reaches the broker only while the network loop thread is alive."""
-
-    def __init__(self):
-        self._thread = None
-        self._loop_running = False
-        self.delivered = []
-
-    def start(self):
-        if self._thread is not None:
-            return
-        self._loop_running = True
-        self._thread = SimpleNamespace(is_alive=lambda: self._loop_running)
-
-    def loop_stop(self):
-        self._thread = None
-
-    def stop_network_loop(self):
-        self._loop_running = False
-
-    def will_set(self, *_args, **_kwargs):
-        pass
-
-    def publish(self, topic, value, retain=False, **_kwargs):
-        if self._thread and self._thread.is_alive():
-            self.delivered.append((topic, value, retain))
 
 
 @pytest.fixture
@@ -66,9 +36,8 @@ def held_settings():
 
 
 @pytest.fixture
-def held_agent(held_settings):
-    with patch("wb.cloud_agent.mqtt.MQTTClient", return_value=FakeMqttClient()):
-        return MQTTCloudAgent(held_settings)
+def held_agent(held_settings, build_mqtt_agent):
+    return build_mqtt_agent(held_settings)
 
 
 @pytest.fixture

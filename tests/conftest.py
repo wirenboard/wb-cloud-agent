@@ -6,10 +6,64 @@ from unittest.mock import patch
 
 import pytest
 
+from wb.cloud_agent.mqtt import MQTTCloudAgent
 from wb.cloud_agent.services import metrics
 from wb.cloud_agent.settings import AppSettings
 
 PACKAGED_DEFAULT = {"LOG_LEVEL": "INFO", "CLIENT_CERT_ENGINE_KEY": "ATECCx08:00:02:C0:00"}
+
+
+class FakeMqttClient:
+    """Paho stand-in: a publish reaches the broker only while the network loop thread is alive."""
+
+    def __init__(self, _client_id_prefix, _broker_url=None, userdata=None):
+        self.userdata = userdata or {}
+        self.on_message = lambda *_args: None
+        self.retained = {}
+        self.delivered = []
+        self._thread = None
+        self._loop_running = False
+
+    def start(self):
+        if self._thread is not None:
+            return
+        self._loop_running = True
+        self._thread = SimpleNamespace(is_alive=lambda: self._loop_running)
+
+    def loop_stop(self):
+        self._thread = None
+
+    def stop_network_loop(self):
+        self._loop_running = False
+
+    def will_set(self, *_args, **_kwargs):
+        pass
+
+    def subscribe(self, topic, **_kwargs):
+        if topic not in self.retained:
+            return
+        try:
+            self.on_message(self, self.userdata, SimpleNamespace(topic=topic, payload=self.retained[topic]))
+        except Exception:  # pylint:disable=broad-exception-caught
+            self._loop_running = False  # paho runs callbacks in the network loop thread
+
+    def unsubscribe(self, _topic, **_kwargs):
+        pass
+
+    def publish(self, topic, value, retain=False, **_kwargs):
+        if self._thread and self._thread.is_alive():
+            self.delivered.append((topic, value, retain))
+
+
+@pytest.fixture
+def build_mqtt_agent():
+    """Build an MQTTCloudAgent whose client is the paho stand-in."""
+
+    def _build(settings, on_message=None):  # pylint: disable=redefined-outer-name
+        with patch("wb.cloud_agent.mqtt.MQTTClient", FakeMqttClient):
+            return MQTTCloudAgent(settings, on_message)
+
+    return _build
 
 
 @pytest.fixture
