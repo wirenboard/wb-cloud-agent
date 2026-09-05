@@ -1,3 +1,4 @@
+import io
 import json
 import logging
 from unittest.mock import MagicMock, patch
@@ -76,12 +77,27 @@ def test_configure_app_survives_an_unrecoverable_config(cloud_dirs):
     assert settings.config_error is not None
 
 
-def test_setup_log_info_level():
-    settings = MagicMock()
-    settings.log_level = "INFO"
+def test_recovery_does_not_silence_the_configured_logging(cloud_dirs):
+    config_dir = cloud_dirs.providers / "mycloud"
+    config_dir.mkdir(parents=True)
+    (config_dir / "wb-cloud-agent.conf").write_text("")
+    last_good = cloud_dirs.data / "mycloud" / "wb-cloud-agent.conf.last-good"
+    last_good.parent.mkdir(parents=True)
+    last_good.write_text(json.dumps({"CLOUD_BASE_URL": "https://mycloud"}))
 
+    log = io.StringIO()
+    with patch("sys.stderr", log):
+        configure_app(provider_name="mycloud", recover_configs=True)
+        logging.info("Cloud Agent initialization - OK")
+
+    assert "WARNING:root:" not in log.getvalue()
+    assert log.getvalue().count("rebuilt from the last known good copy") == 1
+    assert "Cloud Agent initialization - OK" in log.getvalue()
+
+
+def test_setup_log_info_level():
     with patch("logging.basicConfig") as mock_basic_config:
-        setup_log(settings)
+        setup_log("INFO")
 
         mock_basic_config.assert_called_once()
         args = mock_basic_config.call_args
@@ -89,24 +105,18 @@ def test_setup_log_info_level():
 
 
 def test_setup_log_debug_level():
-    settings = MagicMock()
-    settings.log_level = "DEBUG"
-
     with patch("logging.basicConfig") as mock_basic_config:
-        setup_log(settings)
+        setup_log("DEBUG")
 
         args = mock_basic_config.call_args
         assert args[1]["level"] == logging.DEBUG
 
 
 def test_setup_log_invalid_level():
-    settings = MagicMock()
-    settings.log_level = "INVALID_LEVEL"
-
     # getattr with invalid level returns NOTSET which is int, so this won't raise
     # Let's test that it just sets the level to NOTSET
     with patch("logging.basicConfig") as mock_basic_config:
-        setup_log(settings)
+        setup_log("INVALID_LEVEL")
 
         # Should still call basicConfig with NOTSET level
         mock_basic_config.assert_called_once()

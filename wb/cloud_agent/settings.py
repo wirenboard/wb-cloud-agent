@@ -29,6 +29,8 @@ from wb.cloud_agent.utils import (
     write_to_file,
 )
 
+DEFAULT_LOG_LEVEL = "INFO"
+
 
 def provider_config_path(provider_name: str) -> Path:
     return Path(PROVIDERS_CONF_DIR) / provider_name / PROVIDER_CONF_FILE_NAME
@@ -56,7 +58,7 @@ class AppSettings:  # pylint: disable=too-many-instance-attributes disable=too-f
     skip_conf_file: bool = False
     recover_configs: bool = False
 
-    log_level: str = "INFO"
+    log_level: str = DEFAULT_LOG_LEVEL
 
     broker_url: str = DEFAULT_BROKER_URL
 
@@ -124,16 +126,18 @@ class AppSettings:  # pylint: disable=too-many-instance-attributes disable=too-f
 
 
 def configure_app(**kwargs: dict[str, Any]) -> AppSettings:
+    # A config recovery logs from inside AppSettings, which would leave the root logger at WARNING.
+    setup_log(DEFAULT_LOG_LEVEL)
     settings = AppSettings(**kwargs)
-    setup_log(settings)
+    setup_log(settings.log_level)
     return settings
 
 
-def setup_log(settings: AppSettings) -> None:
-    numeric_level = getattr(logging, settings.log_level.upper(), logging.NOTSET)
+def setup_log(log_level: str) -> None:
+    numeric_level = getattr(logging, log_level.upper(), logging.NOTSET)
     if not isinstance(numeric_level, int):
-        raise ValueError(f"Invalid log level: {settings.log_level}")
-    logging.basicConfig(level=numeric_level, encoding="utf-8", format="%(message)s")
+        raise ValueError(f"Invalid log level: {log_level}")
+    logging.basicConfig(level=numeric_level, encoding="utf-8", format="%(message)s", force=True)
 
 
 def generate_provider_config(provider: str, base_url: str) -> None:
