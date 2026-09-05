@@ -126,7 +126,7 @@ class AppSettings:  # pylint: disable=too-many-instance-attributes disable=too-f
 
 
 def configure_app(**kwargs: dict[str, Any]) -> AppSettings:
-    # A config recovery logs from inside AppSettings, which would leave the root logger at WARNING.
+    # Configured first so a recovery WARNING from AppSettings still comes out in the configured format.
     setup_log(DEFAULT_LOG_LEVEL)
     settings = AppSettings(**kwargs)
     setup_log(settings.log_level)

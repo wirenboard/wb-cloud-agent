@@ -37,7 +37,7 @@ class FakeMqttClient:
     def loop_stop(self):
         self._thread = None
 
-    def drop_connection(self):
+    def stop_network_loop(self):
         self._loop_running = False
 
     def will_set(self, *_args, **_kwargs):
@@ -524,7 +524,7 @@ def test_wait_for_usable_config_holds_until_the_config_is_usable():
 def test_wait_for_usable_config_publishes_through_a_stopped_network_loop(held_settings, held_agent):
     held_settings.reload_config.side_effect = lambda: setattr(held_settings, "config_error", None)
     held_agent.start(update_status=True)
-    held_agent.client.drop_connection()
+    held_agent.client.stop_network_loop()
 
     with patch("time.sleep"):
         wait_for_usable_config(held_settings, held_agent)
@@ -532,7 +532,7 @@ def test_wait_for_usable_config_publishes_through_a_stopped_network_loop(held_se
     assert ("/devices/test/controls/status", "Broken configuration", True) in held_agent.client.delivered
 
 
-def test_wait_for_usable_config_survives_a_disconnect(held_settings, held_agent):
+def test_wait_for_usable_config_republishes_after_the_network_loop_stops(held_settings, held_agent):
     cycles = count(1)
 
     def reload_config():
@@ -542,7 +542,7 @@ def test_wait_for_usable_config_survives_a_disconnect(held_settings, held_agent)
     held_settings.reload_config.side_effect = reload_config
     held_agent.start(update_status=True)
 
-    with patch("time.sleep", side_effect=lambda _: held_agent.client.drop_connection()):
+    with patch("time.sleep", side_effect=lambda _: held_agent.client.stop_network_loop()):
         wait_for_usable_config(held_settings, held_agent)
 
     statuses = [value for topic, value, _ in held_agent.client.delivered if topic.endswith("/status")]
