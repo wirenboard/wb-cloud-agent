@@ -549,6 +549,20 @@ def test_wait_for_usable_config_republishes_after_the_network_loop_stops(held_se
     assert statuses == ["starting", "Broken configuration", "Broken configuration"]
 
 
+def test_hw_revision_is_reported_once_on_a_healthy_start(
+    settings, build_mqtt_agent, mock_subprocess, mock_subprocess_run
+):
+    mock_subprocess(status.OK, "{}")
+    agent = build_mqtt_agent(settings, on_message)
+    agent.client.retained[HW_REVISION_TOPIC] = b"6.9.1"
+    agent.start(update_status=True)
+    agent.watch_hw_revision()
+
+    wait_for_usable_config(settings, agent)
+
+    assert mock_subprocess_run.call_count == 1
+
+
 def test_hw_revision_reaches_the_cloud_when_the_hold_ends(
     settings, build_mqtt_agent, mock_subprocess, mock_subprocess_run
 ):
