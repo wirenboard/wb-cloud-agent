@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, call, patch
 import pytest
 
 from wb.cloud_agent.handlers.startup import on_message
-from wb.cloud_agent.mqtt import MQTTCloudAgent
+from wb.cloud_agent.mqtt import HW_REVISION_TOPIC, MQTTCloudAgent
 
 
 @pytest.fixture
@@ -100,7 +100,7 @@ def test_a_retained_hw_revision_makes_no_cloud_request_while_the_config_is_unusa
     settings.config_error = "is empty"
     mock_subprocess_run.side_effect = subprocess.CalledProcessError(58, "curl")
     agent = build_mqtt_agent(settings, on_message)
-    agent.client.retained["/devices/system/controls/HW Revision"] = b"6.9.1"
+    agent.client.retained[HW_REVISION_TOPIC] = b"6.9.1"
     agent.start(update_status=True)
 
     agent._on_connect(None, None, None, 0)
@@ -112,6 +112,21 @@ def test_a_retained_hw_revision_makes_no_cloud_request_while_the_config_is_unusa
         "Broken configuration",
         True,
     ) in agent.client.delivered
+
+
+def test_a_failing_handler_is_logged_and_the_network_loop_survives(
+    settings, build_mqtt_agent, mock_subprocess_run, caplog
+):
+    mock_subprocess_run.side_effect = subprocess.CalledProcessError(58, "curl")
+    agent = build_mqtt_agent(settings, on_message)
+    agent.client.retained[HW_REVISION_TOPIC] = b"6.9.1"
+    agent.start(update_status=True)
+
+    agent._on_connect(None, None, None, 0)
+
+    assert HW_REVISION_TOPIC in caplog.text
+    agent.publish_ctrl("status", "connecting")
+    assert (f"{settings.mqtt_prefix}/controls/status", "connecting", True) in agent.client.delivered
 
 
 def test_on_connect_failure(mqtt_cloud_agent):

@@ -82,11 +82,15 @@ class MQTTCloudAgent:
             self.watch_hw_revision()
 
     def _on_message(self, _client, userdata, message):
-        assert "settings" in userdata, "No settings in userdata"
-        self.client.unsubscribe(HW_REVISION_TOPIC)
+        """An exception escaping a paho callback kills the network loop thread."""
+        try:
+            assert "settings" in userdata, "No settings in userdata"
+            self.client.unsubscribe(HW_REVISION_TOPIC)
 
-        if self.on_message:
-            self.on_message(userdata, message)
+            if self.on_message:
+                self.on_message(userdata, message)
+        except Exception:  # pylint:disable=broad-exception-caught
+            logging.exception("Error handling MQTT message on %s", message.topic)
 
     def _on_disconnect(self, _, __, ___):
         self.was_disconnected = True
