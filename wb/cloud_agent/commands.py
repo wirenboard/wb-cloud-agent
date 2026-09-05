@@ -174,6 +174,11 @@ def run_daemon(options) -> Optional[int]:
 
     logging.info("Cloud Agent initialization - OK")
 
+    run_event_loop(settings, mqtt)
+    return None
+
+
+def run_event_loop(settings: AppSettings, mqtt: MQTTCloudAgent) -> None:
     with ExitStack() as stack:
         stack.callback(mqtt.remove_vdev)
         was_connected = False
