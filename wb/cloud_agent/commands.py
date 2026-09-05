@@ -26,6 +26,7 @@ from wb.cloud_agent.settings import (
     get_provider_names,
     load_providers_data,
     save_last_good_config,
+    setup_log,
 )
 from wb.cloud_agent.utils import (
     handle_connection_state,
@@ -124,12 +125,14 @@ def del_controller_from_cloud(options) -> int:
 
 
 def wait_for_usable_config(settings: AppSettings, mqtt: MQTTCloudAgent) -> None:
-    """Hold the daemon, re-reading the provider config every cycle, until it becomes usable."""
+    """Hold the daemon until the provider config is usable, then apply the log level it carries."""
     while settings.config_error:
         mqtt.ensure_running()
         mqtt.publish_ctrl("status", "Broken configuration")
         time.sleep(settings.request_period_seconds)
         settings.reload_config()
+
+    setup_log(settings.log_level)
 
 
 def run_daemon(options) -> Optional[int]:
