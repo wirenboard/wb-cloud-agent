@@ -192,6 +192,7 @@ def run_event_loop(settings: AppSettings, mqtt: MQTTCloudAgent) -> None:
         was_connected = False
 
         while True:
+            mqtt.ensure_running()
             start = time.perf_counter()
             logging.debug("Sending event request")
 
