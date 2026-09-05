@@ -1,10 +1,14 @@
+import json
 import sys
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
 
 from wb.cloud_agent.services import metrics
 from wb.cloud_agent.settings import AppSettings
+
+PACKAGED_DEFAULT = {"LOG_LEVEL": "INFO", "CLIENT_CERT_ENGINE_KEY": "ATECCx08:00:02:C0:00"}
 
 
 @pytest.fixture
@@ -98,3 +102,23 @@ def mock_subprocess(mock_subprocess_run):  # pylint: disable=redefined-outer-nam
         return stdout
 
     return _inner
+
+
+@pytest.fixture
+def cloud_dirs(tmp_path):
+    """Point provider configs, app data and the packaged default at tmp_path."""
+    default_conf = tmp_path / "etc" / "wb-cloud-agent.conf"
+    default_conf.parent.mkdir(parents=True, exist_ok=True)
+    default_conf.write_text(json.dumps(PACKAGED_DEFAULT), encoding="utf-8")
+
+    dirs = SimpleNamespace(
+        providers=tmp_path / "etc" / "providers",
+        data=tmp_path / "var" / "providers",
+        default=default_conf,
+    )
+    with (
+        patch("wb.cloud_agent.settings.PROVIDERS_CONF_DIR", str(dirs.providers)),
+        patch("wb.cloud_agent.settings.APP_DATA_PROVIDERS_DIR", str(dirs.data)),
+        patch("wb.cloud_agent.settings.DEFAULT_PROVIDER_CONF_FILE", str(dirs.default)),
+    ):
+        yield dirs

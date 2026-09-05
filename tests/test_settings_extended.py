@@ -2,8 +2,6 @@ import json
 import logging
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from wb.cloud_agent.constants import NOCONNECT_LINK
 from wb.cloud_agent.settings import (
     AppSettings,
@@ -65,21 +63,16 @@ def test_configure_app_success():
         assert result == mock_instance
 
 
-def test_configure_app_file_not_found():
-    with patch("wb.cloud_agent.settings.AppSettings", side_effect=FileNotFoundError):
-        result = configure_app(provider_name="test")
+def test_configure_app_survives_an_unrecoverable_config(tmp_path):
+    config_dir = tmp_path / "providers" / "mycloud"
+    config_dir.mkdir(parents=True)
+    (config_dir / "wb-cloud-agent.conf").write_text("{broken")
 
-        assert result == 6
+    with patch("wb.cloud_agent.settings.PROVIDERS_CONF_DIR", str(tmp_path / "providers")):
+        settings = configure_app(provider_name="mycloud", recover_configs=True)
 
-
-def test_configure_app_json_decode_error():
-    with patch(
-        "wb.cloud_agent.settings.AppSettings",
-        side_effect=json.decoder.JSONDecodeError("msg", "doc", 0),
-    ):
-        result = configure_app(provider_name="test")
-
-        assert result == 6
+    assert isinstance(settings, AppSettings)
+    assert settings.config_error is not None
 
 
 def test_setup_log_info_level():
@@ -279,12 +272,5 @@ def test_load_providers_data_no_activation_link(tmp_path):
 def test_load_providers_data_missing_config(tmp_path):
     providers_conf_dir = tmp_path / "conf" / "providers"
 
-    with (
-        patch("wb.cloud_agent.settings.PROVIDERS_CONF_DIR", str(providers_conf_dir)),
-        patch("builtins.print") as mock_print,
-    ):
-        with pytest.raises(SystemExit) as exc_info:
-            load_providers_data(["nonexistent"])
-
-        assert exc_info.value.code == 6
-        mock_print.assert_called_once()
+    with patch("wb.cloud_agent.settings.PROVIDERS_CONF_DIR", str(providers_conf_dir)):
+        assert not load_providers_data(["nonexistent"])

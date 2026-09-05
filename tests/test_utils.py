@@ -5,9 +5,11 @@ import pytest
 
 from wb.cloud_agent.settings import AppSettings
 from wb.cloud_agent.utils import (
+    ConfigError,
     get_controller_url,
     normalize_base_url,
     parse_headers,
+    quarantine_broken_file,
     read_json_config,
     read_plaintext_config,
     show_providers_table,
@@ -81,14 +83,43 @@ def test_read_json_config(tmp_path):
     assert result == config_data
 
 
-def test_read_json_config_invalid_json(tmp_path):
+@pytest.mark.parametrize(
+    "contents, reason",
+    [
+        ("{invalid json", "is not valid JSON"),
+        ("", "is empty"),
+        ("   \n", "is empty"),
+        ("[1, 2]", "is not a JSON object"),
+    ],
+)
+def test_read_json_config_broken(tmp_path, contents, reason):
     config_file = tmp_path / "config.json"
-    config_file.write_text("{invalid json")
+    config_file.write_text(contents)
 
-    with pytest.raises(SystemExit) as exc_info:
+    with pytest.raises(ConfigError) as exc_info:
         read_json_config(config_file)
 
-    assert exc_info.value.code == 6
+    assert reason in str(exc_info.value)
+
+
+def test_read_json_config_missing(tmp_path):
+    with pytest.raises(ConfigError) as exc_info:
+        read_json_config(tmp_path / "absent.json")
+
+    assert "is missing" in str(exc_info.value)
+
+
+def test_read_json_config_delegates_to_rebuild(tmp_path):
+    config_file = tmp_path / "config.json"
+    config_file.write_text("")
+    reasons = []
+
+    def rebuild(reason):
+        reasons.append(reason)
+        return {"key": "rebuilt"}
+
+    assert read_json_config(config_file, rebuild=rebuild) == {"key": "rebuilt"}
+    assert reasons == ["is empty"]
 
 
 def test_read_plaintext_config(tmp_path):
@@ -105,6 +136,17 @@ def test_read_plaintext_config_strips_whitespace(tmp_path):
 
     result = read_plaintext_config(config_file)
     assert result == "config-with-spaces"
+
+
+def test_read_plaintext_config_missing(tmp_path):
+    assert read_plaintext_config(tmp_path / "absent.txt") == ""
+
+
+def test_read_plaintext_config_undecodable(tmp_path):
+    config_file = tmp_path / "config.txt"
+    config_file.write_bytes(b"\xff\xfe binary junk")
+
+    assert read_plaintext_config(config_file) == ""
 
 
 def test_write_to_file(tmp_path):
@@ -124,6 +166,36 @@ def test_write_to_file_creates_parent_dirs(tmp_path):
 
     assert file_path.parent.exists()
     assert file_path.exists()
+
+
+def test_write_to_file_replaces_without_leaving_temporaries(tmp_path):
+    file_path = tmp_path / "file.txt"
+    write_to_file(file_path, "old")
+
+    write_to_file(file_path, "new")
+
+    assert file_path.read_text() == "new"
+    assert [entry.name for entry in tmp_path.iterdir()] == ["file.txt"]
+
+
+def test_quarantine_broken_file(tmp_path):
+    file_path = tmp_path / "config.json"
+    file_path.write_text("{broken")
+
+    quarantined = quarantine_broken_file(file_path)
+
+    assert not file_path.exists()
+    assert quarantined.read_text() == "{broken"
+    assert quarantined.name.startswith("config.json.broken-")
+
+
+def test_quarantine_broken_file_skips_empty_and_missing(tmp_path):
+    empty = tmp_path / "empty.json"
+    empty.write_text("")
+
+    assert quarantine_broken_file(empty) is None
+    assert quarantine_broken_file(tmp_path / "absent.json") is None
+    assert empty.exists()
 
 
 def test_start_and_enable_service(mock_subprocess_run):

@@ -1,8 +1,8 @@
 import json
 import logging
 import shutil
-import sys
 from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
 from typing import Any, Optional, Union
 from urllib.parse import urlparse, urlunparse
@@ -14,15 +14,28 @@ from wb.cloud_agent.constants import (
     APP_DATA_PROVIDERS_DIR,
     CLOUD_AGENT_URL_POSTFIX,
     DEFAULT_PROVIDER_CONF_FILE,
+    LAST_GOOD_CONF_SUFFIX,
     NOCONNECT_LINK,
+    PROVIDER_CONF_FILE_NAME,
     PROVIDERS_CONF_DIR,
 )
 from wb.cloud_agent.utils import (
+    ConfigError,
     get_controller_url,
     normalize_base_url,
+    quarantine_broken_file,
     read_json_config,
     read_plaintext_config,
+    write_to_file,
 )
+
+
+def provider_config_path(provider_name: str) -> Path:
+    return Path(PROVIDERS_CONF_DIR) / provider_name / PROVIDER_CONF_FILE_NAME
+
+
+def last_good_config_path(provider_name: str) -> Path:
+    return Path(APP_DATA_PROVIDERS_DIR) / provider_name / f"{PROVIDER_CONF_FILE_NAME}{LAST_GOOD_CONF_SUFFIX}"
 
 
 class AppSettings:  # pylint: disable=too-many-instance-attributes disable=too-few-public-methods
@@ -41,6 +54,7 @@ class AppSettings:  # pylint: disable=too-many-instance-attributes disable=too-f
     provider_name: str
 
     skip_conf_file: bool = False
+    recover_configs: bool = False
 
     log_level: str = "INFO"
 
@@ -59,7 +73,7 @@ class AppSettings:  # pylint: disable=too-many-instance-attributes disable=too-f
         for key, val in kwargs.items():
             setattr(self, key, val)
 
-        self.config_file: Path = Path(f"{PROVIDERS_CONF_DIR}/{self.provider_name}/wb-cloud-agent.conf")
+        self.config_file: Path = provider_config_path(self.provider_name)
         self.frp_service: str = f"wb-cloud-agent-frpc@{self.provider_name}.service"
         self.metrics_service: str = f"wb-cloud-agent-metrics@{self.provider_name}.service"
         self.frp_config: Path = Path(f"{APP_DATA_PROVIDERS_DIR}/{self.provider_name}/frpc.conf")
@@ -75,15 +89,30 @@ class AppSettings:  # pylint: disable=too-many-instance-attributes disable=too-f
         )
         self.mqtt_prefix: str = f"/devices/system__wb-cloud-agent__{self.provider_name}"
         self.diag_archive: Path = Path("/tmp")
+        self.config_error: Optional[str] = None
 
-        if not self.skip_conf_file and self.config_file.exists():
+        self.reload_config()
+
+    def reload_config(self) -> None:
+        """Re-apply the provider config file, setting config_error when it stays unusable."""
+        self.config_error = None
+        # Outside the daemon a missing config is not an anomaly: add-provider is about to create it.
+        if not self.skip_conf_file and (self.recover_configs or self.config_file.exists()):
             self.apply_conf_file()
 
         self.cloud_base_url = normalize_base_url(self.cloud_base_url)
         self.cloud_agent_url = self.base_url_to_agent_url(self.cloud_base_url)
 
     def apply_conf_file(self) -> None:
-        conf = read_json_config(self.config_file)
+        try:
+            conf = read_json_config(
+                self.config_file,
+                rebuild=partial(recover_provider_config, self.provider_name, self.recover_configs),
+            )
+        except ConfigError as exc:
+            logging.warning("Config %s %s", self.config_file, exc)
+            self.config_error = str(exc)
+            return
 
         for key, val in conf.items():
             setattr(self, key.lower(), val)
@@ -95,11 +124,7 @@ class AppSettings:  # pylint: disable=too-many-instance-attributes disable=too-f
 
 
 def configure_app(**kwargs: dict[str, Any]) -> AppSettings:
-    try:
-        settings = AppSettings(**kwargs)
-    except (FileNotFoundError, OSError, json.decoder.JSONDecodeError):
-        return 6  # systemd status=6/NOTCONFIGURED
-
+    settings = AppSettings(**kwargs)
     setup_log(settings)
     return settings
 
@@ -112,15 +137,82 @@ def setup_log(settings: AppSettings) -> None:
 
 
 def generate_provider_config(provider: str, base_url: str) -> None:
-    conf = read_json_config(Path(DEFAULT_PROVIDER_CONF_FILE))
+    conf = packaged_default_config()
     conf["CLOUD_BASE_URL"] = normalize_base_url(base_url)
+    write_to_file(provider_config_path(provider), json.dumps(conf, indent=4))
 
-    conf_dir = Path(PROVIDERS_CONF_DIR) / provider
-    if not conf_dir.exists():
-        conf_dir.mkdir(parents=True, exist_ok=True)
 
-    conf_file = conf_dir / "wb-cloud-agent.conf"
-    conf_file.write_text(json.dumps(conf, indent=4), encoding="utf-8")
+def packaged_default_config() -> dict[str, str]:
+    """Packaged /etc/wb-cloud-agent.conf, or the built-in defaults when it is damaged too."""
+    try:
+        return read_json_config(Path(DEFAULT_PROVIDER_CONF_FILE))
+    except ConfigError as exc:
+        logging.warning("Config %s %s, using built-in values", DEFAULT_PROVIDER_CONF_FILE, exc)
+        return {"CLIENT_CERT_ENGINE_KEY": AppSettings.client_cert_engine_key}
+
+
+def looks_like_cloud_host(provider_name: str) -> bool:
+    """True when the provider directory name is a URL netloc, i.e. add-provider ran without --name."""
+    host, _, port = provider_name.partition(":")
+    return "." in host.strip(".") and (not port or port.isdigit())
+
+
+def recovery_source(provider_name: str) -> tuple[Optional[dict], str]:
+    """Pick the most trustworthy content for a damaged provider config."""
+    try:
+        return read_json_config(last_good_config_path(provider_name)), "last known good copy"
+    except ConfigError:
+        pass
+
+    # Only a netloc-derived directory name identifies the provider's own cloud; a --name alias
+    # would repoint the controller at a host that does not exist, destroying the real URL.
+    if not looks_like_cloud_host(provider_name):
+        return None, ""
+
+    conf = packaged_default_config()
+    conf["CLOUD_BASE_URL"] = f"https://{provider_name}"
+    return conf, "packaged default config"
+
+
+def recover_provider_config(provider_name: str, persist: bool, reason: str) -> dict:
+    """Rebuild a damaged provider config; raise ConfigError when no trustworthy source is left."""
+    config_path = provider_config_path(provider_name)
+    recovered, source = recovery_source(provider_name)
+
+    if recovered is None:
+        raise ConfigError(
+            f"{reason} and cannot be rebuilt: there is no last known good copy and '{provider_name}' "
+            f"is not a cloud host name. Restore the file or re-run 'wb-cloud-agent add-provider <url>'"
+        )
+
+    if not persist:
+        logging.warning("Config %s %s, using the %s for this run", config_path, reason, source)
+        return recovered
+
+    quarantined = quarantine_broken_file(config_path)
+    write_to_file(config_path, json.dumps(recovered, indent=4))
+    logging.warning(
+        "Config %s %s, rebuilt from the %s%s",
+        config_path,
+        reason,
+        source,
+        f", broken file kept as {quarantined.name}" if quarantined else "",
+    )
+    return recovered
+
+
+def save_last_good_config(provider_name: str) -> None:
+    """Keep a verbatim copy of a healthy provider config to rebuild a damaged one from."""
+    config_path = provider_config_path(provider_name)
+    last_good = last_good_config_path(provider_name)
+
+    try:
+        current = config_path.read_text(encoding="utf-8")
+        if last_good.is_file() and last_good.read_text(encoding="utf-8") == current:
+            return
+        write_to_file(last_good, current)
+    except OSError as exc:
+        logging.warning("Cannot store the last known good copy of %s: %s", config_path, exc)
 
 
 def delete_provider_config(conf_path_prefix: str, provider: str) -> None:
@@ -173,19 +265,17 @@ def load_providers_data(provider_names: list[str]) -> list[Provider]:
 
     result = []
     for provider_name in provider_names:
-        config_path = Path(f"{PROVIDERS_CONF_DIR}/{provider_name}/wb-cloud-agent.conf")
+        try:
+            provider_config = read_json_config(
+                provider_config_path(provider_name),
+                rebuild=partial(recover_provider_config, provider_name, False),
+            )
+        except ConfigError as exc:
+            logging.warning("Skipping provider %s: its config %s", provider_name, exc)
+            continue
+
         activation_path = Path(f"{APP_DATA_PROVIDERS_DIR}/{provider_name}/activation_link.conf")
-
-        if config_path.exists():
-            provider_config = read_json_config(config_path)
-        else:
-            print(f"The file was not found in: {config_path}")
-            sys.exit(6)
-
-        if activation_path.exists():
-            provider_activation_link = read_plaintext_config(activation_path)
-        else:
-            provider_activation_link = NOCONNECT_LINK
+        provider_activation_link = read_plaintext_config(activation_path) or NOCONNECT_LINK
 
         result.append(
             Provider(name=provider_name, config=provider_config, activation_link=provider_activation_link)
