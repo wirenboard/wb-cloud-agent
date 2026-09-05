@@ -252,13 +252,17 @@ class Provider:
 
     @property
     def display_url(self) -> str:
+        base_url = self.config.get("CLOUD_BASE_URL")
+        if not base_url:
+            return "Broken configuration"
+
         if self.activation_link and self.activation_link.startswith("http"):
             return self.activation_link
 
         if self.activation_link == NOCONNECT_LINK:
-            return f"No connect to: {self.config['CLOUD_BASE_URL']}"
+            return f"No connect to: {base_url}"
 
-        return get_controller_url(self.config["CLOUD_BASE_URL"])
+        return get_controller_url(base_url)
 
 
 def load_providers_data(provider_names: list[str]) -> list[Provider]:
@@ -273,8 +277,8 @@ def load_providers_data(provider_names: list[str]) -> list[Provider]:
                 rebuild=partial(recover_provider_config, provider_name, False),
             )
         except ConfigError as exc:
-            logging.warning("Skipping provider %s: its config %s", provider_name, exc)
-            continue
+            logging.warning("Provider %s config %s", provider_name, exc)
+            provider_config = {}
 
         activation_path = Path(f"{APP_DATA_PROVIDERS_DIR}/{provider_name}/activation_link.conf")
         provider_activation_link = read_plaintext_config(activation_path) or NOCONNECT_LINK

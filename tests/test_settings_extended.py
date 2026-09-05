@@ -273,4 +273,6 @@ def test_load_providers_data_missing_config(tmp_path):
     providers_conf_dir = tmp_path / "conf" / "providers"
 
     with patch("wb.cloud_agent.settings.PROVIDERS_CONF_DIR", str(providers_conf_dir)):
-        assert not load_providers_data(["nonexistent"])
+        providers = load_providers_data(["nonexistent"])
+
+    assert [provider.display_url for provider in providers] == ["Broken configuration"]

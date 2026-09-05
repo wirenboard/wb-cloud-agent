@@ -141,6 +141,26 @@ def test_add_provider_with_duplicate_url():
 
 
 @pytest.mark.usefixtures("mock_mqtt_cloud_agent")
+def test_add_provider_with_a_broken_existing_provider():
+    options = Namespace(base_url="https://example.com/", name=None)
+    broken_provider = MagicMock()
+    broken_provider.config = {}
+
+    with (
+        patch("wb.cloud_agent.commands.configure_app"),
+        patch("wb.cloud_agent.commands.get_provider_names", return_value=["mycloud"]),
+        patch("wb.cloud_agent.commands.load_providers_data", return_value=[broken_provider]),
+        patch("wb.cloud_agent.commands.generate_provider_config") as mock_gen,
+        patch("wb.cloud_agent.commands.start_and_enable_service"),
+        patch("builtins.print"),
+    ):
+        result = add_provider(options)
+
+    assert result == 0
+    mock_gen.assert_called_once_with("example.com", "https://example.com")
+
+
+@pytest.mark.usefixtures("mock_mqtt_cloud_agent")
 def test_add_provider_mqtt_connection_error(mock_mqtt_cloud_agent):
     options = Namespace(base_url="https://example.com", name=None)
     mock_mqtt_cloud_agent.start.side_effect = ConnectionError("Connection failed")

@@ -136,13 +136,14 @@ def test_listing_providers_recovers_in_memory_only(cloud_dirs):
     assert config.read_text() == "", "listing providers must not create or repair files"
 
 
-def test_listing_skips_a_provider_that_cannot_be_described(cloud_dirs):
+def test_listing_marks_a_provider_that_cannot_be_described(cloud_dirs):
     write_config(cloud_dirs, "mycloud", "")
     write_config(cloud_dirs, "wirenboard.cloud", '{"CLOUD_BASE_URL": "https://wirenboard.cloud"}')
 
     providers = load_providers_data(["mycloud", "wirenboard.cloud"])
 
-    assert [provider.name for provider in providers] == ["wirenboard.cloud"]
+    assert [provider.name for provider in providers] == ["mycloud", "wirenboard.cloud"]
+    assert providers[0].display_url == "Broken configuration"
 
 
 def test_save_last_good_config_copies_verbatim(cloud_dirs):
