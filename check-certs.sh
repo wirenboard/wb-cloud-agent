@@ -36,6 +36,11 @@ if [ ! -f "$TARGET_CERT" ] || ! cert_is_valid "$TARGET_CERT"; then
 fi
 
 # fix agent config (ATECC path according to device version)
+if [ ! -s "$AGENT_CONFIG" ]; then
+    echo "Config $AGENT_CONFIG is missing or empty, the agent will restore it"
+    exit 0
+fi
+
 . /usr/lib/wb-utils/wb_env.sh
 wb_source of
 
