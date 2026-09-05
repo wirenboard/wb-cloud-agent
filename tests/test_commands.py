@@ -31,6 +31,8 @@ class FakeMqttClient:
         self.delivered = []
 
     def start(self):
+        if self._thread is not None:
+            return
         self._loop_running = True
         self._thread = SimpleNamespace(is_alive=lambda: self._loop_running)
 

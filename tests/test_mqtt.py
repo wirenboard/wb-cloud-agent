@@ -127,6 +127,15 @@ def test_on_connect_after_disconnect(mqtt_cloud_agent, settings):
         assert expected_call in mqtt_cloud_agent.client.publish.call_args_list
 
 
+def test_reconnect_keeps_an_unknown_providers_list(mqtt_cloud_agent):
+    mqtt_cloud_agent.was_disconnected = True
+
+    with patch.object(mqtt_cloud_agent, "publish_providers") as mock_publish_providers:
+        mqtt_cloud_agent._on_connect(None, None, None, 0)
+
+    mock_publish_providers.assert_not_called()
+
+
 def test_on_message(mqtt_cloud_agent):
     userdata = {"settings": MagicMock()}
     message = MagicMock()

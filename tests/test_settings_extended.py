@@ -83,16 +83,18 @@ def test_recovery_does_not_silence_the_configured_logging(cloud_dirs):
     (config_dir / "wb-cloud-agent.conf").write_text("")
     last_good = cloud_dirs.data / "mycloud" / "wb-cloud-agent.conf.last-good"
     last_good.parent.mkdir(parents=True)
-    last_good.write_text(json.dumps({"CLOUD_BASE_URL": "https://mycloud"}))
+    last_good.write_text(json.dumps({"CLOUD_BASE_URL": "https://mycloud", "LOG_LEVEL": "DEBUG"}))
 
     log = io.StringIO()
     with patch("sys.stderr", log):
         configure_app(provider_name="mycloud", recover_configs=True)
         logging.info("Cloud Agent initialization - OK")
+        logging.debug("Sending event request")
 
     assert "WARNING:root:" not in log.getvalue()
     assert log.getvalue().count("rebuilt from the last known good copy") == 1
     assert "Cloud Agent initialization - OK" in log.getvalue()
+    assert "Sending event request" in log.getvalue()
 
 
 def test_setup_log_info_level():

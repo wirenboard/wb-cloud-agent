@@ -59,7 +59,8 @@ class MQTTCloudAgent:
                 for control, value in self.controls.items():
                     self.publish_ctrl(control, value)
 
-                self.publish_providers(self.providers)
+                if self.providers is not None:
+                    self.publish_providers(self.providers)
 
             self.client.subscribe("/devices/system/controls/HW Revision", qos=2)
 
