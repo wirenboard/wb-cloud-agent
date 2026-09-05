@@ -2,6 +2,8 @@
 
 import subprocess
 from argparse import Namespace
+from itertools import count
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -17,6 +19,49 @@ from wb.cloud_agent.commands import (
     wait_for_usable_config,
 )
 from wb.cloud_agent.handlers.curl import CloudNetworkError
+from wb.cloud_agent.mqtt import MQTTCloudAgent
+
+
+class FakeMqttClient:
+    """Paho stand-in: a publish reaches the broker only while the network loop thread is alive."""
+
+    def __init__(self):
+        self._thread = None
+        self._loop_running = False
+        self.delivered = []
+
+    def start(self):
+        self._loop_running = True
+        self._thread = SimpleNamespace(is_alive=lambda: self._loop_running)
+
+    def loop_stop(self):
+        self._thread = None
+
+    def drop_connection(self):
+        self._loop_running = False
+
+    def will_set(self, *_args, **_kwargs):
+        pass
+
+    def publish(self, topic, value, retain=False, **_kwargs):
+        if self._thread and self._thread.is_alive():
+            self.delivered.append((topic, value, retain))
+
+
+@pytest.fixture
+def held_settings():
+    settings = MagicMock()
+    settings.mqtt_prefix = "/devices/test"
+    settings.provider_name = "test"
+    settings.config_error = "is empty"
+    settings.request_period_seconds = 10
+    return settings
+
+
+@pytest.fixture
+def held_agent(held_settings):
+    with patch("wb.cloud_agent.mqtt.MQTTClient", return_value=FakeMqttClient()):
+        return MQTTCloudAgent(held_settings)
 
 
 @pytest.fixture
@@ -474,6 +519,34 @@ def test_wait_for_usable_config_holds_until_the_config_is_usable():
 
     mock_sleep.assert_called_once_with(10)
     mqtt.publish_ctrl.assert_called_once_with("status", "Broken configuration")
+
+
+def test_wait_for_usable_config_publishes_through_a_stopped_network_loop(held_settings, held_agent):
+    held_settings.reload_config.side_effect = lambda: setattr(held_settings, "config_error", None)
+    held_agent.start(update_status=True)
+    held_agent.client.drop_connection()
+
+    with patch("time.sleep"):
+        wait_for_usable_config(held_settings, held_agent)
+
+    assert ("/devices/test/controls/status", "Broken configuration", True) in held_agent.client.delivered
+
+
+def test_wait_for_usable_config_survives_a_disconnect(held_settings, held_agent):
+    cycles = count(1)
+
+    def reload_config():
+        if next(cycles) > 1:
+            held_settings.config_error = None
+
+    held_settings.reload_config.side_effect = reload_config
+    held_agent.start(update_status=True)
+
+    with patch("time.sleep", side_effect=lambda _: held_agent.client.drop_connection()):
+        wait_for_usable_config(held_settings, held_agent)
+
+    statuses = [value for topic, value, _ in held_agent.client.delivered if topic.endswith("/status")]
+    assert statuses == ["starting", "Broken configuration", "Broken configuration"]
 
 
 def test_run_daemon_makes_no_cloud_requests_with_a_broken_config(mock_mqtt_cloud_agent):

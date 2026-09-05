@@ -126,6 +126,7 @@ def del_controller_from_cloud(options) -> int:
 def wait_for_usable_config(settings: AppSettings, mqtt: MQTTCloudAgent) -> None:
     """Hold the daemon, re-reading the provider config every cycle, until it becomes usable."""
     while settings.config_error:
+        mqtt.ensure_running()
         mqtt.publish_ctrl("status", "Broken configuration")
         time.sleep(settings.request_period_seconds)
         settings.reload_config()
