@@ -44,6 +44,7 @@ class MQTTCloudAgent:
             logging.error("Error restarting MQTT client: %s", exc)
 
     def _network_loop_alive(self) -> bool:
+        # paho keeps the loop thread in client._thread on both 1.5.x (bullseye) and 2.x (trixie).
         thread = self.client._thread  # pylint:disable=protected-access
         return thread is not None and thread.is_alive()
 
