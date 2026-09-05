@@ -22,6 +22,16 @@ def mqtt_cloud_agent(settings, mock_mqtt_client):
     return agent
 
 
+@pytest.fixture
+def cert_mismatch_agent(settings, build_mqtt_agent, mock_subprocess_run):
+    """An agent holding a retained HW Revision whose report fails on the WB6 cert key mismatch."""
+    mock_subprocess_run.side_effect = subprocess.CalledProcessError(58, "curl")
+    agent = build_mqtt_agent(settings, on_message)
+    agent.client.retained[HW_REVISION_TOPIC] = b"6.9.1"
+    agent.start(update_status=True)
+    return agent
+
+
 def test_mqtt_cloud_agent_init(settings, mock_mqtt_client):
     agent = MQTTCloudAgent(settings)
 
@@ -91,42 +101,35 @@ def test_ensure_running_survives_an_unreachable_broker(mqtt_cloud_agent, caplog)
 def test_on_connect_successful(mqtt_cloud_agent):
     mqtt_cloud_agent._on_connect(None, None, None, 0)
 
-    mqtt_cloud_agent.client.subscribe.assert_called_once_with("/devices/system/controls/HW Revision", qos=2)
+    mqtt_cloud_agent.client.subscribe.assert_called_once_with(HW_REVISION_TOPIC, qos=2)
 
 
-def test_a_retained_hw_revision_makes_no_cloud_request_while_the_config_is_unusable(
-    settings, build_mqtt_agent, mock_subprocess_run
+def test_retained_hw_revision_makes_no_cloud_request_while_the_config_is_unusable(
+    settings, cert_mismatch_agent, mock_subprocess_run
 ):
     settings.config_error = "is empty"
-    mock_subprocess_run.side_effect = subprocess.CalledProcessError(58, "curl")
-    agent = build_mqtt_agent(settings, on_message)
-    agent.client.retained[HW_REVISION_TOPIC] = b"6.9.1"
-    agent.start(update_status=True)
 
-    agent._on_connect(None, None, None, 0)
+    cert_mismatch_agent._on_connect(None, None, None, 0)
 
     mock_subprocess_run.assert_not_called()
-    agent.publish_ctrl("status", "Broken configuration")
+    cert_mismatch_agent.publish_ctrl("status", "Broken configuration")
     assert (
         f"{settings.mqtt_prefix}/controls/status",
         "Broken configuration",
         True,
-    ) in agent.client.delivered
+    ) in cert_mismatch_agent.client.delivered
 
 
-def test_a_failing_handler_is_logged_and_the_network_loop_survives(
-    settings, build_mqtt_agent, mock_subprocess_run, caplog
-):
-    mock_subprocess_run.side_effect = subprocess.CalledProcessError(58, "curl")
-    agent = build_mqtt_agent(settings, on_message)
-    agent.client.retained[HW_REVISION_TOPIC] = b"6.9.1"
-    agent.start(update_status=True)
-
-    agent._on_connect(None, None, None, 0)
+def test_failing_handler_is_logged_and_the_network_loop_survives(settings, cert_mismatch_agent, caplog):
+    cert_mismatch_agent._on_connect(None, None, None, 0)
 
     assert HW_REVISION_TOPIC in caplog.text
-    agent.publish_ctrl("status", "connecting")
-    assert (f"{settings.mqtt_prefix}/controls/status", "connecting", True) in agent.client.delivered
+    cert_mismatch_agent.publish_ctrl("status", "connecting")
+    assert (
+        f"{settings.mqtt_prefix}/controls/status",
+        "connecting",
+        True,
+    ) in cert_mismatch_agent.client.delivered
 
 
 def test_on_connect_failure(mqtt_cloud_agent):
@@ -181,7 +184,7 @@ def test_on_message(mqtt_cloud_agent):
 
     mqtt_cloud_agent._on_message(None, userdata, message)
 
-    mqtt_cloud_agent.client.unsubscribe.assert_called_once_with("/devices/system/controls/HW Revision")
+    mqtt_cloud_agent.client.unsubscribe.assert_called_once_with(HW_REVISION_TOPIC)
     on_message_handler.assert_called_once_with(userdata, message)
 
 

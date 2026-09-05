@@ -491,7 +491,7 @@ def test_run_daemon_event_loop_with_exception(mock_mqtt_cloud_agent):
         assert len(status_calls) >= 2
 
 
-def test_the_event_loop_publishes_through_a_stopped_network_loop(settings, build_mqtt_agent):
+def test_event_loop_publishes_through_a_stopped_network_loop(settings, build_mqtt_agent):
     agent = build_mqtt_agent(settings)
     agent.start(update_status=True)
     agent.client.stop_network_loop()
@@ -549,7 +549,7 @@ def test_wait_for_usable_config_republishes_after_the_network_loop_stops(held_se
     assert statuses == ["starting", "Broken configuration", "Broken configuration"]
 
 
-def test_the_hw_revision_reaches_the_cloud_when_the_hold_ends(
+def test_hw_revision_reaches_the_cloud_when_the_hold_ends(
     settings, build_mqtt_agent, mock_subprocess, mock_subprocess_run
 ):
     mock_subprocess(status.OK, "{}")
