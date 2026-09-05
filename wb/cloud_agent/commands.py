@@ -125,7 +125,8 @@ def del_controller_from_cloud(options) -> int:
 
 
 def wait_for_usable_config(settings: AppSettings, mqtt: MQTTCloudAgent) -> None:
-    """Hold the daemon until the provider config is usable, then apply what the restored config enables."""
+    """Hold the daemon until the provider config is usable: nothing that depends on it runs earlier."""
+    # Not held: _on_connect already subscribed, and a second subscribe repeats the cloud request.
     if not settings.config_error:
         return
 
