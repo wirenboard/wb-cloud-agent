@@ -1,9 +1,11 @@
 # pylint: disable=redefined-outer-name, protected-access
 
+import subprocess
 from unittest.mock import MagicMock, call, patch
 
 import pytest
 
+from wb.cloud_agent.handlers.startup import on_message
 from wb.cloud_agent.mqtt import MQTTCloudAgent
 
 
@@ -90,6 +92,26 @@ def test_on_connect_successful(mqtt_cloud_agent):
     mqtt_cloud_agent._on_connect(None, None, None, 0)
 
     mqtt_cloud_agent.client.subscribe.assert_called_once_with("/devices/system/controls/HW Revision", qos=2)
+
+
+def test_a_retained_hw_revision_makes_no_cloud_request_while_the_config_is_unusable(
+    settings, build_mqtt_agent, mock_subprocess_run
+):
+    settings.config_error = "is empty"
+    mock_subprocess_run.side_effect = subprocess.CalledProcessError(58, "curl")
+    agent = build_mqtt_agent(settings, on_message)
+    agent.client.retained["/devices/system/controls/HW Revision"] = b"6.9.1"
+    agent.start(update_status=True)
+
+    agent._on_connect(None, None, None, 0)
+
+    mock_subprocess_run.assert_not_called()
+    agent.publish_ctrl("status", "Broken configuration")
+    assert (
+        f"{settings.mqtt_prefix}/controls/status",
+        "Broken configuration",
+        True,
+    ) in agent.client.delivered
 
 
 def test_on_connect_failure(mqtt_cloud_agent):

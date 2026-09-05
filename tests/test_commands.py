@@ -5,6 +5,7 @@ import json
 import logging
 import subprocess
 from argparse import Namespace
+from http import HTTPStatus as status
 from itertools import count
 from unittest.mock import MagicMock, patch
 
@@ -21,6 +22,8 @@ from wb.cloud_agent.commands import (
     wait_for_usable_config,
 )
 from wb.cloud_agent.handlers.curl import CloudNetworkError
+from wb.cloud_agent.handlers.startup import on_message
+from wb.cloud_agent.mqtt import HW_REVISION_TOPIC
 from wb.cloud_agent.settings import configure_app
 
 
@@ -528,6 +531,22 @@ def test_wait_for_usable_config_republishes_after_the_network_loop_stops(held_se
 
     statuses = [value for topic, value, _ in held_agent.client.delivered if topic.endswith("/status")]
     assert statuses == ["starting", "Broken configuration", "Broken configuration"]
+
+
+def test_the_hw_revision_reaches_the_cloud_when_the_hold_ends(
+    settings, build_mqtt_agent, mock_subprocess, mock_subprocess_run
+):
+    mock_subprocess(status.OK, "{}")
+    settings.config_error = "is empty"
+    agent = build_mqtt_agent(settings, on_message)
+    agent.client.retained[HW_REVISION_TOPIC] = b"6.9.1"
+    agent.start(update_status=True)
+
+    with patch("time.sleep"):
+        wait_for_usable_config(settings, agent)
+
+    assert mock_subprocess_run.call_count == 1
+    assert '{"hardware_revision": "6.9.1"}' in mock_subprocess_run.call_args[0][0]
 
 
 def test_run_daemon_makes_no_cloud_requests_with_a_broken_config(mock_mqtt_cloud_agent):

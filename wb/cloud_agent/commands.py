@@ -125,7 +125,10 @@ def del_controller_from_cloud(options) -> int:
 
 
 def wait_for_usable_config(settings: AppSettings, mqtt: MQTTCloudAgent) -> None:
-    """Hold the daemon until the provider config is usable, then apply the log level it carries."""
+    """Hold the daemon until the provider config is usable, then apply what the restored config enables."""
+    if not settings.config_error:
+        return
+
     while settings.config_error:
         mqtt.ensure_running()
         mqtt.publish_ctrl("status", "Broken configuration")
@@ -133,6 +136,7 @@ def wait_for_usable_config(settings: AppSettings, mqtt: MQTTCloudAgent) -> None:
         settings.reload_config()
 
     setup_log(settings.log_level)
+    mqtt.watch_hw_revision()
 
 
 def run_daemon(options) -> Optional[int]:
