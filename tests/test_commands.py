@@ -1,7 +1,12 @@
 # pylint: disable=redefined-outer-name
 
+import io
+import json
+import logging
 import subprocess
 from argparse import Namespace
+from itertools import count
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -14,8 +19,56 @@ from wb.cloud_agent.commands import (
     del_provider,
     run_daemon,
     show_providers,
+    wait_for_usable_config,
 )
 from wb.cloud_agent.handlers.curl import CloudNetworkError
+from wb.cloud_agent.mqtt import MQTTCloudAgent
+from wb.cloud_agent.settings import configure_app
+
+
+class FakeMqttClient:
+    """Paho stand-in: a publish reaches the broker only while the network loop thread is alive."""
+
+    def __init__(self):
+        self._thread = None
+        self._loop_running = False
+        self.delivered = []
+
+    def start(self):
+        if self._thread is not None:
+            return
+        self._loop_running = True
+        self._thread = SimpleNamespace(is_alive=lambda: self._loop_running)
+
+    def loop_stop(self):
+        self._thread = None
+
+    def stop_network_loop(self):
+        self._loop_running = False
+
+    def will_set(self, *_args, **_kwargs):
+        pass
+
+    def publish(self, topic, value, retain=False, **_kwargs):
+        if self._thread and self._thread.is_alive():
+            self.delivered.append((topic, value, retain))
+
+
+@pytest.fixture
+def held_settings():
+    settings = MagicMock()
+    settings.mqtt_prefix = "/devices/test"
+    settings.provider_name = "test"
+    settings.config_error = "is empty"
+    settings.request_period_seconds = 10
+    settings.log_level = "INFO"
+    return settings
+
+
+@pytest.fixture
+def held_agent(held_settings):
+    with patch("wb.cloud_agent.mqtt.MQTTClient", return_value=FakeMqttClient()):
+        return MQTTCloudAgent(held_settings)
 
 
 @pytest.fixture
@@ -137,6 +190,26 @@ def test_add_provider_with_duplicate_url():
         mock_gen.assert_not_called()
         mock_service.assert_not_called()
         mock_print.assert_called_once_with("Provider with URL https://example.com already exists")
+
+
+@pytest.mark.usefixtures("mock_mqtt_cloud_agent")
+def test_add_provider_with_a_broken_existing_provider():
+    options = Namespace(base_url="https://example.com/", name=None)
+    broken_provider = MagicMock()
+    broken_provider.config = {}
+
+    with (
+        patch("wb.cloud_agent.commands.configure_app"),
+        patch("wb.cloud_agent.commands.get_provider_names", return_value=["mycloud"]),
+        patch("wb.cloud_agent.commands.load_providers_data", return_value=[broken_provider]),
+        patch("wb.cloud_agent.commands.generate_provider_config") as mock_gen,
+        patch("wb.cloud_agent.commands.start_and_enable_service"),
+        patch("builtins.print"),
+    ):
+        result = add_provider(options)
+
+    assert result == 0
+    mock_gen.assert_called_once_with("example.com", "https://example.com")
 
 
 @pytest.mark.usefixtures("mock_mqtt_cloud_agent")
@@ -318,6 +391,9 @@ def test_run_daemon_startup_failure():
         patch("wb.cloud_agent.commands.send_packages_version"),
     ):
         mock_settings = MagicMock()
+        mock_settings.config_error = None
+        mock_settings.provider_name = "test"
+        mock_settings.log_level = "INFO"
         mock_settings.cloud_base_url = "https://example.com"
         mock_settings.broker_url = "tcp://localhost:1883"
         mock_settings.request_period_seconds = 10
@@ -347,6 +423,9 @@ def test_run_daemon_with_custom_broker():
         patch("time.sleep", side_effect=KeyboardInterrupt),
     ):  # Stop the loop
         mock_settings = MagicMock()
+        mock_settings.config_error = None
+        mock_settings.provider_name = "test"
+        mock_settings.log_level = "INFO"
         mock_settings.cloud_base_url = "https://example.com"
         mock_settings.broker_url = "tcp://localhost:1883"
         mock_settings.request_period_seconds = 10
@@ -375,6 +454,9 @@ def test_run_daemon_event_loop_with_timeout():
         patch("time.sleep"),
     ):
         mock_settings = MagicMock()
+        mock_settings.config_error = None
+        mock_settings.provider_name = "test"
+        mock_settings.log_level = "INFO"
         mock_settings.cloud_base_url = "https://example.com"
         mock_settings.broker_url = "tcp://localhost:1883"
         mock_settings.request_period_seconds = 10
@@ -408,6 +490,9 @@ def test_run_daemon_event_loop_with_exception(mock_mqtt_cloud_agent):
         patch("time.sleep"),
     ):
         mock_settings = MagicMock()
+        mock_settings.config_error = None
+        mock_settings.provider_name = "test"
+        mock_settings.log_level = "INFO"
         mock_settings.cloud_base_url = "https://example.com"
         mock_settings.broker_url = "tcp://localhost:1883"
         mock_settings.request_period_seconds = 10
@@ -431,3 +516,87 @@ def test_run_daemon_event_loop_with_exception(mock_mqtt_cloud_agent):
             call for call in mock_mqtt_cloud_agent.publish_ctrl.call_args_list if call[0][0] == "status"
         ]
         assert len(status_calls) >= 2
+
+
+def test_wait_for_usable_config_holds_until_the_config_is_usable():
+    settings = MagicMock()
+    settings.config_error = "is empty"
+    settings.request_period_seconds = 10
+    settings.log_level = "INFO"
+    settings.reload_config.side_effect = lambda: setattr(settings, "config_error", None)
+    mqtt = MagicMock()
+
+    with patch("time.sleep") as mock_sleep:
+        wait_for_usable_config(settings, mqtt)
+
+    mock_sleep.assert_called_once_with(10)
+    mqtt.publish_ctrl.assert_called_once_with("status", "Broken configuration")
+
+
+def test_wait_for_usable_config_publishes_through_a_stopped_network_loop(held_settings, held_agent):
+    held_settings.reload_config.side_effect = lambda: setattr(held_settings, "config_error", None)
+    held_agent.start(update_status=True)
+    held_agent.client.stop_network_loop()
+
+    with patch("time.sleep"):
+        wait_for_usable_config(held_settings, held_agent)
+
+    assert ("/devices/test/controls/status", "Broken configuration", True) in held_agent.client.delivered
+
+
+def test_wait_for_usable_config_republishes_after_the_network_loop_stops(held_settings, held_agent):
+    cycles = count(1)
+
+    def reload_config():
+        if next(cycles) > 1:
+            held_settings.config_error = None
+
+    held_settings.reload_config.side_effect = reload_config
+    held_agent.start(update_status=True)
+
+    with patch("time.sleep", side_effect=lambda _: held_agent.client.stop_network_loop()):
+        wait_for_usable_config(held_settings, held_agent)
+
+    statuses = [value for topic, value, _ in held_agent.client.delivered if topic.endswith("/status")]
+    assert statuses == ["starting", "Broken configuration", "Broken configuration"]
+
+
+def test_run_daemon_makes_no_cloud_requests_with_a_broken_config(mock_mqtt_cloud_agent):
+    options = Namespace(provider_name="test", broker=None)
+
+    with (
+        patch("wb.cloud_agent.commands.configure_app") as mock_config,
+        patch("wb.cloud_agent.commands.wait_for_cloud_reachable") as mock_wait,
+        patch("wb.cloud_agent.commands.drop_broken_tunnel_config") as mock_drop,
+        patch("time.sleep", side_effect=KeyboardInterrupt),
+    ):
+        mock_settings = MagicMock()
+        mock_settings.config_error = "is empty"
+        mock_config.return_value = mock_settings
+
+        with pytest.raises(KeyboardInterrupt):
+            run_daemon(options)
+
+        mock_wait.assert_not_called()
+        mock_mqtt_cloud_agent.publish_vdev.assert_called_once()
+        mock_drop.assert_called_once_with(mock_settings)
+
+
+def test_wait_for_usable_config_applies_the_log_level_of_the_restored_config(cloud_dirs):
+    config_dir = cloud_dirs.providers / "mycloud"
+    config_dir.mkdir(parents=True)
+    config_file = config_dir / "wb-cloud-agent.conf"
+    config_file.write_text("{broken")
+    restored = json.dumps({"CLOUD_BASE_URL": "https://mycloud", "LOG_LEVEL": "DEBUG"})
+
+    log = io.StringIO()
+    with (
+        patch("sys.stderr", log),
+        patch("time.sleep", side_effect=lambda _: config_file.write_text(restored)),
+    ):
+        settings = configure_app(provider_name="mycloud", recover_configs=True)
+        wait_for_usable_config(settings, MagicMock())
+        logging.debug("Sending event request")
+
+    assert settings.log_level == "DEBUG"
+    assert "Sending event request" in log.getvalue()

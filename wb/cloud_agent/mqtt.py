@@ -31,6 +31,23 @@ class MQTTCloudAgent:
         if update_status:
             self.publish_ctrl("status", "starting")
 
+    def ensure_running(self) -> None:
+        """Reconnect when the network loop has stopped: without it publishes and keepalives are lost."""
+        if self._network_loop_alive():
+            return
+
+        self.was_disconnected = True
+        self.client.loop_stop()
+        try:
+            self.client.start()
+        except Exception as exc:  # pylint:disable=broad-exception-caught
+            logging.error("Error restarting MQTT client: %s", exc)
+
+    def _network_loop_alive(self) -> bool:
+        # paho keeps the loop thread in client._thread on both 1.5.x (bullseye) and 2.x (trixie).
+        thread = self.client._thread  # pylint:disable=protected-access
+        return thread is not None and thread.is_alive()
+
     def _on_connect(self, _client, _userdata, _flags, reason_code, *_):
         # 0: Connection successful
         if reason_code != 0:
@@ -43,7 +60,8 @@ class MQTTCloudAgent:
                 for control, value in self.controls.items():
                     self.publish_ctrl(control, value)
 
-                self.publish_providers(self.providers)
+                if self.providers is not None:
+                    self.publish_providers(self.providers)
 
             self.client.subscribe("/devices/system/controls/HW Revision", qos=2)
 

@@ -1,3 +1,9 @@
+wb-cloud-agent (1.8.3) stable; urgency=medium
+
+  * Restore a missing, empty or corrupted provider config instead of stopping the service.
+
+ -- Denis Smagin <denis.smagin@wirenboard.com>  Fri, 04 Sep 2026 23:50:00 +0300
+
 wb-cloud-agent (1.8.2) stable; urgency=medium
 
   * Fix package removal when mosquitto is stopped

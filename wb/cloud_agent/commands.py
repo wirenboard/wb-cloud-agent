@@ -18,11 +18,15 @@ from wb.cloud_agent.mqtt import MQTTCloudAgent
 from wb.cloud_agent.services.activation import read_activation_link
 from wb.cloud_agent.services.lifecycle import stop_services_and_del_configs
 from wb.cloud_agent.services.metrics import reconcile_metrics_script
+from wb.cloud_agent.services.tunnel import drop_broken_tunnel_config
 from wb.cloud_agent.settings import (
+    AppSettings,
     configure_app,
     generate_provider_config,
     get_provider_names,
     load_providers_data,
+    save_last_good_config,
+    setup_log,
 )
 from wb.cloud_agent.utils import (
     handle_connection_state,
@@ -57,7 +61,8 @@ def add_provider(options) -> int:
 
     existing_providers = load_providers_data(providers)
     if any(
-        normalize_base_url(provider.config["CLOUD_BASE_URL"]) == base_url for provider in existing_providers
+        normalize_base_url(provider.config.get("CLOUD_BASE_URL", "")) == base_url
+        for provider in existing_providers
     ):
         print(f"Provider with URL {base_url} already exists")
         return 1
@@ -119,14 +124,36 @@ def del_controller_from_cloud(options) -> int:
     return event_delete_controller(settings)
 
 
+def wait_for_usable_config(settings: AppSettings, mqtt: MQTTCloudAgent) -> None:
+    """Hold the daemon until the provider config is usable, then apply the log level it carries."""
+    while settings.config_error:
+        mqtt.ensure_running()
+        mqtt.publish_ctrl("status", "Broken configuration")
+        time.sleep(settings.request_period_seconds)
+        settings.reload_config()
+
+    setup_log(settings.log_level)
+
+
 def run_daemon(options) -> Optional[int]:
-    settings = configure_app(provider_name=options.provider_name)
+    settings = configure_app(provider_name=options.provider_name, recover_configs=True)
     settings.broker_url = options.broker or settings.broker_url
     logging.info(
         "====== Cloud Agent started (version: %s, provider: %s) ======",
         agent_package_version,
-        settings.cloud_base_url,
+        settings.provider_name,
     )
+
+    mqtt = MQTTCloudAgent(settings, on_message)
+    try:
+        mqtt.start(update_status=True)
+    except Exception as exc:  # pylint:disable=broad-exception-caught
+        logging.error("Error starting MQTT client: %s", exc)
+
+    mqtt.publish_vdev()
+    drop_broken_tunnel_config(settings)
+    wait_for_usable_config(settings, mqtt)
+    save_last_good_config(settings.provider_name)
 
     try:
         wait_for_cloud_reachable(settings.cloud_base_url, settings.ping_period_seconds)
@@ -134,12 +161,6 @@ def run_daemon(options) -> Optional[int]:
         logging.error(str(exc))
         logging.debug("Cloud reachability failure details", exc_info=exc)
         return 1
-
-    mqtt = MQTTCloudAgent(settings, on_message)
-    try:
-        mqtt.start(update_status=True)
-    except Exception as exc:  # pylint:disable=broad-exception-caught
-        logging.error("Error starting MQTT client: %s", exc)
 
     try:
         make_start_up_request(settings, mqtt)
@@ -149,7 +170,6 @@ def run_daemon(options) -> Optional[int]:
         return 1
 
     mqtt.update_providers_list()
-    mqtt.publish_vdev()
     mqtt.publish_ctrl("activation_link", read_activation_link(settings))
     mqtt.publish_ctrl("cloud_base_url", settings.cloud_base_url)
     mqtt.publish_ctrl("status", "connecting")
@@ -158,6 +178,11 @@ def run_daemon(options) -> Optional[int]:
 
     logging.info("Cloud Agent initialization - OK")
 
+    run_event_loop(settings, mqtt)
+    return None
+
+
+def run_event_loop(settings: AppSettings, mqtt: MQTTCloudAgent) -> None:
     with ExitStack() as stack:
         stack.callback(mqtt.remove_vdev)
         was_connected = False

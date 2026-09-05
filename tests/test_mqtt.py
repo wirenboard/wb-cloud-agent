@@ -58,6 +58,34 @@ def test_start_with_update_status(mqtt_cloud_agent, settings):
     )
 
 
+def test_ensure_running_keeps_a_live_network_loop(mqtt_cloud_agent):
+    mqtt_cloud_agent.client._thread.is_alive.return_value = True
+
+    mqtt_cloud_agent.ensure_running()
+
+    mqtt_cloud_agent.client.start.assert_not_called()
+
+
+def test_ensure_running_republishes_the_vdev_on_the_next_connect(mqtt_cloud_agent):
+    mqtt_cloud_agent.client._thread = None
+
+    mqtt_cloud_agent.ensure_running()
+
+    mqtt_cloud_agent.client.start.assert_called_once()
+    with patch.object(mqtt_cloud_agent, "publish_vdev") as mock_publish_vdev:
+        mqtt_cloud_agent._on_connect(None, None, None, 0)
+    mock_publish_vdev.assert_called_once()
+
+
+def test_ensure_running_survives_an_unreachable_broker(mqtt_cloud_agent, caplog):
+    mqtt_cloud_agent.client._thread = None
+    mqtt_cloud_agent.client.start.side_effect = ConnectionRefusedError("broker is down")
+
+    mqtt_cloud_agent.ensure_running()
+
+    assert "broker is down" in caplog.text
+
+
 def test_on_connect_successful(mqtt_cloud_agent):
     mqtt_cloud_agent._on_connect(None, None, None, 0)
 
@@ -97,6 +125,15 @@ def test_on_connect_after_disconnect(mqtt_cloud_agent, settings):
     ]
     for expected_call in expected_calls:
         assert expected_call in mqtt_cloud_agent.client.publish.call_args_list
+
+
+def test_reconnect_keeps_an_unknown_providers_list(mqtt_cloud_agent):
+    mqtt_cloud_agent.was_disconnected = True
+
+    with patch.object(mqtt_cloud_agent, "publish_providers") as mock_publish_providers:
+        mqtt_cloud_agent._on_connect(None, None, None, 0)
+
+    mock_publish_providers.assert_not_called()
 
 
 def test_on_message(mqtt_cloud_agent):

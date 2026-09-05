@@ -1,10 +1,11 @@
 import json
 import logging
+import os
 import subprocess
-import sys
+from datetime import datetime, timezone
 from functools import cache
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable, Optional
 from urllib.parse import urljoin
 
 from tabulate import tabulate
@@ -12,6 +13,10 @@ from tabulate import tabulate
 if TYPE_CHECKING:
     from wb.cloud_agent.mqtt import MQTTCloudAgent
     from wb.cloud_agent.settings import Provider
+
+
+class ConfigError(Exception):
+    """A config file is missing, empty, unreadable or not a JSON object."""
 
 
 @cache
@@ -28,23 +33,82 @@ def get_controller_url(base_url: str) -> str:
     return urljoin(normalize_base_url(base_url), f"controllers/{ctrl_serial_number}")
 
 
-def read_json_config(config_path: Path) -> dict[str, str]:
-    data = config_path.read_text(encoding="utf-8")
+def _parse_json_config(config_path: Path) -> dict[str, str]:
+    """Return the config object, or raise ConfigError describing why the file is unusable."""
     try:
-        return json.loads(data)
-    except json.JSONDecodeError:
-        print(f"Error parsing JSON in: {config_path}")
-        sys.exit(6)
+        data = config_path.read_text(encoding="utf-8")
+    except FileNotFoundError as exc:
+        raise ConfigError("is missing") from exc
+    except (OSError, UnicodeDecodeError) as exc:
+        raise ConfigError(f"cannot be read ({exc})") from exc
+
+    if not data.strip():
+        raise ConfigError("is empty")
+
+    try:
+        conf = json.loads(data)
+    except json.JSONDecodeError as exc:
+        raise ConfigError(f"is not valid JSON ({exc})") from exc
+
+    if not isinstance(conf, dict):
+        raise ConfigError("is not a JSON object")
+    return conf
+
+
+def read_json_config(config_path: Path, rebuild: Optional[Callable[[str], dict]] = None) -> dict[str, str]:
+    """Parse a JSON config, delegating to rebuild(reason) when the file cannot be used."""
+    try:
+        return _parse_json_config(config_path)
+    except ConfigError as exc:
+        if rebuild is None:
+            raise
+        return rebuild(str(exc))
 
 
 def read_plaintext_config(config_path: Path) -> str:
-    with config_path.open("r", encoding="utf-8") as f:
-        return f.readline().strip()
+    """Return the first line, or an empty string when the file is missing or unreadable."""
+    try:
+        with config_path.open("r", encoding="utf-8") as f:
+            return f.readline().strip()
+    except FileNotFoundError:
+        return ""
+    except (OSError, UnicodeDecodeError) as exc:
+        logging.warning("Cannot read %s: %s, treating the value as unknown", config_path, exc)
+        return ""
 
 
 def write_to_file(fpath: Path, contents: str) -> None:
+    """Write atomically: a power cut leaves either the old file or the new one, never a truncated one."""
     fpath.parent.mkdir(parents=True, exist_ok=True)
-    fpath.write_text(contents, encoding="utf-8")
+    # Same directory, pid-suffixed: concurrent provider instances cannot collide on it.
+    tmp_path = fpath.with_name(f".{fpath.name}.tmp.{os.getpid()}")
+    try:
+        with tmp_path.open("w", encoding="utf-8") as f:
+            f.write(contents)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, fpath)
+    finally:
+        tmp_path.unlink(missing_ok=True)
+
+    dir_fd = os.open(fpath.parent, os.O_RDONLY)
+    try:
+        os.fsync(dir_fd)
+    finally:
+        os.close(dir_fd)
+
+
+def quarantine_broken_file(fpath: Path) -> Optional[Path]:
+    """Move a broken file aside before it is overwritten; empty files are dropped, they preserve nothing."""
+    try:
+        if not fpath.is_file() or fpath.stat().st_size == 0:
+            return None
+        quarantined = fpath.with_name(f"{fpath.name}.broken-{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}")
+        os.replace(fpath, quarantined)
+        return quarantined
+    except OSError as exc:
+        logging.warning("Cannot preserve broken file %s: %s", fpath, exc)
+        return None
 
 
 def start_and_enable_service(service: str, restart: bool = False, timeout: int = 120) -> None:
