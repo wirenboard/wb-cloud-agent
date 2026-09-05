@@ -12,9 +12,9 @@ from wb.cloud_agent.commands import (
     del_all_providers,
     del_controller_from_cloud,
     del_provider,
-    prepare_provider_files,
     run_daemon,
     show_providers,
+    wait_for_usable_config,
 )
 from wb.cloud_agent.handlers.curl import CloudNetworkError
 
@@ -442,32 +442,27 @@ def test_run_daemon_event_loop_with_exception(mock_mqtt_cloud_agent):
         assert len(status_calls) >= 2
 
 
-def test_prepare_provider_files_holds_until_the_config_is_usable():
+def test_wait_for_usable_config_holds_until_the_config_is_usable():
     settings = MagicMock()
     settings.config_error = "is empty"
-    settings.provider_name = "test"
     settings.request_period_seconds = 10
     settings.reload_config.side_effect = lambda: setattr(settings, "config_error", None)
     mqtt = MagicMock()
 
-    with (
-        patch("time.sleep") as mock_sleep,
-        patch("wb.cloud_agent.commands.save_last_good_config"),
-        patch("wb.cloud_agent.commands.drop_broken_tunnel_config"),
-    ):
-        prepare_provider_files(settings, mqtt)
+    with patch("time.sleep") as mock_sleep:
+        wait_for_usable_config(settings, mqtt)
 
     mock_sleep.assert_called_once_with(10)
-    mqtt.publish_ctrl.assert_called_once_with("status", "Broken configuration: is empty")
+    mqtt.publish_ctrl.assert_called_once_with("status", "Broken configuration")
 
 
-@pytest.mark.usefixtures("mock_mqtt_cloud_agent")
-def test_run_daemon_makes_no_cloud_requests_with_a_broken_config():
+def test_run_daemon_makes_no_cloud_requests_with_a_broken_config(mock_mqtt_cloud_agent):
     options = Namespace(provider_name="test", broker=None)
 
     with (
         patch("wb.cloud_agent.commands.configure_app") as mock_config,
         patch("wb.cloud_agent.commands.wait_for_cloud_reachable") as mock_wait,
+        patch("wb.cloud_agent.commands.drop_broken_tunnel_config") as mock_drop,
         patch("time.sleep", side_effect=KeyboardInterrupt),
     ):
         mock_settings = MagicMock()
@@ -478,3 +473,5 @@ def test_run_daemon_makes_no_cloud_requests_with_a_broken_config():
             run_daemon(options)
 
         mock_wait.assert_not_called()
+        mock_mqtt_cloud_agent.publish_vdev.assert_called_once()
+        mock_drop.assert_called_once_with(mock_settings)

@@ -122,15 +122,12 @@ def del_controller_from_cloud(options) -> int:
     return event_delete_controller(settings)
 
 
-def prepare_provider_files(settings: AppSettings, mqtt: MQTTCloudAgent) -> None:
-    """Hold the daemon until the provider config is usable, then refresh what is derived from it."""
+def wait_for_usable_config(settings: AppSettings, mqtt: MQTTCloudAgent) -> None:
+    """Hold the daemon, re-reading the provider config every cycle, until it becomes usable."""
     while settings.config_error:
-        mqtt.publish_ctrl("status", f"Broken configuration: {settings.config_error}")
+        mqtt.publish_ctrl("status", "Broken configuration")
         time.sleep(settings.request_period_seconds)
         settings.reload_config()
-
-    save_last_good_config(settings.provider_name)
-    drop_broken_tunnel_config(settings)
 
 
 def run_daemon(options) -> Optional[int]:
@@ -139,7 +136,7 @@ def run_daemon(options) -> Optional[int]:
     logging.info(
         "====== Cloud Agent started (version: %s, provider: %s) ======",
         agent_package_version,
-        settings.cloud_base_url,
+        settings.provider_name,
     )
 
     mqtt = MQTTCloudAgent(settings, on_message)
@@ -148,7 +145,10 @@ def run_daemon(options) -> Optional[int]:
     except Exception as exc:  # pylint:disable=broad-exception-caught
         logging.error("Error starting MQTT client: %s", exc)
 
-    prepare_provider_files(settings, mqtt)
+    mqtt.publish_vdev()
+    drop_broken_tunnel_config(settings)
+    wait_for_usable_config(settings, mqtt)
+    save_last_good_config(settings.provider_name)
 
     try:
         wait_for_cloud_reachable(settings.cloud_base_url, settings.ping_period_seconds)
@@ -165,7 +165,6 @@ def run_daemon(options) -> Optional[int]:
         return 1
 
     mqtt.update_providers_list()
-    mqtt.publish_vdev()
     mqtt.publish_ctrl("activation_link", read_activation_link(settings))
     mqtt.publish_ctrl("cloud_base_url", settings.cloud_base_url)
     mqtt.publish_ctrl("status", "connecting")
