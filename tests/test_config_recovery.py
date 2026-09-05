@@ -7,8 +7,8 @@ import pytest
 from tests.conftest import PACKAGED_DEFAULT
 from wb.cloud_agent.settings import (
     AppSettings,
+    _looks_like_cloud_host,
     load_providers_data,
-    looks_like_cloud_host,
     save_last_good_config,
 )
 
@@ -184,4 +184,4 @@ def test_save_last_good_config_survives_a_missing_config(cloud_dirs):
     ],
 )
 def test_looks_like_cloud_host(provider_name, expected):
-    assert looks_like_cloud_host(provider_name) is expected
+    assert _looks_like_cloud_host(provider_name) is expected

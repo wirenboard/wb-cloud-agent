@@ -137,12 +137,12 @@ def setup_log(settings: AppSettings) -> None:
 
 
 def generate_provider_config(provider: str, base_url: str) -> None:
-    conf = packaged_default_config()
+    conf = _packaged_default_config()
     conf["CLOUD_BASE_URL"] = normalize_base_url(base_url)
     write_to_file(provider_config_path(provider), json.dumps(conf, indent=4))
 
 
-def packaged_default_config() -> dict[str, str]:
+def _packaged_default_config() -> dict[str, str]:
     """Packaged /etc/wb-cloud-agent.conf, or the built-in defaults when it is damaged too."""
     try:
         return read_json_config(Path(DEFAULT_PROVIDER_CONF_FILE))
@@ -151,23 +151,23 @@ def packaged_default_config() -> dict[str, str]:
         return {"CLIENT_CERT_ENGINE_KEY": AppSettings.client_cert_engine_key}
 
 
-def looks_like_cloud_host(provider_name: str) -> bool:
+def _looks_like_cloud_host(provider_name: str) -> bool:
     """True when the provider directory name is a URL netloc, i.e. add-provider ran without --name."""
     host, _, port = provider_name.partition(":")
     return "." in host.strip(".") and (not port or port.isdigit())
 
 
-def recovery_source(provider_name: str) -> tuple[Optional[dict], str]:
+def _recovery_source(provider_name: str) -> tuple[Optional[dict], str]:
     """Pick the most trustworthy content for a damaged provider config."""
     try:
         return read_json_config(last_good_config_path(provider_name)), "last known good copy"
     except ConfigError:
         pass
 
-    if not looks_like_cloud_host(provider_name):
+    if not _looks_like_cloud_host(provider_name):
         return None, ""
 
-    conf = packaged_default_config()
+    conf = _packaged_default_config()
     conf["CLOUD_BASE_URL"] = f"https://{provider_name}"
     return conf, "packaged default config"
 
@@ -175,7 +175,7 @@ def recovery_source(provider_name: str) -> tuple[Optional[dict], str]:
 def recover_provider_config(provider_name: str, persist: bool, reason: str) -> dict:
     """Rebuild a damaged provider config; raise ConfigError when no trustworthy source is left."""
     config_path = provider_config_path(provider_name)
-    recovered, source = recovery_source(provider_name)
+    recovered, source = _recovery_source(provider_name)
 
     if recovered is None:
         raise ConfigError(
