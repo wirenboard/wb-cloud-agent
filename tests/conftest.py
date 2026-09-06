@@ -67,7 +67,8 @@ def build_mqtt_agent():
 
 
 @pytest.fixture
-def settings():
+def settings(cloud_dirs):  # pylint: disable=redefined-outer-name,unused-argument
+    """Built under cloud_dirs so the host's own provider config cannot decide config_error."""
     return AppSettings(provider_name="default")
 
 
