@@ -132,6 +132,18 @@ def test_failing_handler_is_logged_and_the_network_loop_survives(settings, cert_
     ) in cert_mismatch_agent.client.delivered
 
 
+def test_a_topic_that_is_not_utf8_is_logged_instead_of_killing_the_loop(
+    mqtt_cloud_agent, build_mqtt_message, caplog
+):
+    mqtt_cloud_agent.on_message = MagicMock(side_effect=RuntimeError("handler failed"))
+
+    mqtt_cloud_agent._on_message(
+        None, {"settings": MagicMock()}, build_mqtt_message(b"/devices/\xff", b"6.9.1")
+    )
+
+    assert "Error handling MQTT message" in caplog.text
+
+
 def test_on_connect_failure(mqtt_cloud_agent):
     mqtt_cloud_agent._on_connect(None, None, None, 1)
 

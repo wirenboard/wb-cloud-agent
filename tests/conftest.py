@@ -13,6 +13,18 @@ from wb.cloud_agent.settings import AppSettings
 PACKAGED_DEFAULT = {"LOG_LEVEL": "INFO", "CLIENT_CERT_ENGINE_KEY": "ATECCx08:00:02:C0:00"}
 
 
+class FakeMqttMessage:  # pylint: disable=too-few-public-methods
+    """Paho stand-in: MQTTMessage holds the topic as bytes and decodes it only when read."""
+
+    def __init__(self, topic: bytes, payload: bytes):
+        self._topic = topic
+        self.payload = payload
+
+    @property
+    def topic(self) -> str:
+        return self._topic.decode("utf-8")
+
+
 class FakeMqttClient:
     """Paho stand-in: a publish reaches the broker only while the network loop thread is alive."""
 
@@ -43,7 +55,7 @@ class FakeMqttClient:
         if topic not in self.retained:
             return
         try:
-            self.on_message(self, self.userdata, SimpleNamespace(topic=topic, payload=self.retained[topic]))
+            self.on_message(self, self.userdata, FakeMqttMessage(topic.encode(), self.retained[topic]))
         except Exception:  # pylint:disable=broad-exception-caught
             self._loop_running = False  # paho runs callbacks in the network loop thread
 
@@ -53,6 +65,12 @@ class FakeMqttClient:
     def publish(self, topic, value, retain=False, **_kwargs):
         if self._thread and self._thread.is_alive():
             self.delivered.append((topic, value, retain))
+
+
+@pytest.fixture
+def build_mqtt_message():
+    """Build the message the fake client delivers, from a topic that need not be valid UTF-8."""
+    return FakeMqttMessage
 
 
 @pytest.fixture

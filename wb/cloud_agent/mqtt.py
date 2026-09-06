@@ -90,7 +90,9 @@ class MQTTCloudAgent:
             if self.on_message:
                 self.on_message(userdata, message)
         except Exception:  # pylint:disable=broad-exception-caught
-            logging.exception("Error handling MQTT message on %s", message.topic)
+            # message.topic decodes lazily, so reading it here would raise out of this very guard.
+            topic = message._topic.decode("utf-8", "replace")  # pylint:disable=protected-access
+            logging.exception("Error handling MQTT message on %s", topic)
 
     def _on_disconnect(self, _, __, ___):
         self.was_disconnected = True
