@@ -85,6 +85,93 @@ def test_make_event_request_update_metrics_config(settings):
         mock_confirm.assert_called_once_with(settings, "event789")
 
 
+def test_make_event_request_unbinds_before_confirmation(settings, tmp_path):
+    settings.activation_link_config = tmp_path / "activation_link.conf"
+    settings.activation_link_config.write_text("old-link")
+    event_data = {
+        "id": "event-unbind",
+        "code": "delete_provider",
+        "payload": {},
+    }
+    call_order = []
+
+    with (
+        patch("wb.cloud_agent.handlers.events.do_curl", return_value=(event_data, status.OK)),
+        patch(
+            "wb.cloud_agent.handlers.provider.stop_metrics_health_monitor",
+            side_effect=lambda _: call_order.append("monitor"),
+        ),
+        patch(
+            "wb.cloud_agent.handlers.provider.stop_and_disable_service",
+            side_effect=lambda _: call_order.append("stop"),
+        ),
+        patch(
+            "wb.cloud_agent.handlers.provider.write_activation_link",
+            side_effect=lambda *_: call_order.append("unbind"),
+        ),
+        patch(
+            "wb.cloud_agent.handlers.events.event_confirm",
+            side_effect=lambda *_: call_order.append("confirm"),
+        ),
+    ):
+        make_event_request(settings, MagicMock())
+
+    assert call_order[-1] == "confirm"
+    assert call_order.index("unbind") < call_order.index("confirm")
+
+
+def test_make_event_request_retries_unbind_after_cleanup_failure(settings, tmp_path):
+    settings.activation_link_config = tmp_path / "activation_link.conf"
+    event_data = {
+        "id": "event-unbind",
+        "code": "delete_provider",
+        "payload": {},
+    }
+
+    with (
+        patch("wb.cloud_agent.handlers.events.do_curl", return_value=(event_data, status.OK)),
+        patch("wb.cloud_agent.handlers.provider.stop_metrics_health_monitor"),
+        patch(
+            "wb.cloud_agent.handlers.provider.stop_and_disable_service",
+            side_effect=RuntimeError("service manager unavailable"),
+        ),
+        patch("wb.cloud_agent.handlers.events.event_confirm") as mock_confirm,
+    ):
+        with pytest.raises(RuntimeError, match="service manager unavailable"):
+            make_event_request(settings, MagicMock())
+
+    mock_confirm.assert_not_called()
+
+
+def test_make_event_request_retries_partial_unbind_cleanup(settings, tmp_path):
+    settings.activation_link_config = tmp_path / "activation_link.conf"
+    settings.activation_link_config.write_text("old-link")
+    event_data = {
+        "id": "event-unbind",
+        "code": "delete_provider",
+        "payload": {},
+    }
+    mock_confirm = MagicMock()
+
+    with (
+        patch("wb.cloud_agent.handlers.events.do_curl", return_value=(event_data, status.OK)),
+        patch("wb.cloud_agent.handlers.provider.stop_metrics_health_monitor"),
+        patch(
+            "wb.cloud_agent.handlers.provider.stop_and_disable_service",
+            side_effect=[None, RuntimeError("metrics service unavailable"), None, None],
+        ) as mock_stop,
+        patch("wb.cloud_agent.handlers.events.event_confirm", mock_confirm),
+    ):
+        with pytest.raises(RuntimeError, match="metrics service unavailable"):
+            make_event_request(settings, MagicMock())
+
+        make_event_request(settings, MagicMock())
+
+    assert mock_stop.call_count == 4
+    mock_confirm.assert_called_once_with(settings, "event-unbind")
+    assert settings.activation_link_config.read_text() == "unknown"
+
+
 def test_make_event_request_confirms_failed_metrics_config(settings):
     event_data = {
         "id": "event789",

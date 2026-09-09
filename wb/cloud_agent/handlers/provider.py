@@ -1,7 +1,14 @@
 import logging
+import shutil
 
-from wb.cloud_agent.constants import APP_DATA_PROVIDERS_DIR, PROVIDERS_CONF_DIR
+from wb.cloud_agent.constants import (
+    APP_DATA_PROVIDERS_DIR,
+    PROVIDERS_CONF_DIR,
+    UNKNOWN_LINK,
+)
 from wb.cloud_agent.mqtt import MQTTCloudAgent
+from wb.cloud_agent.services.activation import write_activation_link
+from wb.cloud_agent.services.metrics import stop_metrics_health_monitor
 from wb.cloud_agent.settings import AppSettings, delete_provider_config
 from wb.cloud_agent.utils import stop_and_disable_service
 
@@ -22,3 +29,19 @@ def delete_provider(settings: AppSettings, _: dict, __: MQTTCloudAgent) -> None:
     logging.info("Provider %s successfully deleted", settings.provider_name)
 
     stop_and_disable_service(f"wb-cloud-agent@{settings.provider_name}.service")
+
+
+def unbind_provider(settings: AppSettings, _: dict, mqtt: MQTTCloudAgent) -> None:
+    """Stop cloud access and clear provider runtime state while keeping its identity."""
+    logging.debug("Unbinding provider: %s", settings.provider_name)
+
+    stop_metrics_health_monitor(settings.provider_name)
+    stop_and_disable_service(settings.frp_service)
+    stop_and_disable_service(settings.metrics_service)
+
+    runtime_dir = settings.activation_link_config.parent
+    if runtime_dir.exists():
+        shutil.rmtree(runtime_dir)
+
+    write_activation_link(settings, UNKNOWN_LINK, mqtt)
+    logging.info("Provider %s successfully unbound", settings.provider_name)

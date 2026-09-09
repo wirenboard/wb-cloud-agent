@@ -38,6 +38,13 @@ _monitor_threads: dict[str, threading.Thread] = {}
 _monitor_stop_events: dict[str, threading.Event] = {}
 
 
+def stop_metrics_health_monitor(provider_name: str) -> None:
+    stop_event = _monitor_stop_events.pop(provider_name, None)
+    if stop_event is not None:
+        stop_event.set()
+    _monitor_threads.pop(provider_name, None)
+
+
 def _safe_stop_and_disable_service(service: str) -> None:
     try:
         stop_and_disable_service(service)
@@ -288,7 +295,7 @@ def reconcile_metrics_script(settings: AppSettings) -> None:
 def update_metrics_config(settings: AppSettings, payload: dict, mqtt: MQTTCloudAgent) -> None:
     if payload.get("enabled") is False:
         logging.info("Disabling metrics collection for provider %s", settings.provider_name)
-        _monitor_stop_events.pop(settings.provider_name, threading.Event()).set()
+        stop_metrics_health_monitor(settings.provider_name)
         _safe_stop_and_disable_service(settings.metrics_service)
         write_activation_link(settings, UNKNOWN_LINK, mqtt)
         return
@@ -317,9 +324,10 @@ def update_metrics_config(settings: AppSettings, payload: dict, mqtt: MQTTCloudA
     write_activation_link(settings, UNKNOWN_LINK, mqtt)
 
     existing = _monitor_threads.get(settings.provider_name)
-    if existing is not None and existing.is_alive():
-        logging.info("Restarting metrics health monitor for provider %s", settings.provider_name)
-        _monitor_stop_events[settings.provider_name].set()
+    if existing is not None:
+        if existing.is_alive():
+            logging.info("Restarting metrics health monitor for provider %s", settings.provider_name)
+        stop_metrics_health_monitor(settings.provider_name)
 
     stop_event = threading.Event()
     thread = threading.Thread(
