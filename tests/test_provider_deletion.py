@@ -99,16 +99,18 @@ def test_unbind_provider_preserves_identity_and_clears_runtime(settings, tmp_pat
     settings.metrics_last_uid = runtime_dir / "metrics_last_uid"
     settings.activation_link_config = runtime_dir / "activation_link.conf"
     connection_token = runtime_dir / "connection.token"
+    unrelated_runtime_state = runtime_dir / "future-state"
     runtime_dir.mkdir(parents=True)
-    for path in (
-        settings.frp_config,
-        settings.metrics_script,
-        settings.metrics_vars_config,
-        settings.metrics_last_uid,
-        settings.activation_link_config,
-        connection_token,
+    for attribute in (
+        "frp_config",
+        "metrics_script",
+        "metrics_vars_config",
+        "metrics_last_uid",
+        "activation_link_config",
     ):
-        path.write_text("stale runtime state")
+        getattr(settings, attribute).write_text("stale runtime state")
+    connection_token.write_text("stale runtime state")
+    unrelated_runtime_state.write_text("preserve this state")
 
     with (
         patch("wb.cloud_agent.handlers.provider.stop_and_disable_service") as mock_stop,
@@ -127,6 +129,7 @@ def test_unbind_provider_preserves_identity_and_clears_runtime(settings, tmp_pat
     assert not settings.metrics_vars_config.exists()
     assert not settings.metrics_last_uid.exists()
     assert not connection_token.exists()
+    assert unrelated_runtime_state.read_text() == "preserve this state"
 
     assert mock_monitor.call_count == 2
     assert mock_stop.call_count == 4

@@ -1,5 +1,4 @@
 import logging
-import shutil
 
 from wb.cloud_agent.constants import (
     APP_DATA_PROVIDERS_DIR,
@@ -40,8 +39,15 @@ def unbind_provider(settings: AppSettings, _: dict, mqtt: MQTTCloudAgent) -> Non
     stop_and_disable_service(settings.metrics_service)
 
     runtime_dir = settings.activation_link_config.parent
-    if runtime_dir.exists():
-        shutil.rmtree(runtime_dir)
+    for runtime_file in (
+        settings.frp_config,
+        settings.metrics_script,
+        settings.metrics_vars_config,
+        settings.metrics_last_uid,
+        settings.activation_link_config,
+        runtime_dir / "connection.token",
+    ):
+        runtime_file.unlink(missing_ok=True)
 
     write_activation_link(settings, UNKNOWN_LINK, mqtt)
     logging.info("Provider %s successfully unbound", settings.provider_name)
