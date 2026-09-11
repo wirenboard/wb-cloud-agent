@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from wb.cloud_agent.constants import UNKNOWN_LINK
+from wb.cloud_agent.services import metrics
 from wb.cloud_agent.services.activation import (
     read_activation_link,
     update_activation_link,
@@ -19,6 +20,7 @@ from wb.cloud_agent.services.metrics import (
     _report_metrics_health,
     reconcile_metrics_script,
     render_metrics_script,
+    stop_metrics_health_monitor,
     update_metrics_config,
 )
 from wb.cloud_agent.services.tunnel import update_tunnel_config
@@ -90,6 +92,28 @@ def test_update_metrics_config_disabled(settings):
 
         mock_stop.assert_called_once_with(settings.metrics_service)
         mock_write.assert_called_once_with(settings, UNKNOWN_LINK, mock_mqtt)
+
+
+def test_stop_metrics_health_monitor_signals_and_forgets_monitor(settings):
+    stop_event = threading.Event()
+    thread = MagicMock()
+
+    with (
+        patch.dict(
+            "wb.cloud_agent.services.metrics._monitor_threads",
+            {settings.provider_name: thread},
+            clear=True,
+        ),
+        patch.dict(
+            "wb.cloud_agent.services.metrics._monitor_stop_events",
+            {settings.provider_name: stop_event},
+            clear=True,
+        ),
+    ):
+        stop_metrics_health_monitor(settings.provider_name)
+        assert stop_event.is_set()
+        assert settings.provider_name not in getattr(metrics, "_monitor_threads")
+        assert settings.provider_name not in getattr(metrics, "_monitor_stop_events")
 
 
 def test_update_metrics_config_without_vars_fails_before_confirm(settings):
