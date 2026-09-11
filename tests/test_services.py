@@ -15,13 +15,17 @@ from wb.cloud_agent.services.activation import (
 from wb.cloud_agent.services.diagnostics import fetch_diagnostics
 from wb.cloud_agent.services.metrics import (
     _collect_service_journal,
+    _load_vars_conf,
     _monitor_metrics_service,
     _report_metrics_health,
     reconcile_metrics_script,
     render_metrics_script,
     update_metrics_config,
 )
-from wb.cloud_agent.services.tunnel import update_tunnel_config
+from wb.cloud_agent.services.tunnel import (
+    drop_broken_tunnel_config,
+    update_tunnel_config,
+)
 
 
 def test_read_activation_link_exists(settings, tmp_path):
@@ -35,6 +39,15 @@ def test_read_activation_link_exists(settings, tmp_path):
 
 def test_read_activation_link_not_exists(settings, tmp_path):
     settings.activation_link_config = tmp_path / "nonexistent.txt"
+
+    link = read_activation_link(settings)
+
+    assert link == UNKNOWN_LINK
+
+
+def test_read_activation_link_unreadable(settings, tmp_path):
+    settings.activation_link_config = tmp_path / "activation_link.txt"
+    settings.activation_link_config.write_bytes(b"\xff\xfe junk")
 
     link = read_activation_link(settings)
 
@@ -77,6 +90,41 @@ def test_update_tunnel_config(settings, tmp_path):
         assert settings.frp_config.read_text() == "[common]\nserver_addr = 1.2.3.4"
         mock_service.assert_called_once_with(settings.frp_service, restart=True)
         mock_write.assert_called_once_with(settings, UNKNOWN_LINK, mock_mqtt)
+
+
+def test_drop_broken_tunnel_config_removes_an_empty_file(settings, tmp_path):
+    settings.frp_config = tmp_path / "frpc.conf"
+    settings.frp_config.write_text("")
+
+    drop_broken_tunnel_config(settings)
+
+    assert not settings.frp_config.exists()
+
+
+def test_drop_broken_tunnel_config_keeps_a_usable_file(settings, tmp_path):
+    settings.frp_config = tmp_path / "frpc.conf"
+    settings.frp_config.write_text("[common]\nserver_addr = 1.2.3.4")
+
+    drop_broken_tunnel_config(settings)
+
+    assert settings.frp_config.exists()
+
+
+def test_drop_broken_tunnel_config_without_a_file(settings, tmp_path):
+    settings.frp_config = tmp_path / "frpc.conf"
+
+    drop_broken_tunnel_config(settings)
+
+    assert not settings.frp_config.exists()
+
+
+def test_metrics_vars_conf_tolerates_a_damaged_file(cloud_vars_settings):
+    cloud_vars_settings.metrics_vars_config.write_text("{not json")
+
+    assert _load_vars_conf(cloud_vars_settings) is None
+
+    cloud_vars_settings.metrics_vars_config.write_text("")
+    assert _load_vars_conf(cloud_vars_settings) is None
 
 
 def test_update_metrics_config_disabled(settings):

@@ -4,7 +4,7 @@ Wants=network-online.target mosquitto.service
 After=network-online.target mosquitto.service
 StartLimitIntervalSec=3600
 StartLimitBurst=100
-ConditionPathExistsGlob=/etc/wb-cloud-agent/providers/%i/*.conf
+ConditionPathIsDirectory=/etc/wb-cloud-agent/providers/%i
 
 [Service]
 ExecStartPre=/usr/lib/wb-cloud-agent/check-certs.sh /etc/wb-cloud-agent/providers/%i/wb-cloud-agent.conf

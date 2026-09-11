@@ -1,15 +1,103 @@
+import json
+import logging
 import sys
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
 
+from wb.cloud_agent.mqtt import MQTTCloudAgent
 from wb.cloud_agent.services import metrics
 from wb.cloud_agent.settings import AppSettings
 
+PACKAGED_DEFAULT = {"LOG_LEVEL": "INFO", "CLIENT_CERT_ENGINE_KEY": "ATECCx08:00:02:C0:00"}
+
+
+class FakeMqttMessage:  # pylint: disable=too-few-public-methods
+    """Paho stand-in: MQTTMessage holds the topic as bytes and decodes it only when read."""
+
+    def __init__(self, topic: bytes, payload: bytes):
+        self._topic = topic
+        self.payload = payload
+
+    @property
+    def topic(self) -> str:
+        return self._topic.decode("utf-8")
+
+
+class FakeMqttClient:
+    """Paho stand-in: a publish reaches the broker only while the network loop thread is alive."""
+
+    def __init__(self, _client_id_prefix, _broker_url=None, userdata=None):
+        self.userdata = userdata or {}
+        self.on_message = lambda *_args: None
+        self.retained = {}
+        self.delivered = []
+        self._thread = None
+        self._loop_running = False
+
+    def start(self):
+        if self._thread is not None:
+            return
+        self._loop_running = True
+        self._thread = SimpleNamespace(is_alive=lambda: self._loop_running)
+
+    def loop_stop(self):
+        self._thread = None
+
+    def stop_network_loop(self):
+        self._loop_running = False
+
+    def will_set(self, *_args, **_kwargs):
+        pass
+
+    def subscribe(self, topic, **_kwargs):
+        if topic not in self.retained:
+            return
+        try:
+            self.on_message(self, self.userdata, FakeMqttMessage(topic.encode(), self.retained[topic]))
+        except Exception:  # pylint:disable=broad-exception-caught
+            self._loop_running = False  # paho runs callbacks in the network loop thread
+
+    def unsubscribe(self, _topic, **_kwargs):
+        pass
+
+    def publish(self, topic, value, retain=False, **_kwargs):
+        if self._thread and self._thread.is_alive():
+            self.delivered.append((topic, value, retain))
+
 
 @pytest.fixture
-def settings():
+def build_mqtt_message():
+    """Build the message the fake client delivers, from a topic that need not be valid UTF-8."""
+    return FakeMqttMessage
+
+
+@pytest.fixture
+def build_mqtt_agent():
+    """Build an MQTTCloudAgent whose client is the paho stand-in."""
+
+    def _build(settings, on_message=None):  # pylint: disable=redefined-outer-name
+        with patch("wb.cloud_agent.mqtt.MQTTClient", FakeMqttClient):
+            return MQTTCloudAgent(settings, on_message)
+
+    return _build
+
+
+@pytest.fixture
+def settings(cloud_dirs):  # pylint: disable=redefined-outer-name,unused-argument
+    """Built under cloud_dirs so the host's own provider config cannot decide config_error."""
     return AppSettings(provider_name="default")
+
+
+@pytest.fixture(autouse=True)
+def _restore_root_logger():
+    """Undo the global logging.basicConfig(force=True) that setup_log runs in the tested code."""
+    root = logging.getLogger()
+    handlers, level = root.handlers[:], root.level
+    yield
+    root.handlers[:] = handlers
+    root.setLevel(level)
 
 
 @pytest.fixture(autouse=True)
@@ -98,3 +186,23 @@ def mock_subprocess(mock_subprocess_run):  # pylint: disable=redefined-outer-nam
         return stdout
 
     return _inner
+
+
+@pytest.fixture
+def cloud_dirs(tmp_path):
+    """Point provider configs, app data and the packaged default at tmp_path."""
+    default_conf = tmp_path / "etc" / "wb-cloud-agent.conf"
+    default_conf.parent.mkdir(parents=True, exist_ok=True)
+    default_conf.write_text(json.dumps(PACKAGED_DEFAULT), encoding="utf-8")
+
+    dirs = SimpleNamespace(
+        providers=tmp_path / "etc" / "providers",
+        data=tmp_path / "var" / "providers",
+        default=default_conf,
+    )
+    with (
+        patch("wb.cloud_agent.settings.PROVIDERS_CONF_DIR", str(dirs.providers)),
+        patch("wb.cloud_agent.settings.APP_DATA_PROVIDERS_DIR", str(dirs.data)),
+        patch("wb.cloud_agent.settings.DEFAULT_PROVIDER_CONF_FILE", str(dirs.default)),
+    ):
+        yield dirs

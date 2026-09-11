@@ -3,6 +3,9 @@ NOCONNECT_LINK = "noconnect"
 
 DEFAULT_PROVIDER_CONF_FILE = "/etc/wb-cloud-agent.conf"
 PROVIDERS_CONF_DIR = "/etc/wb-cloud-agent/providers"
+PROVIDER_CONF_FILE_NAME = "wb-cloud-agent.conf"
+# Verbatim copy of the last provider config that parsed, used to repair a damaged one.
+LAST_GOOD_CONF_SUFFIX = ".last-good"
 
 APP_DATA_DIR = "/var/lib/wb-cloud-agent"
 APP_DATA_PROVIDERS_DIR = f"{APP_DATA_DIR}/providers"
