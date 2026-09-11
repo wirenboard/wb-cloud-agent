@@ -85,8 +85,8 @@ def test_make_event_request_update_metrics_config(settings):
         mock_confirm.assert_called_once_with(settings, "event789")
 
 
-def test_make_event_request_unbinds_before_confirmation(settings, tmp_path):
-    settings.activation_link_config = tmp_path / "activation_link.conf"
+def test_make_event_request_unbinds_before_confirmation(isolated_provider_runtime):
+    settings = isolated_provider_runtime
     settings.activation_link_config.write_text("old-link")
     event_data = {
         "id": "event-unbind",
@@ -120,8 +120,8 @@ def test_make_event_request_unbinds_before_confirmation(settings, tmp_path):
     assert call_order.index("unbind") < call_order.index("confirm")
 
 
-def test_make_event_request_retries_unbind_after_cleanup_failure(settings, tmp_path):
-    settings.activation_link_config = tmp_path / "activation_link.conf"
+def test_make_event_request_retries_unbind_after_cleanup_failure(isolated_provider_runtime):
+    settings = isolated_provider_runtime
     event_data = {
         "id": "event-unbind",
         "code": "delete_provider",
@@ -143,8 +143,8 @@ def test_make_event_request_retries_unbind_after_cleanup_failure(settings, tmp_p
     mock_confirm.assert_not_called()
 
 
-def test_make_event_request_retries_partial_unbind_cleanup(settings, tmp_path):
-    settings.activation_link_config = tmp_path / "activation_link.conf"
+def test_make_event_request_retries_partial_unbind_cleanup(isolated_provider_runtime):
+    settings = isolated_provider_runtime
     settings.activation_link_config.write_text("old-link")
     event_data = {
         "id": "event-unbind",

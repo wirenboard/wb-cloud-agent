@@ -12,6 +12,18 @@ def settings():
     return AppSettings(provider_name="default")
 
 
+@pytest.fixture
+def isolated_provider_runtime(settings, tmp_path):  # pylint: disable=redefined-outer-name
+    runtime_dir = tmp_path / "providers" / settings.provider_name
+    runtime_dir.mkdir(parents=True)
+    settings.frp_config = runtime_dir / "frpc.conf"
+    settings.metrics_script = runtime_dir / "metrics_collector.py"
+    settings.metrics_vars_config = runtime_dir / "metrics_collector.conf"
+    settings.metrics_last_uid = runtime_dir / "metrics_last_uid"
+    settings.activation_link_config = runtime_dir / "activation_link.conf"
+    return settings
+
+
 @pytest.fixture(autouse=True)
 def _clear_metrics_monitor_state():
     # pylint: disable=protected-access

@@ -111,10 +111,9 @@ def test_stop_metrics_health_monitor_signals_and_forgets_monitor(settings):
         ),
     ):
         stop_metrics_health_monitor(settings.provider_name)
-
-    assert stop_event.is_set()
-    assert settings.provider_name not in getattr(metrics, "_monitor_threads")
-    assert settings.provider_name not in getattr(metrics, "_monitor_stop_events")
+        assert stop_event.is_set()
+        assert settings.provider_name not in getattr(metrics, "_monitor_threads")
+        assert settings.provider_name not in getattr(metrics, "_monitor_stop_events")
 
 
 def test_update_metrics_config_without_vars_fails_before_confirm(settings):
