@@ -82,6 +82,20 @@ class AppSettings:  # pylint: disable=too-many-instance-attributes disable=too-f
         self.cloud_base_url = normalize_base_url(self.cloud_base_url)
         self.cloud_agent_url = self.base_url_to_agent_url(self.cloud_base_url)
 
+    @property
+    def runtime_files(self) -> tuple[Path, ...]:
+        """Files removed when cloud access is unbound.
+
+        The activation link is deliberately excluded: unbind_provider replaces it with
+        UNKNOWN_LINK after clearing the other runtime state.
+        """
+        return (
+            self.frp_config,
+            self.metrics_script,
+            self.metrics_vars_config,
+            self.metrics_last_uid,
+        )
+
     def apply_conf_file(self) -> None:
         conf = read_json_config(self.config_file)
 

@@ -1,9 +1,11 @@
+from subprocess import CalledProcessError
 from unittest.mock import MagicMock, call, patch
-
-import pytest
 
 from wb.cloud_agent.constants import UNKNOWN_LINK
 from wb.cloud_agent.handlers.provider import unbind_provider
+from wb.cloud_agent.services.activation import (
+    write_activation_link as write_activation_link_impl,
+)
 
 # pylint: disable=redefined-outer-name  # pytest fixtures pattern
 
@@ -24,10 +26,19 @@ def test_unbind_provider_preserves_identity_and_clears_runtime(isolated_provider
     ):
         getattr(settings, attribute).write_text("stale runtime state")
     unrelated_runtime_state.write_text("preserve this state")
+    link_contents_before_write = []
+
+    def write_activation_link_and_capture(settings, link, mqtt):
+        link_contents_before_write.append(settings.activation_link_config.read_text())
+        write_activation_link_impl(settings, link, mqtt)
 
     with (
-        patch("wb.cloud_agent.handlers.provider.stop_and_disable_service") as mock_stop,
+        patch("wb.cloud_agent.handlers.provider._safe_stop_and_disable_service") as mock_stop,
         patch("wb.cloud_agent.handlers.provider.stop_metrics_health_monitor") as mock_monitor,
+        patch(
+            "wb.cloud_agent.handlers.provider.write_activation_link",
+            side_effect=write_activation_link_and_capture,
+        ),
     ):
         mqtt = MagicMock()
         unbind_provider(settings, {}, mqtt)
@@ -37,6 +48,7 @@ def test_unbind_provider_preserves_identity_and_clears_runtime(isolated_provider
     mqtt.publish_ctrl.assert_any_call("activation_link", UNKNOWN_LINK)
     assert settings.config_file.read_text() == "identity"
     assert settings.activation_link_config.read_text() == UNKNOWN_LINK
+    assert link_contents_before_write == ["stale runtime state", UNKNOWN_LINK]
     assert not settings.frp_config.exists()
     assert not settings.metrics_script.exists()
     assert not settings.metrics_vars_config.exists()
@@ -48,18 +60,19 @@ def test_unbind_provider_preserves_identity_and_clears_runtime(isolated_provider
     assert mqtt.publish_ctrl.call_count == 2
 
 
-def test_unbind_provider_keeps_runtime_when_service_stop_fails(isolated_provider_runtime):
+def test_unbind_provider_continues_after_service_stop_fails(isolated_provider_runtime):
     settings = isolated_provider_runtime
     settings.frp_config.write_text("stale")
+    settings.activation_link_config.write_text("old-link")
 
     with (
         patch(
-            "wb.cloud_agent.handlers.provider.stop_and_disable_service",
-            side_effect=[None, RuntimeError("stop failed")],
+            "wb.cloud_agent.services.metrics.stop_and_disable_service",
+            side_effect=CalledProcessError(1, ["systemctl", "stop"]),
         ),
         patch("wb.cloud_agent.handlers.provider.stop_metrics_health_monitor"),
     ):
-        with pytest.raises(RuntimeError, match="stop failed"):
-            unbind_provider(settings, {}, MagicMock())
+        unbind_provider(settings, {}, MagicMock())
 
-    assert settings.frp_config.exists()
+    assert not settings.frp_config.exists()
+    assert settings.activation_link_config.read_text() == UNKNOWN_LINK

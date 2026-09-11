@@ -3,9 +3,11 @@ import logging
 from wb.cloud_agent.constants import UNKNOWN_LINK
 from wb.cloud_agent.mqtt import MQTTCloudAgent
 from wb.cloud_agent.services.activation import write_activation_link
-from wb.cloud_agent.services.metrics import stop_metrics_health_monitor
+from wb.cloud_agent.services.metrics import (
+    _safe_stop_and_disable_service,
+    stop_metrics_health_monitor,
+)
 from wb.cloud_agent.settings import AppSettings
-from wb.cloud_agent.utils import stop_and_disable_service
 
 
 def unbind_provider(settings: AppSettings, _: dict, mqtt: MQTTCloudAgent) -> None:
@@ -13,16 +15,10 @@ def unbind_provider(settings: AppSettings, _: dict, mqtt: MQTTCloudAgent) -> Non
     logging.debug("Unbinding provider: %s", settings.provider_name)
 
     stop_metrics_health_monitor(settings.provider_name)
-    stop_and_disable_service(settings.frp_service)
-    stop_and_disable_service(settings.metrics_service)
+    _safe_stop_and_disable_service(settings.frp_service)
+    _safe_stop_and_disable_service(settings.metrics_service)
 
-    for runtime_file in (
-        settings.frp_config,
-        settings.metrics_script,
-        settings.metrics_vars_config,
-        settings.metrics_last_uid,
-        settings.activation_link_config,
-    ):
+    for runtime_file in settings.runtime_files:
         runtime_file.unlink(missing_ok=True)
 
     write_activation_link(settings, UNKNOWN_LINK, mqtt)

@@ -1,4 +1,5 @@
 from http import HTTPStatus as status
+from subprocess import CalledProcessError
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -102,7 +103,7 @@ def test_make_event_request_unbinds_before_confirmation(isolated_provider_runtim
             side_effect=lambda _: call_order.append("monitor"),
         ),
         patch(
-            "wb.cloud_agent.handlers.provider.stop_and_disable_service",
+            "wb.cloud_agent.handlers.provider._safe_stop_and_disable_service",
             side_effect=lambda _: call_order.append("stop"),
         ),
         patch(
@@ -120,7 +121,7 @@ def test_make_event_request_unbinds_before_confirmation(isolated_provider_runtim
     assert call_order.index("unbind") < call_order.index("confirm")
 
 
-def test_make_event_request_retries_unbind_after_cleanup_failure(isolated_provider_runtime):
+def test_make_event_request_confirms_unbind_after_systemctl_failure(isolated_provider_runtime):
     settings = isolated_provider_runtime
     event_data = {
         "id": "event-unbind",
@@ -132,44 +133,48 @@ def test_make_event_request_retries_unbind_after_cleanup_failure(isolated_provid
         patch("wb.cloud_agent.handlers.events.do_curl", return_value=(event_data, status.OK)),
         patch("wb.cloud_agent.handlers.provider.stop_metrics_health_monitor"),
         patch(
-            "wb.cloud_agent.handlers.provider.stop_and_disable_service",
-            side_effect=RuntimeError("service manager unavailable"),
+            "wb.cloud_agent.services.metrics.stop_and_disable_service",
+            side_effect=CalledProcessError(1, ["systemctl", "stop"]),
         ),
         patch("wb.cloud_agent.handlers.events.event_confirm") as mock_confirm,
     ):
-        with pytest.raises(RuntimeError, match="service manager unavailable"):
-            make_event_request(settings, MagicMock())
+        make_event_request(settings, MagicMock())
 
-    mock_confirm.assert_not_called()
+    mock_confirm.assert_called_once_with(settings, "event-unbind")
 
 
-def test_make_event_request_retries_partial_unbind_cleanup(isolated_provider_runtime):
+def test_make_event_request_processes_next_event_after_unbind_systemctl_failure(isolated_provider_runtime):
     settings = isolated_provider_runtime
-    settings.activation_link_config.write_text("old-link")
-    event_data = {
+    unbind_event = {
         "id": "event-unbind",
         "code": "delete_provider",
         "payload": {},
     }
-    mock_confirm = MagicMock()
+    update_event = {
+        "id": "event-update",
+        "code": "update_activation_link",
+        "payload": {"activationLink": "https://example.com/activate"},
+    }
 
     with (
-        patch("wb.cloud_agent.handlers.events.do_curl", return_value=(event_data, status.OK)),
+        patch(
+            "wb.cloud_agent.handlers.events.do_curl",
+            side_effect=[(unbind_event, status.OK), (update_event, status.OK)],
+        ),
         patch("wb.cloud_agent.handlers.provider.stop_metrics_health_monitor"),
         patch(
-            "wb.cloud_agent.handlers.provider.stop_and_disable_service",
-            side_effect=[None, RuntimeError("metrics service unavailable"), None, None],
-        ) as mock_stop,
-        patch("wb.cloud_agent.handlers.events.event_confirm", mock_confirm),
+            "wb.cloud_agent.services.metrics.stop_and_disable_service",
+            side_effect=CalledProcessError(1, ["systemctl", "stop"]),
+        ),
+        patch("wb.cloud_agent.handlers.events.event_confirm") as mock_confirm,
     ):
-        with pytest.raises(RuntimeError, match="metrics service unavailable"):
-            make_event_request(settings, MagicMock())
-
+        make_event_request(settings, MagicMock())
         make_event_request(settings, MagicMock())
 
-    assert mock_stop.call_count == 4
-    mock_confirm.assert_called_once_with(settings, "event-unbind")
-    assert settings.activation_link_config.read_text() == "unknown"
+    assert mock_confirm.call_args_list == [
+        ((settings, "event-unbind"),),
+        ((settings, "event-update"),),
+    ]
 
 
 def test_make_event_request_confirms_failed_metrics_config(settings):
