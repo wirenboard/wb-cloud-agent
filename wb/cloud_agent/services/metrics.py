@@ -48,7 +48,7 @@ def stop_metrics_health_monitor(provider_name: str) -> None:
 def _safe_stop_and_disable_service(service: str) -> None:
     try:
         stop_and_disable_service(service)
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as exc:
+    except (subprocess.SubprocessError, OSError) as exc:
         logging.warning("Cannot stop service %s: %s", service, exc)
 
 

@@ -76,3 +76,26 @@ def test_unbind_provider_continues_after_service_stop_fails(isolated_provider_ru
 
     assert not settings.frp_config.exists()
     assert settings.activation_link_config.read_text() == UNKNOWN_LINK
+
+
+def test_unbind_provider_continues_after_systemctl_os_error(isolated_provider_runtime):
+    settings = isolated_provider_runtime
+    for runtime_file in settings.runtime_files:
+        runtime_file.write_text("stale")
+    settings.activation_link_config.write_text("old-link")
+
+    with (
+        patch(
+            "wb.cloud_agent.services.metrics.stop_and_disable_service",
+            side_effect=PermissionError("systemctl is unavailable"),
+        ) as mock_stop,
+        patch("wb.cloud_agent.handlers.provider.stop_metrics_health_monitor"),
+    ):
+        unbind_provider(settings, {}, MagicMock())
+
+    assert mock_stop.call_args_list == [
+        call(settings.frp_service),
+        call(settings.metrics_service),
+    ]
+    assert all(not runtime_file.exists() for runtime_file in settings.runtime_files)
+    assert settings.activation_link_config.read_text() == UNKNOWN_LINK
