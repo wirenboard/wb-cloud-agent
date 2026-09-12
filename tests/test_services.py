@@ -118,6 +118,28 @@ def test_drop_broken_tunnel_config_without_a_file(settings, tmp_path):
     assert not settings.frp_config.exists()
 
 
+def test_drop_broken_tunnel_config_reports_a_directory(settings, tmp_path, caplog):
+    settings.frp_config = tmp_path / "frpc.conf"
+    settings.frp_config.mkdir()
+
+    with caplog.at_level(logging.WARNING):
+        drop_broken_tunnel_config(settings)
+
+    assert settings.frp_config.is_dir()
+    assert "is not a regular file" in caplog.text
+
+
+def test_drop_broken_tunnel_config_removes_a_dangling_symlink(settings, tmp_path, caplog):
+    settings.frp_config = tmp_path / "frpc.conf"
+    settings.frp_config.symlink_to(tmp_path / "missing.conf")
+
+    with caplog.at_level(logging.WARNING):
+        drop_broken_tunnel_config(settings)
+
+    assert not settings.frp_config.is_symlink()
+    assert "cannot be read" in caplog.text
+
+
 def test_metrics_vars_conf_tolerates_a_damaged_file(cloud_vars_settings):
     cloud_vars_settings.metrics_vars_config.write_text("{not json")
 
