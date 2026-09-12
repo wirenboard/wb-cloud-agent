@@ -16,6 +16,10 @@ from wb.cloud_agent.utils import stop_and_disable_service
 def stop_services_and_del_configs(settings: AppSettings, provider_name: str) -> None:
     logging.debug("Deleting provider: %s", provider_name)
 
+    if isinstance(settings.config_error, str):
+        logging.warning("Skipping cloud unbind for %s: %s", provider_name, settings.config_error)
+        return
+
     activation_link = read_activation_link(settings)
 
     if activation_link == UNKNOWN_LINK:

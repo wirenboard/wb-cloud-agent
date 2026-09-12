@@ -5,11 +5,7 @@ from unittest.mock import MagicMock, mock_open, patch
 import pytest
 
 from wb.cloud_agent.constants import NOCONNECT_LINK
-from wb.cloud_agent.settings import (
-    PROVIDERS_CONF_DIR,
-    get_provider_names,
-    load_providers_data,
-)
+from wb.cloud_agent.settings import get_provider_names, load_providers_data
 
 
 @patch("wb.cloud_agent.settings.Path.exists", return_value=True)
@@ -40,11 +36,15 @@ def example_configs():
     }
 
 
-def test_load_providers_data_with_mocks(example_configs: dict):  # pylint: disable=redefined-outer-name
+def test_load_providers_data_with_mocks(
+    example_configs: dict, tmp_path
+):  # pylint: disable=redefined-outer-name
     provider_names = list(example_configs.keys())
+    providers_dir = tmp_path / "providers"
+    data_dir = tmp_path / "data"
 
     path_to_content = {
-        str(Path(PROVIDERS_CONF_DIR) / provider / "wb-cloud-agent.conf"): json.dumps(cfg)
+        str(providers_dir / provider / "wb-cloud-agent.conf"): json.dumps(cfg)
         for provider, cfg in example_configs.items()
     }
 
@@ -56,6 +56,8 @@ def test_load_providers_data_with_mocks(example_configs: dict):  # pylint: disab
         return mock_open(read_data=content)()
 
     with (
+        patch("wb.cloud_agent.settings.PROVIDERS_CONF_DIR", str(providers_dir)),
+        patch("wb.cloud_agent.settings.APP_DATA_PROVIDERS_DIR", str(data_dir)),
         patch.object(Path, "exists", new=exists_side_effect),
         patch.object(Path, "open", new=open_side_effect),
     ):

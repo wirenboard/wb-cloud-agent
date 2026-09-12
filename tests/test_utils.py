@@ -1,13 +1,16 @@
 import json
+from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import MagicMock
 
 import pytest
 
 from wb.cloud_agent.settings import AppSettings
 from wb.cloud_agent.utils import (
+    ConfigError,
     get_controller_url,
     normalize_base_url,
     parse_headers,
+    quarantine_broken_file,
     read_json_config,
     read_plaintext_config,
     show_providers_table,
@@ -81,14 +84,63 @@ def test_read_json_config(tmp_path):
     assert result == config_data
 
 
-def test_read_json_config_invalid_json(tmp_path):
+@pytest.mark.parametrize(
+    "contents, reason",
+    [
+        ("{invalid json", "is not valid JSON"),
+        ("", "is empty"),
+        ("   \n", "is empty"),
+        ("[1, 2]", "is not a JSON object"),
+    ],
+)
+def test_read_json_config_broken(tmp_path, contents, reason):
     config_file = tmp_path / "config.json"
-    config_file.write_text("{invalid json")
+    config_file.write_text(contents)
 
-    with pytest.raises(SystemExit) as exc_info:
+    with pytest.raises(ConfigError) as exc_info:
         read_json_config(config_file)
 
-    assert exc_info.value.code == 6
+    assert reason in str(exc_info.value)
+
+
+def test_read_json_config_missing(tmp_path):
+    with pytest.raises(ConfigError) as exc_info:
+        read_json_config(tmp_path / "absent.json")
+
+    assert "is missing" in str(exc_info.value)
+
+
+def test_read_json_config_unreadable_directory(tmp_path):
+    config_file = tmp_path / "config.json"
+    config_file.mkdir()
+
+    with pytest.raises(ConfigError) as exc_info:
+        read_json_config(config_file)
+
+    assert "cannot be read" in str(exc_info.value)
+
+
+def test_read_json_config_undecodable(tmp_path):
+    config_file = tmp_path / "config.json"
+    config_file.write_bytes(b"\xff\xfe")
+
+    with pytest.raises(ConfigError) as exc_info:
+        read_json_config(config_file)
+
+    assert "cannot be read" in str(exc_info.value)
+
+
+def test_read_json_config_delegates_to_rebuild(tmp_path):
+    config_file = tmp_path / "config.json"
+    config_file.write_text("")
+    reasons = []
+
+    def rebuild(reason):
+        reasons.append(reason)
+        return {"key": "rebuilt"}
+
+    assert read_json_config(config_file, rebuild=rebuild) == {"key": "rebuilt"}
+    assert reasons == ["is empty"]
 
 
 def test_read_plaintext_config(tmp_path):
@@ -105,6 +157,24 @@ def test_read_plaintext_config_strips_whitespace(tmp_path):
 
     result = read_plaintext_config(config_file)
     assert result == "config-with-spaces"
+
+
+def test_read_plaintext_config_missing(tmp_path):
+    assert read_plaintext_config(tmp_path / "absent.txt") == ""
+
+
+def test_read_plaintext_config_undecodable(tmp_path):
+    config_file = tmp_path / "config.txt"
+    config_file.write_bytes(b"\xff\xfe binary junk")
+
+    assert read_plaintext_config(config_file) == ""
+
+
+def test_read_plaintext_config_rejects_undecodable_trailing_content(tmp_path):
+    config_file = tmp_path / "config.txt"
+    config_file.write_bytes(b"known-value\n" + b"x" * 10000 + b"\xff")
+
+    assert read_plaintext_config(config_file) == ""
 
 
 def test_write_to_file(tmp_path):
@@ -124,6 +194,81 @@ def test_write_to_file_creates_parent_dirs(tmp_path):
 
     assert file_path.parent.exists()
     assert file_path.exists()
+
+
+def test_write_to_file_replaces_without_leaving_temporaries(tmp_path):
+    file_path = tmp_path / "file.txt"
+    write_to_file(file_path, "old")
+
+    write_to_file(file_path, "new")
+
+    assert file_path.read_text() == "new"
+    assert [entry.name for entry in tmp_path.iterdir()] == ["file.txt"]
+
+
+def test_write_to_file_preserves_existing_permissions(tmp_path):
+    file_path = tmp_path / "file.txt"
+    file_path.write_text("old")
+    file_path.chmod(0o600)
+
+    write_to_file(file_path, "new")
+
+    assert file_path.read_text() == "new"
+    assert file_path.stat().st_mode & 0o777 == 0o600
+
+
+def test_write_to_file_preserves_existing_owner(tmp_path):
+    file_path = tmp_path / "file.txt"
+    file_path.write_text("old")
+    before = file_path.stat()
+
+    write_to_file(file_path, "new")
+
+    after = file_path.stat()
+    assert (after.st_uid, after.st_gid) == (before.st_uid, before.st_gid)
+
+
+def test_write_to_file_updates_a_symlink_target(tmp_path):
+    target = tmp_path / "target.txt"
+    target.write_text("old")
+    link = tmp_path / "file.txt"
+    link.symlink_to(target)
+
+    write_to_file(link, "new")
+
+    assert link.is_symlink()
+    assert target.read_text() == "new"
+
+
+def test_concurrent_writes_are_not_partial_or_shared(tmp_path):
+    file_path = tmp_path / "file.txt"
+    contents = [f"value-{index}" * 100 for index in range(8)]
+
+    with ThreadPoolExecutor(max_workers=len(contents)) as executor:
+        list(executor.map(lambda value: write_to_file(file_path, value), contents))
+
+    assert file_path.read_text() in contents
+    assert not list(tmp_path.glob(".file.txt.tmp-*"))
+
+
+def test_quarantine_broken_file(tmp_path):
+    file_path = tmp_path / "config.json"
+    file_path.write_text("{broken")
+
+    quarantined = quarantine_broken_file(file_path)
+
+    assert file_path.read_text() == "{broken"
+    assert quarantined.read_text() == "{broken"
+    assert quarantined.name.startswith("config.json.broken-")
+
+
+def test_quarantine_broken_file_skips_empty_and_missing(tmp_path):
+    empty = tmp_path / "empty.json"
+    empty.write_text("")
+
+    assert quarantine_broken_file(empty) is None
+    assert quarantine_broken_file(tmp_path / "absent.json") is None
+    assert empty.exists()
 
 
 def test_start_and_enable_service(mock_subprocess_run):

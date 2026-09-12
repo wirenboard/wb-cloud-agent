@@ -65,29 +65,9 @@ def test_configure_app_success():
         assert result == mock_instance
 
 
-def test_configure_app_file_not_found():
-    with patch("wb.cloud_agent.settings.AppSettings", side_effect=FileNotFoundError):
-        result = configure_app(provider_name="test")
-
-        assert result == 6
-
-
-def test_configure_app_json_decode_error():
-    with patch(
-        "wb.cloud_agent.settings.AppSettings",
-        side_effect=json.decoder.JSONDecodeError("msg", "doc", 0),
-    ):
-        result = configure_app(provider_name="test")
-
-        assert result == 6
-
-
 def test_setup_log_info_level():
-    settings = MagicMock()
-    settings.log_level = "INFO"
-
     with patch("logging.basicConfig") as mock_basic_config:
-        setup_log(settings)
+        setup_log("INFO")
 
         mock_basic_config.assert_called_once()
         args = mock_basic_config.call_args
@@ -95,24 +75,18 @@ def test_setup_log_info_level():
 
 
 def test_setup_log_debug_level():
-    settings = MagicMock()
-    settings.log_level = "DEBUG"
-
     with patch("logging.basicConfig") as mock_basic_config:
-        setup_log(settings)
+        setup_log("DEBUG")
 
         args = mock_basic_config.call_args
         assert args[1]["level"] == logging.DEBUG
 
 
 def test_setup_log_invalid_level():
-    settings = MagicMock()
-    settings.log_level = "INVALID_LEVEL"
-
     # getattr with invalid level returns NOTSET which is int, so this won't raise
     # Let's test that it just sets the level to NOTSET
     with patch("logging.basicConfig") as mock_basic_config:
-        setup_log(settings)
+        setup_log("INVALID_LEVEL")
 
         # Should still call basicConfig with NOTSET level
         mock_basic_config.assert_called_once()
@@ -276,15 +250,8 @@ def test_load_providers_data_no_activation_link(tmp_path):
         assert result[0].activation_link == NOCONNECT_LINK
 
 
-def test_load_providers_data_missing_config(tmp_path):
-    providers_conf_dir = tmp_path / "conf" / "providers"
+@pytest.mark.usefixtures("cloud_dirs")
+def test_load_providers_data_missing_config():
+    providers = load_providers_data(["nonexistent"])
 
-    with (
-        patch("wb.cloud_agent.settings.PROVIDERS_CONF_DIR", str(providers_conf_dir)),
-        patch("builtins.print") as mock_print,
-    ):
-        with pytest.raises(SystemExit) as exc_info:
-            load_providers_data(["nonexistent"])
-
-        assert exc_info.value.code == 6
-        mock_print.assert_called_once()
+    assert providers[0].config["CLOUD_BASE_URL"] == "https://wirenboard.cloud"
