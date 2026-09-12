@@ -13,7 +13,9 @@ cert_is_valid() {
 }
 
 fix_engine_key() {
-    python3 - "$AGENT_CONFIG" "$1" <<'PY'
+    local config_path="$1"
+    local engine_key="$2"
+    python3 - "$config_path" "$engine_key" <<'PY'
 import os
 import re
 import stat
@@ -23,8 +25,13 @@ from pathlib import Path
 
 config_path = Path(sys.argv[1]).resolve()
 engine_key = sys.argv[2]
-old_stat = config_path.stat()
-contents = config_path.read_text(encoding="utf-8")
+try:
+    if not config_path.is_file() or not config_path.stat().st_size:
+        raise SystemExit(0)
+    old_stat = config_path.stat()
+    contents = config_path.read_text(encoding="utf-8")
+except (OSError, UnicodeError):
+    raise SystemExit(0)
 updated = re.sub(r"ATECCx08:00:..", engine_key, contents)
 if updated == contents:
     raise SystemExit(0)
@@ -75,13 +82,13 @@ if [ ! -f "$TARGET_CERT" ] || ! cert_is_valid "$TARGET_CERT"; then
     fi
 fi
 
+config_usable=1
 if [ ! -s "$AGENT_CONFIG" ]; then
     echo "Config $AGENT_CONFIG is missing or empty, the agent will restore it"
-    exit 0
+    config_usable=0
 fi
 
-# Skip malformed configs so run-daemon can quarantine the original.
-if ! python3 - "$AGENT_CONFIG" <<'PY'
+if [ "$config_usable" -eq 1 ] && ! python3 - "$AGENT_CONFIG" <<'PY'
 import json
 import sys
 from urllib.parse import urlparse
@@ -118,15 +125,21 @@ if "METRICS_LOG_ENABLED" in value and not isinstance(value["METRICS_LOG_ENABLED"
 PY
 then
     echo "Config $AGENT_CONFIG is malformed, the agent will restore it"
-    exit 0
+    config_usable=0
 fi
 
 . /usr/lib/wb-utils/wb_env.sh
 wb_source of
 
 if of_machine_match "contactless,imx6ul-wirenboard60"; then
-    fix_engine_key "ATECCx08:00:04"
+    ENGINE_KEY="ATECCx08:00:04"
 else
-    # Both WB7, WB8 have atecc on i2c2
-    fix_engine_key "ATECCx08:00:02"
+    ENGINE_KEY="ATECCx08:00:02"
+fi
+
+fix_engine_key /etc/wb-cloud-agent.conf "$ENGINE_KEY"
+fix_engine_key "$AGENT_CONFIG" "$ENGINE_KEY"
+
+if [ "$config_usable" -eq 0 ]; then
+    exit 0
 fi
