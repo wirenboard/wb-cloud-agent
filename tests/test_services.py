@@ -85,7 +85,7 @@ def test_update_metrics_config_disabled(settings):
     mock_mqtt = MagicMock()
 
     with (
-        patch("wb.cloud_agent.services.metrics._safe_stop_and_disable_service") as mock_stop,
+        patch("wb.cloud_agent.services.metrics.safe_stop_and_disable_service") as mock_stop,
         patch("wb.cloud_agent.services.metrics.write_activation_link") as mock_write,
     ):
         update_metrics_config(settings, {"enabled": False}, mock_mqtt)

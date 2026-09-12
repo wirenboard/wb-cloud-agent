@@ -89,6 +89,13 @@ def stop_and_disable_service(service: str, timeout: int = 120) -> None:
     subprocess.run(["systemctl", "stop", service], check=True, timeout=timeout)
 
 
+def safe_stop_and_disable_service(service: str) -> None:
+    try:
+        stop_and_disable_service(service)
+    except (subprocess.SubprocessError, OSError) as exc:
+        logging.warning("Cannot stop service %s: %s", service, exc)
+
+
 def show_providers_table(providers: list["Provider"]) -> None:
     if not providers:
         print("No one provider was found")

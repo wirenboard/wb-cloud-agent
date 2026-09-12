@@ -103,7 +103,7 @@ def test_make_event_request_unbinds_before_confirmation(isolated_provider_runtim
             side_effect=lambda _: call_order.append("monitor"),
         ),
         patch(
-            "wb.cloud_agent.handlers.provider._safe_stop_and_disable_service",
+            "wb.cloud_agent.handlers.provider.safe_stop_and_disable_service",
             side_effect=lambda _: call_order.append("stop"),
         ),
         patch(
@@ -133,7 +133,7 @@ def test_make_event_request_confirms_unbind_after_systemctl_failure(isolated_pro
         patch("wb.cloud_agent.handlers.events.do_curl", return_value=(event_data, status.OK)),
         patch("wb.cloud_agent.handlers.provider.stop_metrics_health_monitor"),
         patch(
-            "wb.cloud_agent.services.metrics.stop_and_disable_service",
+            "wb.cloud_agent.utils.stop_and_disable_service",
             side_effect=CalledProcessError(1, ["systemctl", "stop"]),
         ),
         patch("wb.cloud_agent.handlers.events.event_confirm") as mock_confirm,
@@ -170,7 +170,7 @@ def test_make_event_request_processes_next_event_after_unbind_systemctl_failure(
         ),
         patch("wb.cloud_agent.handlers.provider.stop_metrics_health_monitor"),
         patch(
-            "wb.cloud_agent.services.metrics.stop_and_disable_service",
+            "wb.cloud_agent.utils.stop_and_disable_service",
             side_effect=service_error,
         ),
         patch("wb.cloud_agent.handlers.events.event_confirm") as mock_confirm,

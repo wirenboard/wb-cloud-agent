@@ -28,7 +28,7 @@ def test_unbind_provider_preserves_identity_and_clears_runtime(isolated_provider
         write_activation_link_impl(settings, link, mqtt)
 
     with (
-        patch("wb.cloud_agent.handlers.provider._safe_stop_and_disable_service") as mock_stop,
+        patch("wb.cloud_agent.handlers.provider.safe_stop_and_disable_service") as mock_stop,
         patch("wb.cloud_agent.handlers.provider.stop_metrics_health_monitor") as mock_monitor,
         patch(
             "wb.cloud_agent.handlers.provider.write_activation_link",
@@ -62,7 +62,7 @@ def test_unbind_provider_continues_after_service_stop_fails(isolated_provider_ru
 
     with (
         patch(
-            "wb.cloud_agent.services.metrics.stop_and_disable_service",
+            "wb.cloud_agent.utils.stop_and_disable_service",
             side_effect=CalledProcessError(1, ["systemctl", "stop"]),
         ),
         patch("wb.cloud_agent.handlers.provider.stop_metrics_health_monitor"),
@@ -81,7 +81,7 @@ def test_unbind_provider_continues_after_systemctl_os_error(isolated_provider_ru
 
     with (
         patch(
-            "wb.cloud_agent.services.metrics.stop_and_disable_service",
+            "wb.cloud_agent.utils.stop_and_disable_service",
             side_effect=PermissionError("systemctl is unavailable"),
         ) as mock_stop,
         patch("wb.cloud_agent.handlers.provider.stop_metrics_health_monitor"),

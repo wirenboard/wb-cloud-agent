@@ -29,8 +29,8 @@ from wb.cloud_agent.mqtt import MQTTCloudAgent
 from wb.cloud_agent.services.activation import write_activation_link
 from wb.cloud_agent.settings import AppSettings
 from wb.cloud_agent.utils import (
+    safe_stop_and_disable_service,
     start_and_enable_service,
-    stop_and_disable_service,
     write_to_file,
 )
 
@@ -43,13 +43,6 @@ def stop_metrics_health_monitor(provider_name: str) -> None:
     if stop_event is not None:
         stop_event.set()
     _monitor_threads.pop(provider_name, None)
-
-
-def _safe_stop_and_disable_service(service: str) -> None:
-    try:
-        stop_and_disable_service(service)
-    except (subprocess.SubprocessError, OSError) as exc:
-        logging.warning("Cannot stop service %s: %s", service, exc)
 
 
 def _ensure_service_is_active(service: str) -> None:
@@ -296,7 +289,7 @@ def update_metrics_config(settings: AppSettings, payload: dict, mqtt: MQTTCloudA
     if payload.get("enabled") is False:
         logging.info("Disabling metrics collection for provider %s", settings.provider_name)
         stop_metrics_health_monitor(settings.provider_name)
-        _safe_stop_and_disable_service(settings.metrics_service)
+        safe_stop_and_disable_service(settings.metrics_service)
         write_activation_link(settings, UNKNOWN_LINK, mqtt)
         return
 
