@@ -143,7 +143,14 @@ def test_make_event_request_confirms_unbind_after_systemctl_failure(isolated_pro
     mock_confirm.assert_called_once_with(settings, "event-unbind")
 
 
-def test_make_event_request_processes_next_event_after_unbind_systemctl_failure(isolated_provider_runtime):
+@pytest.mark.parametrize(
+    "service_error",
+    [CalledProcessError(1, ["systemctl", "stop"]), PermissionError("systemctl is unavailable")],
+    ids=["command-failure", "os-error"],
+)
+def test_make_event_request_processes_next_event_after_unbind_systemctl_failure(
+    isolated_provider_runtime, service_error
+):
     settings = isolated_provider_runtime
     unbind_event = {
         "id": "event-unbind",
@@ -164,7 +171,7 @@ def test_make_event_request_processes_next_event_after_unbind_systemctl_failure(
         patch("wb.cloud_agent.handlers.provider.stop_metrics_health_monitor"),
         patch(
             "wb.cloud_agent.services.metrics.stop_and_disable_service",
-            side_effect=CalledProcessError(1, ["systemctl", "stop"]),
+            side_effect=service_error,
         ),
         patch("wb.cloud_agent.handlers.events.event_confirm") as mock_confirm,
     ):
