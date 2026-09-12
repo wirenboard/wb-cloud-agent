@@ -1,12 +1,7 @@
 # pylint: disable=redefined-outer-name
 
-import io
-import json
-import logging
 import subprocess
 from argparse import Namespace
-from http import HTTPStatus as status
-from itertools import count
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -20,28 +15,8 @@ from wb.cloud_agent.commands import (
     run_daemon,
     run_event_loop,
     show_providers,
-    wait_for_usable_config,
 )
 from wb.cloud_agent.handlers.curl import CloudNetworkError
-from wb.cloud_agent.handlers.startup import on_message
-from wb.cloud_agent.mqtt import HW_REVISION_TOPIC
-from wb.cloud_agent.settings import configure_app
-
-
-@pytest.fixture
-def held_settings():
-    settings = MagicMock()
-    settings.mqtt_prefix = "/devices/test"
-    settings.provider_name = "test"
-    settings.config_error = "is empty"
-    settings.request_period_seconds = 10
-    settings.log_level = "INFO"
-    return settings
-
-
-@pytest.fixture
-def held_agent(held_settings, build_mqtt_agent):
-    return build_mqtt_agent(held_settings)
 
 
 @pytest.fixture
@@ -504,117 +479,3 @@ def test_event_loop_publishes_through_a_stopped_network_loop(settings, build_mqt
         run_event_loop(settings, agent)
 
     assert (f"{settings.mqtt_prefix}/controls/status", "ok", True) in agent.client.delivered
-
-
-def test_wait_for_usable_config_holds_until_the_config_is_usable():
-    settings = MagicMock()
-    settings.config_error = "is empty"
-    settings.request_period_seconds = 10
-    settings.log_level = "INFO"
-    settings.reload_config.side_effect = lambda: setattr(settings, "config_error", None)
-    mqtt = MagicMock()
-
-    with patch("time.sleep") as mock_sleep:
-        wait_for_usable_config(settings, mqtt)
-
-    mock_sleep.assert_called_once_with(10)
-    mqtt.publish_ctrl.assert_called_once_with("status", "Broken configuration")
-
-
-def test_wait_for_usable_config_publishes_through_a_stopped_network_loop(held_settings, held_agent):
-    held_settings.reload_config.side_effect = lambda: setattr(held_settings, "config_error", None)
-    held_agent.start(update_status=True)
-    held_agent.client.stop_network_loop()
-
-    with patch("time.sleep"):
-        wait_for_usable_config(held_settings, held_agent)
-
-    assert ("/devices/test/controls/status", "Broken configuration", True) in held_agent.client.delivered
-
-
-def test_wait_for_usable_config_republishes_after_the_network_loop_stops(held_settings, held_agent):
-    cycles = count(1)
-
-    def reload_config():
-        if next(cycles) > 1:
-            held_settings.config_error = None
-
-    held_settings.reload_config.side_effect = reload_config
-    held_agent.start(update_status=True)
-
-    with patch("time.sleep", side_effect=lambda _: held_agent.client.stop_network_loop()):
-        wait_for_usable_config(held_settings, held_agent)
-
-    statuses = [value for topic, value, _ in held_agent.client.delivered if topic.endswith("/status")]
-    assert statuses == ["starting", "Broken configuration", "Broken configuration"]
-
-
-def test_hw_revision_is_reported_once_on_a_healthy_start(
-    settings, build_mqtt_agent, mock_subprocess, mock_subprocess_run
-):
-    mock_subprocess(status.OK, "{}")
-    agent = build_mqtt_agent(settings, on_message)
-    agent.client.retained[HW_REVISION_TOPIC] = b"6.9.1"
-    agent.start(update_status=True)
-    agent.watch_hw_revision()
-
-    wait_for_usable_config(settings, agent)
-
-    assert mock_subprocess_run.call_count == 1
-
-
-def test_hw_revision_reaches_the_cloud_when_the_hold_ends(
-    settings, build_mqtt_agent, mock_subprocess, mock_subprocess_run
-):
-    mock_subprocess(status.OK, "{}")
-    settings.config_error = "is empty"
-    agent = build_mqtt_agent(settings, on_message)
-    agent.client.retained[HW_REVISION_TOPIC] = b"6.9.1"
-    agent.start(update_status=True)
-
-    with patch("time.sleep"):
-        wait_for_usable_config(settings, agent)
-
-    assert mock_subprocess_run.call_count == 1
-    assert '{"hardware_revision": "6.9.1"}' in mock_subprocess_run.call_args[0][0]
-
-
-def test_run_daemon_makes_no_cloud_requests_with_a_broken_config(mock_mqtt_cloud_agent):
-    options = Namespace(provider_name="test", broker=None)
-
-    with (
-        patch("wb.cloud_agent.commands.configure_app") as mock_config,
-        patch("wb.cloud_agent.commands.wait_for_cloud_reachable") as mock_wait,
-        patch("wb.cloud_agent.commands.drop_broken_tunnel_config") as mock_drop,
-        patch("time.sleep", side_effect=KeyboardInterrupt),
-    ):
-        mock_settings = MagicMock()
-        mock_settings.config_error = "is empty"
-        mock_config.return_value = mock_settings
-
-        with pytest.raises(KeyboardInterrupt):
-            run_daemon(options)
-
-        mock_wait.assert_not_called()
-        mock_mqtt_cloud_agent.publish_vdev.assert_called_once()
-        mock_drop.assert_called_once_with(mock_settings)
-
-
-def test_wait_for_usable_config_applies_the_log_level_of_the_restored_config(cloud_dirs):
-    config_dir = cloud_dirs.providers / "mycloud"
-    config_dir.mkdir(parents=True)
-    config_file = config_dir / "wb-cloud-agent.conf"
-    config_file.write_text("{broken")
-    restored = json.dumps({"CLOUD_BASE_URL": "https://mycloud", "LOG_LEVEL": "DEBUG"})
-
-    log = io.StringIO()
-    with (
-        patch("sys.stderr", log),
-        patch("time.sleep", side_effect=lambda _: config_file.write_text(restored)),
-    ):
-        settings = configure_app(provider_name="mycloud", recover_configs=True)
-        wait_for_usable_config(settings, MagicMock())
-        logging.debug("Sending event request")
-
-    assert settings.log_level == "DEBUG"
-    assert "Sending event request" in log.getvalue()

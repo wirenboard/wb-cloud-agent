@@ -25,8 +25,6 @@ from wb.cloud_agent.settings import (
     generate_provider_config,
     get_provider_names,
     load_providers_data,
-    save_last_good_config,
-    setup_log,
 )
 from wb.cloud_agent.utils import (
     handle_connection_state,
@@ -124,22 +122,6 @@ def del_controller_from_cloud(options) -> int:
     return event_delete_controller(settings)
 
 
-def wait_for_usable_config(settings: AppSettings, mqtt: MQTTCloudAgent) -> None:
-    """Hold the daemon until the provider config is usable: nothing that depends on it runs earlier."""
-    # Not held: _on_connect already subscribed, and a second subscribe repeats the cloud request.
-    if not settings.config_error:
-        return
-
-    while settings.config_error:
-        mqtt.ensure_running()
-        mqtt.publish_ctrl("status", "Broken configuration")
-        time.sleep(settings.request_period_seconds)
-        settings.reload_config()
-
-    setup_log(settings.log_level)
-    mqtt.watch_hw_revision()
-
-
 def run_daemon(options) -> Optional[int]:
     settings = configure_app(provider_name=options.provider_name, recover_configs=True)
     settings.broker_url = options.broker or settings.broker_url
@@ -157,8 +139,6 @@ def run_daemon(options) -> Optional[int]:
 
     mqtt.publish_vdev()
     drop_broken_tunnel_config(settings)
-    wait_for_usable_config(settings, mqtt)
-    save_last_good_config(settings.provider_name)
 
     try:
         wait_for_cloud_reachable(settings.cloud_base_url, settings.ping_period_seconds)

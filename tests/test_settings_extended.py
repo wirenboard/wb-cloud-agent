@@ -1,4 +1,3 @@
-import io
 import json
 import logging
 from unittest.mock import MagicMock, patch
@@ -64,37 +63,6 @@ def test_configure_app_success():
         result = configure_app(provider_name="test")
 
         assert result == mock_instance
-
-
-def test_configure_app_survives_an_unrecoverable_config(cloud_dirs):
-    config_dir = cloud_dirs.providers / "mycloud"
-    config_dir.mkdir(parents=True)
-    (config_dir / "wb-cloud-agent.conf").write_text("{broken")
-
-    settings = configure_app(provider_name="mycloud", recover_configs=True)
-
-    assert isinstance(settings, AppSettings)
-    assert settings.config_error is not None
-
-
-def test_recovery_does_not_silence_the_configured_logging(cloud_dirs):
-    config_dir = cloud_dirs.providers / "mycloud"
-    config_dir.mkdir(parents=True)
-    (config_dir / "wb-cloud-agent.conf").write_text("")
-    last_good = cloud_dirs.data / "mycloud" / "wb-cloud-agent.conf.last-good"
-    last_good.parent.mkdir(parents=True)
-    last_good.write_text(json.dumps({"CLOUD_BASE_URL": "https://mycloud", "LOG_LEVEL": "DEBUG"}))
-
-    log = io.StringIO()
-    with patch("sys.stderr", log):
-        configure_app(provider_name="mycloud", recover_configs=True)
-        logging.info("Cloud Agent initialization - OK")
-        logging.debug("Sending event request")
-
-    assert "WARNING:root:" not in log.getvalue()
-    assert log.getvalue().count("rebuilt from the last known good copy") == 1
-    assert "Cloud Agent initialization - OK" in log.getvalue()
-    assert "Sending event request" in log.getvalue()
 
 
 def test_setup_log_info_level():
@@ -286,4 +254,4 @@ def test_load_providers_data_no_activation_link(tmp_path):
 def test_load_providers_data_missing_config():
     providers = load_providers_data(["nonexistent"])
 
-    assert [provider.display_url for provider in providers] == ["Broken configuration"]
+    assert providers[0].config["CLOUD_BASE_URL"] == "https://wirenboard.cloud"

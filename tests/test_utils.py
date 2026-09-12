@@ -1,4 +1,5 @@
 import json
+from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import MagicMock
 
 import pytest
@@ -109,6 +110,26 @@ def test_read_json_config_missing(tmp_path):
     assert "is missing" in str(exc_info.value)
 
 
+def test_read_json_config_unreadable_directory(tmp_path):
+    config_file = tmp_path / "config.json"
+    config_file.mkdir()
+
+    with pytest.raises(ConfigError) as exc_info:
+        read_json_config(config_file)
+
+    assert "cannot be read" in str(exc_info.value)
+
+
+def test_read_json_config_undecodable(tmp_path):
+    config_file = tmp_path / "config.json"
+    config_file.write_bytes(b"\xff\xfe")
+
+    with pytest.raises(ConfigError) as exc_info:
+        read_json_config(config_file)
+
+    assert "cannot be read" in str(exc_info.value)
+
+
 def test_read_json_config_delegates_to_rebuild(tmp_path):
     config_file = tmp_path / "config.json"
     config_file.write_text("")
@@ -178,13 +199,46 @@ def test_write_to_file_replaces_without_leaving_temporaries(tmp_path):
     assert [entry.name for entry in tmp_path.iterdir()] == ["file.txt"]
 
 
+def test_write_to_file_preserves_existing_permissions(tmp_path):
+    file_path = tmp_path / "file.txt"
+    file_path.write_text("old")
+    file_path.chmod(0o600)
+
+    write_to_file(file_path, "new")
+
+    assert file_path.read_text() == "new"
+    assert file_path.stat().st_mode & 0o777 == 0o600
+
+
+def test_write_to_file_preserves_existing_owner(tmp_path):
+    file_path = tmp_path / "file.txt"
+    file_path.write_text("old")
+    before = file_path.stat()
+
+    write_to_file(file_path, "new")
+
+    after = file_path.stat()
+    assert (after.st_uid, after.st_gid) == (before.st_uid, before.st_gid)
+
+
+def test_concurrent_writes_are_not_partial_or_shared(tmp_path):
+    file_path = tmp_path / "file.txt"
+    contents = [f"value-{index}" * 100 for index in range(8)]
+
+    with ThreadPoolExecutor(max_workers=len(contents)) as executor:
+        list(executor.map(lambda value: write_to_file(file_path, value), contents))
+
+    assert file_path.read_text() in contents
+    assert not list(tmp_path.glob(".file.txt.tmp-*"))
+
+
 def test_quarantine_broken_file(tmp_path):
     file_path = tmp_path / "config.json"
     file_path.write_text("{broken")
 
     quarantined = quarantine_broken_file(file_path)
 
-    assert not file_path.exists()
+    assert file_path.read_text() == "{broken"
     assert quarantined.read_text() == "{broken"
     assert quarantined.name.startswith("config.json.broken-")
 

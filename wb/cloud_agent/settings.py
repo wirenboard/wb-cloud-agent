@@ -1,6 +1,7 @@
 import json
 import logging
 import shutil
+from contextlib import nullcontext
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
@@ -14,13 +15,13 @@ from wb.cloud_agent.constants import (
     APP_DATA_PROVIDERS_DIR,
     CLOUD_AGENT_URL_POSTFIX,
     DEFAULT_PROVIDER_CONF_FILE,
-    LAST_GOOD_CONF_SUFFIX,
     NOCONNECT_LINK,
     PROVIDER_CONF_FILE_NAME,
     PROVIDERS_CONF_DIR,
 )
 from wb.cloud_agent.utils import (
     ConfigError,
+    config_recovery_lock,
     get_controller_url,
     normalize_base_url,
     quarantine_broken_file,
@@ -30,14 +31,11 @@ from wb.cloud_agent.utils import (
 )
 
 DEFAULT_LOG_LEVEL = "INFO"
+DEFAULT_CLOUD_BASE_URL = "https://wirenboard.cloud"
 
 
 def provider_config_path(provider_name: str) -> Path:
     return Path(PROVIDERS_CONF_DIR) / provider_name / PROVIDER_CONF_FILE_NAME
-
-
-def last_good_config_path(provider_name: str) -> Path:
-    return Path(APP_DATA_PROVIDERS_DIR) / provider_name / f"{PROVIDER_CONF_FILE_NAME}{LAST_GOOD_CONF_SUFFIX}"
 
 
 class AppSettings:  # pylint: disable=too-many-instance-attributes disable=too-few-public-methods
@@ -65,7 +63,7 @@ class AppSettings:  # pylint: disable=too-many-instance-attributes disable=too-f
     client_cert_engine_key: str = "ATECCx08:00:02:C0:00"
     client_cert_file: str = f"{APP_DATA_DIR}/device_bundle.crt.pem"
 
-    cloud_base_url: str = "https://wirenboard.cloud"
+    cloud_base_url: str = DEFAULT_CLOUD_BASE_URL
     cloud_agent_url: str = f"https://agent.wirenboard.cloud{CLOUD_AGENT_URL_POSTFIX}"
     request_period_seconds: int = 10
     ping_period_seconds: int = 10
@@ -96,7 +94,7 @@ class AppSettings:  # pylint: disable=too-many-instance-attributes disable=too-f
         self.reload_config()
 
     def reload_config(self) -> None:
-        """Re-apply the provider config file, setting config_error when it stays unusable."""
+        """Re-apply the provider config file, rebuilding a damaged file when requested."""
         self.config_error = None
         # Outside the daemon a missing config is not an anomaly: add-provider is about to create it.
         if not self.skip_conf_file and (self.recover_configs or self.config_file.exists()):
@@ -147,78 +145,81 @@ def generate_provider_config(provider: str, base_url: str) -> None:
 
 
 def _packaged_default_config() -> dict[str, str]:
-    """Packaged /etc/wb-cloud-agent.conf, or the built-in defaults when it is damaged too."""
+    """Read the packaged defaults, falling back to values safe for production."""
+    defaults = {
+        "LOG_LEVEL": DEFAULT_LOG_LEVEL,
+        "CLIENT_CERT_ENGINE_KEY": AppSettings.client_cert_engine_key,
+        "CLOUD_BASE_URL": DEFAULT_CLOUD_BASE_URL,
+    }
     try:
-        return read_json_config(Path(DEFAULT_PROVIDER_CONF_FILE))
+        defaults.update(read_json_config(Path(DEFAULT_PROVIDER_CONF_FILE)))
+        return defaults
     except ConfigError as exc:
         logging.warning("Config %s %s, using built-in values", DEFAULT_PROVIDER_CONF_FILE, exc)
-        return {"CLIENT_CERT_ENGINE_KEY": AppSettings.client_cert_engine_key}
-
-
-def _looks_like_cloud_host(provider_name: str) -> bool:
-    """True when the provider directory name is a URL netloc, i.e. add-provider ran without --name."""
-    host, _, port = provider_name.partition(":")
-    return "." in host.strip(".") and (not port or port.isdigit())
-
-
-def _recovery_source(provider_name: str) -> tuple[Optional[dict], str]:
-    """Pick the most trustworthy content for a damaged provider config."""
-    try:
-        return read_json_config(last_good_config_path(provider_name)), "last known good copy"
-    except ConfigError:
-        pass
-
-    if not _looks_like_cloud_host(provider_name):
-        return None, ""
-
-    conf = _packaged_default_config()
-    conf["CLOUD_BASE_URL"] = f"https://{provider_name}"
-    return conf, "packaged default config"
+        return defaults
 
 
 def recover_provider_config(provider_name: str, persist: bool, reason: str) -> dict:
-    """Rebuild a damaged provider config; raise ConfigError when no trustworthy source is left."""
+    """Use the production defaults for a damaged provider config."""
     config_path = provider_config_path(provider_name)
-    recovered, source = _recovery_source(provider_name)
+    recovered = _packaged_default_config()
+    recovered["CLOUD_BASE_URL"] = DEFAULT_CLOUD_BASE_URL
 
-    if recovered is None:
-        raise ConfigError(
-            f"{reason} and cannot be rebuilt: there is no last known good copy and '{provider_name}' "
-            f"is not a cloud host name. Restore the file or re-run 'wb-cloud-agent add-provider <url>'"
+    try:
+        recovery_lock = config_recovery_lock(config_path) if persist else nullcontext()
+        with recovery_lock:
+            # Another agent process may have repaired the file after the initial parse failed.
+            try:
+                return read_json_config(config_path)
+            except ConfigError:
+                pass
+
+            if not persist:
+                logging.warning("Config %s %s, using production defaults for this run", config_path, reason)
+                return recovered
+
+            try:
+                broken_size = config_path.stat().st_size
+            except FileNotFoundError:
+                broken_size = 0
+            except OSError:
+                broken_size = None
+
+            quarantined = quarantine_broken_file(config_path) if broken_size else None
+            if broken_size is None or (broken_size > 0 and quarantined is None):
+                logging.warning(
+                    "Config %s %s, cannot preserve the broken file; using production defaults for this run",
+                    config_path,
+                    reason,
+                )
+                return recovered
+
+            try:
+                write_to_file(config_path, json.dumps(recovered, indent=4))
+            except OSError as exc:
+                logging.warning(
+                    "Config %s %s, cannot be rewritten (%s); using production defaults for this run",
+                    config_path,
+                    reason,
+                    exc,
+                )
+                return recovered
+
+            logging.warning(
+                "Config %s %s, restored to production defaults%s",
+                config_path,
+                reason,
+                f", broken file kept as {quarantined.name}" if quarantined else "",
+            )
+            return recovered
+    except OSError as exc:
+        logging.warning(
+            "Config %s %s, recovery is not persistent (%s); using production defaults for this run",
+            config_path,
+            reason,
+            exc,
         )
-
-    if not persist:
-        logging.warning("Config %s %s, using the %s for this run", config_path, reason, source)
         return recovered
-
-    quarantined = quarantine_broken_file(config_path)
-    try:
-        write_to_file(config_path, json.dumps(recovered, indent=4))
-    except OSError as exc:
-        raise ConfigError(f"{reason} and cannot be rewritten ({exc})") from exc
-
-    logging.warning(
-        "Config %s %s, rebuilt from the %s%s",
-        config_path,
-        reason,
-        source,
-        f", broken file kept as {quarantined.name}" if quarantined else "",
-    )
-    return recovered
-
-
-def save_last_good_config(provider_name: str) -> None:
-    """Keep a verbatim copy of a healthy provider config to rebuild a damaged one from."""
-    config_path = provider_config_path(provider_name)
-    last_good = last_good_config_path(provider_name)
-
-    try:
-        current = config_path.read_text(encoding="utf-8")
-        if last_good.is_file() and last_good.read_text(encoding="utf-8") == current:
-            return
-        write_to_file(last_good, current)
-    except OSError as exc:
-        logging.warning("Cannot store the last known good copy of %s: %s", config_path, exc)
 
 
 def delete_provider_config(conf_path_prefix: str, provider: str) -> None:

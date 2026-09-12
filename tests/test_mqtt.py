@@ -104,20 +104,10 @@ def test_on_connect_successful(mqtt_cloud_agent):
     mqtt_cloud_agent.client.subscribe.assert_called_once_with(HW_REVISION_TOPIC, qos=2)
 
 
-def test_retained_hw_revision_makes_no_cloud_request_while_the_config_is_unusable(
-    settings, cert_mismatch_agent, mock_subprocess_run
-):
-    settings.config_error = "is empty"
-
+def test_retained_hw_revision_is_processed_after_config_recovery(cert_mismatch_agent, mock_subprocess_run):
     cert_mismatch_agent._on_connect(None, None, None, 0)
 
-    mock_subprocess_run.assert_not_called()
-    cert_mismatch_agent.publish_ctrl("status", "Broken configuration")
-    assert (
-        f"{settings.mqtt_prefix}/controls/status",
-        "Broken configuration",
-        True,
-    ) in cert_mismatch_agent.client.delivered
+    mock_subprocess_run.assert_called_once()
 
 
 def test_failing_handler_is_logged_and_the_network_loop_survives(settings, cert_mismatch_agent, caplog):

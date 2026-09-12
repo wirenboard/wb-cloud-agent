@@ -53,10 +53,7 @@ class MQTTCloudAgent:
             logging.error("Error restarting MQTT client: %s", exc)
 
     def watch_hw_revision(self) -> None:
-        """Held back while the config is unusable: the retained value reaches the cloud through on_message."""
-        if self.settings.config_error:
-            return
-
+        """Subscribe to the retained hardware revision report."""
         self.client.subscribe(HW_REVISION_TOPIC, qos=2)
 
     def _network_loop_alive(self) -> bool:
