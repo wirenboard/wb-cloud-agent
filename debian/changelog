@@ -1,3 +1,9 @@
+wb-cloud-agent (1.8.3) stable; urgency=medium
+
+  * Preserve provider configuration when a controller is unbound from the cloud.
+
+ -- Denis Smagin <denis.smagin@wirenboard.com>  Mon, 14 Sep 2026 10:00:00 +0300
+
 wb-cloud-agent (1.8.2) stable; urgency=medium
 
   * Fix package removal when mosquitto is stopped
