@@ -170,6 +170,13 @@ def test_read_plaintext_config_undecodable(tmp_path):
     assert read_plaintext_config(config_file) == ""
 
 
+def test_read_plaintext_config_rejects_undecodable_trailing_content(tmp_path):
+    config_file = tmp_path / "config.txt"
+    config_file.write_bytes(b"known-value\n" + b"x" * 10000 + b"\xff")
+
+    assert read_plaintext_config(config_file) == ""
+
+
 def test_write_to_file(tmp_path):
     file_path = tmp_path / "subdir" / "file.txt"
     content = "test content"
@@ -219,6 +226,18 @@ def test_write_to_file_preserves_existing_owner(tmp_path):
 
     after = file_path.stat()
     assert (after.st_uid, after.st_gid) == (before.st_uid, before.st_gid)
+
+
+def test_write_to_file_updates_a_symlink_target(tmp_path):
+    target = tmp_path / "target.txt"
+    target.write_text("old")
+    link = tmp_path / "file.txt"
+    link.symlink_to(target)
+
+    write_to_file(link, "new")
+
+    assert link.is_symlink()
+    assert target.read_text() == "new"
 
 
 def test_concurrent_writes_are_not_partial_or_shared(tmp_path):

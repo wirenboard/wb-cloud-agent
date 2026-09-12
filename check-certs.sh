@@ -21,7 +21,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-config_path = Path(sys.argv[1])
+config_path = Path(sys.argv[1]).resolve()
 engine_key = sys.argv[2]
 old_stat = config_path.stat()
 contents = config_path.read_text(encoding="utf-8")

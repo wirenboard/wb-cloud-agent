@@ -2,7 +2,6 @@ import fcntl
 import json
 import logging
 import os
-import shutil
 import subprocess
 import tempfile
 from contextlib import contextmanager
@@ -51,6 +50,16 @@ def get_controller_url(base_url: str) -> str:
     return urljoin(normalize_base_url(base_url), f"controllers/{ctrl_serial_number}")
 
 
+def _is_valid_base_url(value: object) -> bool:
+    if not isinstance(value, str) or not value.strip():
+        return False
+    try:
+        parsed = urlparse(value)
+    except ValueError:
+        return False
+    return parsed.scheme in ("http", "https") and bool(parsed.netloc)
+
+
 def _parse_json_config(config_path: Path) -> dict[str, Any]:
     """Return the config object, or raise ConfigError describing why the file is unusable."""
     try:
@@ -71,12 +80,7 @@ def _parse_json_config(config_path: Path) -> dict[str, Any]:
     if not isinstance(conf, dict):
         raise ConfigError("is not a JSON object")
     cloud_base_url = conf.get("CLOUD_BASE_URL")
-    if "CLOUD_BASE_URL" in conf and (
-        not isinstance(cloud_base_url, str)
-        or not cloud_base_url.strip()
-        or urlparse(cloud_base_url).scheme not in ("http", "https")
-        or not urlparse(cloud_base_url).netloc
-    ):
+    if "CLOUD_BASE_URL" in conf and not _is_valid_base_url(cloud_base_url):
         raise ConfigError("has an invalid CLOUD_BASE_URL")
     if "LOG_LEVEL" in conf and not isinstance(conf["LOG_LEVEL"], str):
         raise ConfigError("has an invalid LOG_LEVEL")
@@ -104,8 +108,7 @@ def read_json_config(config_path: Path, rebuild: Optional[Callable[[str], dict]]
 def read_plaintext_config(config_path: Path) -> str:
     """Return the first line, or an empty string when the file is missing or unreadable."""
     try:
-        with config_path.open("r", encoding="utf-8") as f:
-            return f.readline().strip()
+        return config_path.read_text(encoding="utf-8").partition("\n")[0].strip()
     except FileNotFoundError:
         return ""
     except (OSError, UnicodeDecodeError) as exc:
@@ -115,13 +118,14 @@ def read_plaintext_config(config_path: Path) -> str:
 
 def write_to_file(fpath: Path, contents: str) -> None:
     """Write atomically while retaining the existing file's mode and ownership."""
-    fpath.parent.mkdir(parents=True, exist_ok=True)
+    target = fpath.resolve() if fpath.is_symlink() else fpath
+    target.parent.mkdir(parents=True, exist_ok=True)
     try:
-        old_stat = fpath.stat()
+        old_stat = target.stat()
     except FileNotFoundError:
         old_stat = None
 
-    fd, tmp_name = tempfile.mkstemp(prefix=f".{fpath.name}.tmp-", dir=fpath.parent)
+    fd, tmp_name = tempfile.mkstemp(prefix=f".{target.name}.tmp-", dir=target.parent)
     tmp_path = Path(tmp_name)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
@@ -131,14 +135,14 @@ def write_to_file(fpath: Path, contents: str) -> None:
             f.write(contents)
             f.flush()
             os.fsync(f.fileno())
-        os.replace(tmp_path, fpath)
+        os.replace(tmp_path, target)
     finally:
         try:
             tmp_path.unlink()
         except FileNotFoundError:
             pass
 
-    _fsync_directory(fpath.parent)
+    _fsync_directory(target.parent)
 
 
 def _fsync_directory(directory: Path) -> None:
@@ -149,12 +153,27 @@ def _fsync_directory(directory: Path) -> None:
         os.close(dir_fd)
 
 
+def _find_matching_quarantine(fpath: Path, contents: bytes) -> Optional[Path]:
+    for candidate in fpath.parent.glob(f"{fpath.name}.broken-*"):
+        try:
+            if candidate.is_file() and candidate.read_bytes() == contents:
+                return candidate
+        except OSError:
+            continue
+    return None
+
+
 def quarantine_broken_file(fpath: Path) -> Optional[Path]:
     """Copy a broken file aside without exposing a partially written quarantine file."""
     try:
         source_stat = fpath.stat()
         if not fpath.is_file() or source_stat.st_size == 0:
             return None
+
+        contents = fpath.read_bytes()
+        existing = _find_matching_quarantine(fpath, contents)
+        if existing is not None:
+            return existing
 
         fd, tmp_name = tempfile.mkstemp(prefix=f".{fpath.name}.broken-", dir=fpath.parent)
         tmp_path = Path(tmp_name)
@@ -163,8 +182,8 @@ def quarantine_broken_file(fpath: Path) -> Optional[Path]:
             f"{fpath.name}.broken-{datetime.now(timezone.utc):%Y%m%dT%H%M%S%fZ}-{unique_suffix}"
         )
         try:
-            with fpath.open("rb") as source, os.fdopen(fd, "wb") as destination:
-                shutil.copyfileobj(source, destination)
+            with os.fdopen(fd, "wb") as destination:
+                destination.write(contents)
                 os.fchown(destination.fileno(), source_stat.st_uid, source_stat.st_gid)
                 os.fchmod(destination.fileno(), source_stat.st_mode & 0o7777)
                 destination.flush()

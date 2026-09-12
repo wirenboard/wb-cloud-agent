@@ -63,6 +63,16 @@ def test_semantically_invalid_config_is_restored_to_production(cloud_dirs):
     assert broken_copies(config)[0].read_text() == '{"CLOUD_BASE_URL": null}'
 
 
+def test_malformed_cloud_url_is_restored_to_production(cloud_dirs):
+    config = write_config(cloud_dirs, "custom-name", '{"CLOUD_BASE_URL": "http://["}')
+
+    settings = AppSettings(provider_name="custom-name", recover_configs=True)
+
+    assert settings.cloud_base_url == "https://wirenboard.cloud"
+    assert json.loads(config.read_text())["CLOUD_BASE_URL"] == "https://wirenboard.cloud"
+    assert broken_copies(config)[0].read_text() == '{"CLOUD_BASE_URL": "http://["}'
+
+
 def test_missing_config_is_rebuilt_from_production_defaults(cloud_dirs):
     (cloud_dirs.providers / "custom-name").mkdir(parents=True)
 
@@ -129,6 +139,16 @@ def test_recovery_keeps_original_when_rebuilt_config_cannot_be_written(cloud_dir
     assert settings.config_error is None
     assert settings.cloud_base_url == "https://wirenboard.cloud"
     assert config.read_text() == "{broken"
+    assert len(broken_copies(config)) == 1
+
+
+def test_failed_recovery_does_not_duplicate_the_broken_copy(cloud_dirs):
+    config = write_config(cloud_dirs, "custom-name", "{broken")
+
+    with patch("wb.cloud_agent.settings.write_to_file", side_effect=PermissionError("read-only")):
+        AppSettings(provider_name="custom-name", recover_configs=True)
+        AppSettings(provider_name="custom-name", recover_configs=True)
+
     assert len(broken_copies(config)) == 1
 
 
