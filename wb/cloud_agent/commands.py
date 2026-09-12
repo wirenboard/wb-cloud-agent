@@ -34,15 +34,6 @@ from wb.cloud_agent.utils import (
 )
 
 
-def _has_config_error(settings: AppSettings) -> bool:
-    return isinstance(getattr(settings, "config_error", None), str)
-
-
-def _reject_config_error(settings: AppSettings) -> int:
-    logging.error("Cannot use provider config %s: %s", settings.config_file, settings.config_error)
-    return 1
-
-
 def show_providers(_options) -> int:
     provider_names = get_provider_names()
     providers = load_providers_data(provider_names)
@@ -53,6 +44,7 @@ def show_providers(_options) -> int:
 def add_provider(options) -> int:
     base_url = normalize_base_url(options.base_url)
     provider_name = options.name or urlparse(base_url).netloc
+
     providers = get_provider_names()
     if provider_name in providers:
         print(f"Provider {provider_name} already exists")
@@ -60,7 +52,7 @@ def add_provider(options) -> int:
 
     existing_providers = load_providers_data(providers)
     if any(
-        not isinstance(provider.config_error, str)
+        provider.config_authoritative
         and normalize_base_url(provider.config.get("CLOUD_BASE_URL", "")) == base_url
         for provider in existing_providers
     ):
@@ -68,8 +60,6 @@ def add_provider(options) -> int:
         return 1
 
     settings = configure_app(provider_name=provider_name)
-    if _has_config_error(settings):
-        return _reject_config_error(settings)
 
     try:
         mqtt = MQTTCloudAgent(settings, on_message)
@@ -96,17 +86,18 @@ def add_on_premise_provider(options) -> int:
 
 def del_provider(options) -> int:
     provider_name = urlparse(options.provider_name).netloc or options.provider_name
-    settings = configure_app(provider_name=provider_name)
-    if _has_config_error(settings):
-        return _reject_config_error(settings)
-
-    mqtt = MQTTCloudAgent(settings, on_message)
-    mqtt.start()
-
     providers = get_provider_names()
     if provider_name not in providers:
         print(f"Provider {provider_name} does not exists")
         return 1
+
+    settings = configure_app(provider_name=provider_name)
+    if isinstance(settings.config_error, str):
+        logging.error("Cannot delete provider %s: %s", provider_name, settings.config_error)
+        return 1
+
+    mqtt = MQTTCloudAgent(settings, on_message)
+    mqtt.start()
 
     stop_services_and_del_configs(settings, provider_name)
     mqtt.update_providers_list()
@@ -120,17 +111,21 @@ def del_all_providers(_options, show_msg: bool = True) -> int:
             print("No one provider was found")
         return 1
 
+    result = 0
     for provider_name in providers:
         settings = configure_app(provider_name=provider_name)
-        if _has_config_error(settings):
-            return _reject_config_error(settings)
+
+        if isinstance(settings.config_error, str):
+            logging.error("Cannot delete provider %s: %s", provider_name, settings.config_error)
+            result = 1
+            continue
 
         mqtt = MQTTCloudAgent(settings, on_message)
         mqtt.start()
 
         stop_services_and_del_configs(settings, provider_name)
         mqtt.update_providers_list()
-    return 0
+    return result
 
 
 def del_controller_from_cloud(options) -> int:
@@ -140,9 +135,6 @@ def del_controller_from_cloud(options) -> int:
 
 def run_daemon(options) -> Optional[int]:
     settings = configure_app(provider_name=options.provider_name, recover_configs=True)
-    if _has_config_error(settings):
-        return 6
-
     settings.broker_url = options.broker or settings.broker_url
     logging.info(
         "====== Cloud Agent started (version: %s, provider: %s) ======",

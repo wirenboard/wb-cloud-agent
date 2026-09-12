@@ -1,6 +1,7 @@
 import json
 import logging
 import shutil
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional, Union
@@ -19,6 +20,7 @@ from wb.cloud_agent.constants import (
 )
 from wb.cloud_agent.utils import (
     ConfigError,
+    ConfigRecoveryError,
     config_recovery_lock,
     get_controller_url,
     normalize_base_url,
@@ -30,6 +32,33 @@ from wb.cloud_agent.utils import (
 
 DEFAULT_LOG_LEVEL = "INFO"
 DEFAULT_CLOUD_BASE_URL = "https://wirenboard.cloud"
+DEFAULT_CLIENT_CERT_ENGINE_KEY = "ATECCx08:00:02:C0:00"
+
+
+def default_client_cert_engine_key() -> str:
+    """Return the hardware-specific default certificate key."""
+    machine_check = (
+        ". /usr/lib/wb-utils/wb_env.sh; wb_source of; "
+        "if of_machine_match 'contactless,imx6ul-wirenboard60'; then "
+        "printf 'ATECCx08:00:04:C0:00'; else printf 'ATECCx08:00:02:C0:00'; fi"
+    )
+    try:
+        result = subprocess.run(
+            ["/bin/bash", "-c", machine_check],
+            capture_output=True,
+            check=False,
+            text=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return DEFAULT_CLIENT_CERT_ENGINE_KEY
+    engine_key = result.stdout.strip()
+    if result.returncode == 0 and engine_key in {
+        "ATECCx08:00:02:C0:00",
+        "ATECCx08:00:04:C0:00",
+    }:
+        return engine_key
+    return DEFAULT_CLIENT_CERT_ENGINE_KEY
 
 
 def provider_config_path(provider_name: str) -> Path:
@@ -58,7 +87,7 @@ class AppSettings:  # pylint: disable=too-many-instance-attributes disable=too-f
 
     broker_url: str = DEFAULT_BROKER_URL
 
-    client_cert_engine_key: str = "ATECCx08:00:02:C0:00"
+    client_cert_engine_key: str = DEFAULT_CLIENT_CERT_ENGINE_KEY
     client_cert_file: str = f"{APP_DATA_DIR}/device_bundle.crt.pem"
 
     cloud_base_url: str = DEFAULT_CLOUD_BASE_URL
@@ -94,9 +123,8 @@ class AppSettings:  # pylint: disable=too-many-instance-attributes disable=too-f
     def reload_config(self) -> None:
         """Re-apply the provider config file, rebuilding a damaged file when requested."""
         self.config_error = None
-        # A missing config is anomalous only for an existing provider directory.
         if not self.skip_conf_file and (
-            self.recover_configs or self.config_file.exists() or self.config_file.parent.exists()
+            self.recover_configs or self.config_file.exists() or self.config_file.parent.is_dir()
         ):
             self.apply_conf_file()
 
@@ -104,22 +132,13 @@ class AppSettings:  # pylint: disable=too-many-instance-attributes disable=too-f
         self.cloud_agent_url = self.base_url_to_agent_url(self.cloud_base_url)
 
     def apply_conf_file(self) -> None:
-        recovery_reason: Optional[str] = None
-
-        def rebuild(reason: str) -> dict:
-            nonlocal recovery_reason
-            recovery_reason = reason
-            return recover_provider_config(self.provider_name, self.recover_configs, reason)
-
         try:
-            conf = read_json_config(self.config_file, rebuild=rebuild)
+            conf = read_json_config(self.config_file)
         except ConfigError as exc:
-            logging.warning("Config %s %s", self.config_file, exc)
             self.config_error = str(exc)
-            return
-
-        if recovery_reason and not self.recover_configs:
-            self.config_error = recovery_reason
+            conf = recover_provider_config(self.provider_name, self.recover_configs, str(exc))
+            if self.recover_configs:
+                self.config_error = None
 
         for key, val in conf.items():
             setattr(self, key.lower(), val)
@@ -153,13 +172,15 @@ def generate_provider_config(provider: str, base_url: str) -> None:
 
 def _packaged_default_config() -> dict[str, str]:
     """Read the packaged defaults, falling back to values safe for production."""
+    engine_key = default_client_cert_engine_key()
     defaults = {
         "LOG_LEVEL": DEFAULT_LOG_LEVEL,
-        "CLIENT_CERT_ENGINE_KEY": AppSettings.client_cert_engine_key,
+        "CLIENT_CERT_ENGINE_KEY": engine_key,
         "CLOUD_BASE_URL": DEFAULT_CLOUD_BASE_URL,
     }
     try:
         defaults.update(read_json_config(Path(DEFAULT_PROVIDER_CONF_FILE)))
+        defaults["CLIENT_CERT_ENGINE_KEY"] = engine_key
         return defaults
     except ConfigError as exc:
         logging.warning("Config %s %s, using built-in values", DEFAULT_PROVIDER_CONF_FILE, exc)
@@ -167,7 +188,7 @@ def _packaged_default_config() -> dict[str, str]:
 
 
 def recover_provider_config(provider_name: str, persist: bool, reason: str) -> dict:
-    """Recover a damaged provider config or raise when persistence fails."""
+    """Restore a damaged provider config from safe defaults."""
     config_path = provider_config_path(provider_name)
     recovered = _packaged_default_config()
     recovered["CLOUD_BASE_URL"] = DEFAULT_CLOUD_BASE_URL
@@ -187,25 +208,24 @@ def recover_provider_config(provider_name: str, persist: bool, reason: str) -> d
                 broken_size = config_path.stat().st_size
             except FileNotFoundError:
                 broken_size = 0
+            if broken_size:
+                quarantined = quarantine_broken_file(config_path)
+                if quarantined is None:
+                    raise ConfigRecoveryError(f"Cannot preserve broken config {config_path} before recovery")
+            else:
+                quarantined = None
 
-            quarantined = quarantine_broken_file(config_path) if broken_size else None
-            if broken_size > 0 and quarantined is None:
-                raise ConfigError("cannot preserve the broken file")
-
-            try:
-                write_to_file(config_path, json.dumps(recovered, indent=4))
-            except OSError as exc:
-                raise ConfigError(f"cannot rewrite the file ({exc})") from exc
-
-            logging.warning(
-                "Config %s %s, restored to production defaults%s",
-                config_path,
-                reason,
-                f", broken file kept as {quarantined.name}" if quarantined else "",
-            )
-            return recovered
+            write_to_file(config_path, json.dumps(recovered, indent=4))
     except OSError as exc:
-        raise ConfigError(f"cannot recover the file ({exc})") from exc
+        raise ConfigRecoveryError(f"Cannot recover config {config_path}: {exc}") from exc
+
+    logging.warning(
+        "Config %s %s, restored to production defaults%s",
+        config_path,
+        reason,
+        f", broken file kept as {quarantined.name}" if quarantined else "",
+    )
+    return recovered
 
 
 def delete_provider_config(conf_path_prefix: str, provider: str) -> None:
@@ -240,13 +260,10 @@ class Provider:
     name: str
     config: dict[str, Union[str, int]]
     activation_link: Optional[str] = None
-    config_error: Optional[str] = None
+    config_authoritative: bool = True
 
     @property
     def display_url(self) -> str:
-        if self.config_error:
-            return "Broken configuration"
-
         base_url = self.config.get("CLOUD_BASE_URL")
         if not base_url:
             return "Broken configuration"
@@ -266,19 +283,12 @@ def load_providers_data(provider_names: list[str]) -> list[Provider]:
 
     result = []
     for provider_name in provider_names:
-        recovery_reason: Optional[str] = None
-
-        def rebuild(reason: str, name: str = provider_name) -> dict:
-            nonlocal recovery_reason
-            recovery_reason = reason
-            return recover_provider_config(name, False, reason)
-
+        config_authoritative = True
         try:
-            provider_config = read_json_config(provider_config_path(provider_name), rebuild=rebuild)
+            provider_config = read_json_config(provider_config_path(provider_name))
         except ConfigError as exc:
-            logging.warning("Provider %s config %s", provider_name, exc)
-            provider_config = {}
-            recovery_reason = str(exc)
+            config_authoritative = False
+            provider_config = recover_provider_config(provider_name, False, str(exc))
 
         activation_path = Path(f"{APP_DATA_PROVIDERS_DIR}/{provider_name}/activation_link.conf")
         provider_activation_link = read_plaintext_config(activation_path) or NOCONNECT_LINK
@@ -288,7 +298,7 @@ def load_providers_data(provider_names: list[str]) -> list[Provider]:
                 name=provider_name,
                 config=provider_config,
                 activation_link=provider_activation_link,
-                config_error=recovery_reason,
+                config_authoritative=config_authoritative,
             )
         )
 

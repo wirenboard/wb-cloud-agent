@@ -22,6 +22,10 @@ class ConfigError(Exception):
     """A config file is missing, empty, unreadable or not a JSON object."""
 
 
+class ConfigRecoveryError(RuntimeError):
+    """Persistent config recovery failed."""
+
+
 @contextmanager
 def config_recovery_lock(config_path: Path):
     """Serialize recovery attempts for one provider across agent processes."""

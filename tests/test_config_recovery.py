@@ -3,8 +3,16 @@ import logging
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 from tests.conftest import PACKAGED_DEFAULT
-from wb.cloud_agent.settings import AppSettings, load_providers_data
+from wb.cloud_agent.settings import (
+    AppSettings,
+    _packaged_default_config,
+    default_client_cert_engine_key,
+    load_providers_data,
+)
+from wb.cloud_agent.utils import ConfigRecoveryError
 
 
 def write_config(dirs, provider, contents: str) -> Path:
@@ -27,6 +35,21 @@ def test_healthy_config_is_never_rewritten(cloud_dirs):
     assert settings.config_error is None
     assert config.stat().st_mtime_ns == mtime
     assert not broken_copies(config)
+
+
+def test_contactless_board_uses_the_wb6_certificate_key(monkeypatch):
+    result = type("Result", (), {"returncode": 0, "stdout": "ATECCx08:00:04:C0:00"})()
+    monkeypatch.setattr("wb.cloud_agent.settings.subprocess.run", lambda *args, **kwargs: result)
+
+    assert default_client_cert_engine_key() == "ATECCx08:00:04:C0:00"
+
+
+def test_packaged_defaults_use_the_contactless_board_key(cloud_dirs, monkeypatch):
+    result = type("Result", (), {"returncode": 0, "stdout": "ATECCx08:00:04:C0:00"})()
+    monkeypatch.setattr("wb.cloud_agent.settings.subprocess.run", lambda *args, **kwargs: result)
+    cloud_dirs.default.write_text(json.dumps({"CLIENT_CERT_ENGINE_KEY": "ATECCx08:00:02:C0:00"}))
+
+    assert _packaged_default_config()["CLIENT_CERT_ENGINE_KEY"] == "ATECCx08:00:04:C0:00"
 
 
 def test_empty_config_is_restored_to_production_without_quarantine(cloud_dirs):
@@ -85,15 +108,6 @@ def test_missing_config_is_rebuilt_from_production_defaults(cloud_dirs):
     assert rebuilt["CLIENT_CERT_ENGINE_KEY"] == PACKAGED_DEFAULT["CLIENT_CERT_ENGINE_KEY"]
 
 
-def test_missing_existing_provider_config_is_marked_unusable(cloud_dirs):
-    (cloud_dirs.providers / "custom-name").mkdir(parents=True)
-
-    settings = AppSettings(provider_name="custom-name")
-
-    assert settings.config_error == "is missing"
-    assert not (cloud_dirs.providers / "custom-name" / "wb-cloud-agent.conf").exists()
-
-
 def test_recovery_uses_packaged_values_except_cloud_url(cloud_dirs):
     cloud_dirs.default.write_text(
         json.dumps({"CLOUD_BASE_URL": "https://wrong.example", "LOG_LEVEL": "DEBUG"}), encoding="utf-8"
@@ -133,9 +147,9 @@ def test_recovery_keeps_original_when_broken_copy_cannot_be_saved(cloud_dirs):
     config = write_config(cloud_dirs, "custom-name", "{broken")
 
     with patch("wb.cloud_agent.settings.quarantine_broken_file", return_value=None):
-        settings = AppSettings(provider_name="custom-name", recover_configs=True)
+        with pytest.raises(ConfigRecoveryError):
+            AppSettings(provider_name="custom-name", recover_configs=True)
 
-    assert settings.cloud_base_url == "https://wirenboard.cloud"
     assert config.read_text() == "{broken"
 
 
@@ -143,10 +157,9 @@ def test_recovery_keeps_original_when_rebuilt_config_cannot_be_written(cloud_dir
     config = write_config(cloud_dirs, "custom-name", "{broken")
 
     with patch("wb.cloud_agent.settings.write_to_file", side_effect=PermissionError("read-only")):
-        settings = AppSettings(provider_name="custom-name", recover_configs=True)
+        with pytest.raises(ConfigRecoveryError):
+            AppSettings(provider_name="custom-name", recover_configs=True)
 
-    assert settings.config_error is not None
-    assert settings.cloud_base_url == "https://wirenboard.cloud"
     assert config.read_text() == "{broken"
     assert len(broken_copies(config)) == 1
 
@@ -155,10 +168,22 @@ def test_failed_recovery_does_not_duplicate_the_broken_copy(cloud_dirs):
     config = write_config(cloud_dirs, "custom-name", "{broken")
 
     with patch("wb.cloud_agent.settings.write_to_file", side_effect=PermissionError("read-only")):
-        AppSettings(provider_name="custom-name", recover_configs=True)
-        AppSettings(provider_name="custom-name", recover_configs=True)
+        with pytest.raises(ConfigRecoveryError):
+            AppSettings(provider_name="custom-name", recover_configs=True)
+        with pytest.raises(ConfigRecoveryError):
+            AppSettings(provider_name="custom-name", recover_configs=True)
 
     assert len(broken_copies(config)) == 1
+
+
+def test_non_daemon_recovery_marks_fallback_as_unknown(cloud_dirs):
+    config = write_config(cloud_dirs, "custom-name", "")
+
+    settings = AppSettings(provider_name="custom-name")
+
+    assert settings.config_error == "is empty"
+    assert settings.cloud_base_url == "https://wirenboard.cloud"
+    assert config.read_text() == ""
 
 
 def test_listing_providers_recovers_in_memory_only(cloud_dirs):
@@ -167,6 +192,7 @@ def test_listing_providers_recovers_in_memory_only(cloud_dirs):
     providers = load_providers_data(["custom-name"])
 
     assert providers[0].config["CLOUD_BASE_URL"] == "https://wirenboard.cloud"
+    assert not providers[0].config_authoritative
     assert config.read_text() == ""
 
 

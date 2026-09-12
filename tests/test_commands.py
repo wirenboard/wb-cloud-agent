@@ -145,6 +145,7 @@ def test_add_provider_with_a_broken_existing_provider():
     options = Namespace(base_url="https://example.com/", name=None)
     broken_provider = MagicMock()
     broken_provider.config = {}
+    broken_provider.config_authoritative = False
 
     with (
         patch("wb.cloud_agent.commands.configure_app"),
@@ -258,6 +259,23 @@ def test_del_provider_with_url_format():
         mock_config.assert_called_once_with(provider_name="example.com")
 
 
+def test_del_provider_with_unknown_config_does_not_contact_cloud(mock_mqtt_cloud_agent):
+    options = Namespace(provider_name="custom-provider")
+
+    with (
+        patch("wb.cloud_agent.commands.configure_app") as mock_config,
+        patch("wb.cloud_agent.commands.get_provider_names", return_value=["custom-provider"]),
+        patch("wb.cloud_agent.commands.stop_services_and_del_configs") as mock_stop,
+    ):
+        mock_config.return_value.config_error = "is empty"
+
+        result = del_provider(options)
+
+        assert result == 1
+        mock_mqtt_cloud_agent.start.assert_not_called()
+        mock_stop.assert_not_called()
+
+
 def test_del_all_providers_empty():
     options = Namespace()
 
@@ -355,18 +373,6 @@ def test_run_daemon_startup_failure():
         mock_wait.assert_called_once_with(mock_settings.cloud_base_url, mock_settings.ping_period_seconds)
 
         mock_config.assert_called_once()
-
-
-@pytest.mark.usefixtures("mock_mqtt_cloud_agent")
-def test_run_daemon_returns_six_when_config_recovery_fails():
-    options = Namespace(provider_name="test", broker=None)
-
-    with patch("wb.cloud_agent.commands.configure_app") as mock_config:
-        mock_settings = MagicMock()
-        mock_settings.config_error = "cannot rewrite the file"
-        mock_config.return_value = mock_settings
-
-        assert run_daemon(options) == 6
 
 
 @pytest.mark.usefixtures("mock_mqtt_cloud_agent")

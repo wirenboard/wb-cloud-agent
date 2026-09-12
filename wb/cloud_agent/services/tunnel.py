@@ -1,6 +1,5 @@
 import logging
-import stat
-from pathlib import Path
+import shutil
 
 from wb.cloud_agent.constants import UNKNOWN_LINK
 from wb.cloud_agent.mqtt import MQTTCloudAgent
@@ -18,29 +17,29 @@ def update_tunnel_config(settings: AppSettings, payload: dict, mqtt: MQTTCloudAg
 def drop_broken_tunnel_config(settings: AppSettings) -> None:
     """Remove an unusable frpc.conf so frpc stops restarting until the cloud sends a new one."""
     config = settings.frp_config
-    if not isinstance(config, Path):
-        return
-
     try:
-        config_type = config.lstat().st_mode
+        config.lstat()
     except FileNotFoundError:
         return
     except OSError as exc:
-        logging.warning("Tunnel config %s cannot be inspected: %s", config, exc)
+        logging.warning("Cannot inspect tunnel config %s: %s", config, exc)
         return
 
-    if stat.S_ISREG(config_type) or stat.S_ISLNK(config_type):
+    if not config.is_file():
+        reason = "is not a regular file"
+    else:
         try:
             if config.read_text(encoding="utf-8").strip():
                 return
             reason = "is empty"
         except (OSError, UnicodeDecodeError) as exc:
             reason = f"cannot be read ({exc})"
-    else:
-        reason = "is not a regular file"
 
     try:
-        config.unlink()
+        if config.is_dir() and not config.is_symlink():
+            shutil.rmtree(config)
+        else:
+            config.unlink()
     except OSError as exc:
         logging.warning("Tunnel config %s %s but cannot be removed: %s", config, reason, exc)
         return

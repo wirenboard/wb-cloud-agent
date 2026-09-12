@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import logging
 import re
 from argparse import ArgumentParser, ArgumentTypeError, Namespace
 from urllib.parse import urlparse
@@ -12,6 +13,7 @@ from wb.cloud_agent.commands import (
     run_daemon,
     show_providers,
 )
+from wb.cloud_agent.utils import ConfigRecoveryError
 
 
 def parse_args() -> Namespace:
@@ -99,4 +101,8 @@ def validate_provider_name(value: str) -> str:
 
 def main() -> int:
     options = parse_args()
-    return options.func(options)
+    try:
+        return options.func(options)
+    except ConfigRecoveryError as exc:
+        logging.error("%s", exc)
+        return 6

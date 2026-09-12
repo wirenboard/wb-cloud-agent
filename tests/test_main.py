@@ -4,6 +4,7 @@ from unittest.mock import patch
 import pytest
 
 from wb.cloud_agent.main import main, validate_url
+from wb.cloud_agent.utils import ConfigRecoveryError
 
 
 def test_validate_url_valid_https():
@@ -79,3 +80,10 @@ def test_main_with_cloud_unbind(monkeypatch):
 
         assert result == 0
         mock_unbind.assert_called_once()
+
+
+def test_main_returns_exit_six_for_unrecoverable_config(monkeypatch):
+    monkeypatch.setattr("sys.argv", ["wb-cloud-agent"])
+
+    with patch("wb.cloud_agent.main.show_providers", side_effect=ConfigRecoveryError("cannot recover")):
+        assert main() == 6
