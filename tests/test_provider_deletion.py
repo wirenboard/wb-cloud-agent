@@ -17,14 +17,9 @@ def test_unbind_provider_preserves_identity_and_clears_runtime(isolated_provider
     settings.config_file.write_text("identity")
     runtime_dir = settings.activation_link_config.parent
     unrelated_runtime_state = runtime_dir / "future-state"
-    for attribute in (
-        "frp_config",
-        "metrics_script",
-        "metrics_vars_config",
-        "metrics_last_uid",
-        "activation_link_config",
-    ):
-        getattr(settings, attribute).write_text("stale runtime state")
+    for runtime_file in settings.runtime_files:
+        runtime_file.write_text("stale runtime state")
+    settings.activation_link_config.write_text("stale runtime state")
     unrelated_runtime_state.write_text("preserve this state")
     link_contents_before_write = []
 

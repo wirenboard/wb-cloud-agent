@@ -84,11 +84,7 @@ class AppSettings:  # pylint: disable=too-many-instance-attributes disable=too-f
 
     @property
     def runtime_files(self) -> tuple[Path, ...]:
-        """Files removed when cloud access is unbound.
-
-        The activation link is deliberately excluded: unbind_provider replaces it with
-        UNKNOWN_LINK after clearing the other runtime state.
-        """
+        """Runtime files cleared when cloud access is unbound."""
         return (
             self.frp_config,
             self.metrics_script,
