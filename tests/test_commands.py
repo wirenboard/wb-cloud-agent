@@ -358,6 +358,18 @@ def test_run_daemon_startup_failure():
 
 
 @pytest.mark.usefixtures("mock_mqtt_cloud_agent")
+def test_run_daemon_returns_six_when_config_recovery_fails():
+    options = Namespace(provider_name="test", broker=None)
+
+    with patch("wb.cloud_agent.commands.configure_app") as mock_config:
+        mock_settings = MagicMock()
+        mock_settings.config_error = "cannot rewrite the file"
+        mock_config.return_value = mock_settings
+
+        assert run_daemon(options) == 6
+
+
+@pytest.mark.usefixtures("mock_mqtt_cloud_agent")
 def test_run_daemon_with_custom_broker():
     options = Namespace(provider_name="test", broker="tcp://192.168.1.1:1883")
 

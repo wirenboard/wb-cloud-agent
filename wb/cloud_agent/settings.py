@@ -1,9 +1,7 @@
 import json
 import logging
 import shutil
-from contextlib import nullcontext
 from dataclasses import dataclass
-from functools import partial
 from pathlib import Path
 from typing import Any, Optional, Union
 from urllib.parse import urlparse, urlunparse
@@ -96,23 +94,32 @@ class AppSettings:  # pylint: disable=too-many-instance-attributes disable=too-f
     def reload_config(self) -> None:
         """Re-apply the provider config file, rebuilding a damaged file when requested."""
         self.config_error = None
-        # Outside the daemon a missing config is not an anomaly: add-provider is about to create it.
-        if not self.skip_conf_file and (self.recover_configs or self.config_file.exists()):
+        # A missing config is anomalous only for an existing provider directory.
+        if not self.skip_conf_file and (
+            self.recover_configs or self.config_file.exists() or self.config_file.parent.exists()
+        ):
             self.apply_conf_file()
 
         self.cloud_base_url = normalize_base_url(self.cloud_base_url)
         self.cloud_agent_url = self.base_url_to_agent_url(self.cloud_base_url)
 
     def apply_conf_file(self) -> None:
+        recovery_reason: Optional[str] = None
+
+        def rebuild(reason: str) -> dict:
+            nonlocal recovery_reason
+            recovery_reason = reason
+            return recover_provider_config(self.provider_name, self.recover_configs, reason)
+
         try:
-            conf = read_json_config(
-                self.config_file,
-                rebuild=partial(recover_provider_config, self.provider_name, self.recover_configs),
-            )
+            conf = read_json_config(self.config_file, rebuild=rebuild)
         except ConfigError as exc:
             logging.warning("Config %s %s", self.config_file, exc)
             self.config_error = str(exc)
             return
+
+        if recovery_reason and not self.recover_configs:
+            self.config_error = recovery_reason
 
         for key, val in conf.items():
             setattr(self, key.lower(), val)
@@ -160,50 +167,35 @@ def _packaged_default_config() -> dict[str, str]:
 
 
 def recover_provider_config(provider_name: str, persist: bool, reason: str) -> dict:
-    """Use the production defaults for a damaged provider config."""
+    """Recover a damaged provider config or raise when persistence fails."""
     config_path = provider_config_path(provider_name)
     recovered = _packaged_default_config()
     recovered["CLOUD_BASE_URL"] = DEFAULT_CLOUD_BASE_URL
 
+    if not persist:
+        logging.warning("Config %s %s, using production defaults for this run", config_path, reason)
+        return recovered
+
     try:
-        recovery_lock = config_recovery_lock(config_path) if persist else nullcontext()
-        with recovery_lock:
-            # Another agent process may have repaired the file after the initial parse failed.
+        with config_recovery_lock(config_path):
             try:
                 return read_json_config(config_path)
             except ConfigError:
                 pass
 
-            if not persist:
-                logging.warning("Config %s %s, using production defaults for this run", config_path, reason)
-                return recovered
-
             try:
                 broken_size = config_path.stat().st_size
             except FileNotFoundError:
                 broken_size = 0
-            except OSError:
-                broken_size = None
 
             quarantined = quarantine_broken_file(config_path) if broken_size else None
-            if broken_size is None or (broken_size > 0 and quarantined is None):
-                logging.warning(
-                    "Config %s %s, cannot preserve the broken file; using production defaults for this run",
-                    config_path,
-                    reason,
-                )
-                return recovered
+            if broken_size > 0 and quarantined is None:
+                raise ConfigError("cannot preserve the broken file")
 
             try:
                 write_to_file(config_path, json.dumps(recovered, indent=4))
             except OSError as exc:
-                logging.warning(
-                    "Config %s %s, cannot be rewritten (%s); using production defaults for this run",
-                    config_path,
-                    reason,
-                    exc,
-                )
-                return recovered
+                raise ConfigError(f"cannot rewrite the file ({exc})") from exc
 
             logging.warning(
                 "Config %s %s, restored to production defaults%s",
@@ -213,13 +205,7 @@ def recover_provider_config(provider_name: str, persist: bool, reason: str) -> d
             )
             return recovered
     except OSError as exc:
-        logging.warning(
-            "Config %s %s, recovery is not persistent (%s); using production defaults for this run",
-            config_path,
-            reason,
-            exc,
-        )
-        return recovered
+        raise ConfigError(f"cannot recover the file ({exc})") from exc
 
 
 def delete_provider_config(conf_path_prefix: str, provider: str) -> None:
@@ -254,9 +240,13 @@ class Provider:
     name: str
     config: dict[str, Union[str, int]]
     activation_link: Optional[str] = None
+    config_error: Optional[str] = None
 
     @property
     def display_url(self) -> str:
+        if self.config_error:
+            return "Broken configuration"
+
         base_url = self.config.get("CLOUD_BASE_URL")
         if not base_url:
             return "Broken configuration"
@@ -276,20 +266,30 @@ def load_providers_data(provider_names: list[str]) -> list[Provider]:
 
     result = []
     for provider_name in provider_names:
+        recovery_reason: Optional[str] = None
+
+        def rebuild(reason: str, name: str = provider_name) -> dict:
+            nonlocal recovery_reason
+            recovery_reason = reason
+            return recover_provider_config(name, False, reason)
+
         try:
-            provider_config = read_json_config(
-                provider_config_path(provider_name),
-                rebuild=partial(recover_provider_config, provider_name, False),
-            )
+            provider_config = read_json_config(provider_config_path(provider_name), rebuild=rebuild)
         except ConfigError as exc:
             logging.warning("Provider %s config %s", provider_name, exc)
             provider_config = {}
+            recovery_reason = str(exc)
 
         activation_path = Path(f"{APP_DATA_PROVIDERS_DIR}/{provider_name}/activation_link.conf")
         provider_activation_link = read_plaintext_config(activation_path) or NOCONNECT_LINK
 
         result.append(
-            Provider(name=provider_name, config=provider_config, activation_link=provider_activation_link)
+            Provider(
+                name=provider_name,
+                config=provider_config,
+                activation_link=provider_activation_link,
+                config_error=recovery_reason,
+            )
         )
 
     logging.debug("Configs loaded %s", result)

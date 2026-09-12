@@ -85,6 +85,15 @@ def test_missing_config_is_rebuilt_from_production_defaults(cloud_dirs):
     assert rebuilt["CLIENT_CERT_ENGINE_KEY"] == PACKAGED_DEFAULT["CLIENT_CERT_ENGINE_KEY"]
 
 
+def test_missing_existing_provider_config_is_marked_unusable(cloud_dirs):
+    (cloud_dirs.providers / "custom-name").mkdir(parents=True)
+
+    settings = AppSettings(provider_name="custom-name")
+
+    assert settings.config_error == "is missing"
+    assert not (cloud_dirs.providers / "custom-name" / "wb-cloud-agent.conf").exists()
+
+
 def test_recovery_uses_packaged_values_except_cloud_url(cloud_dirs):
     cloud_dirs.default.write_text(
         json.dumps({"CLOUD_BASE_URL": "https://wrong.example", "LOG_LEVEL": "DEBUG"}), encoding="utf-8"
@@ -136,7 +145,7 @@ def test_recovery_keeps_original_when_rebuilt_config_cannot_be_written(cloud_dir
     with patch("wb.cloud_agent.settings.write_to_file", side_effect=PermissionError("read-only")):
         settings = AppSettings(provider_name="custom-name", recover_configs=True)
 
-    assert settings.config_error is None
+    assert settings.config_error is not None
     assert settings.cloud_base_url == "https://wirenboard.cloud"
     assert config.read_text() == "{broken"
     assert len(broken_copies(config)) == 1

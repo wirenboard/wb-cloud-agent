@@ -34,6 +34,15 @@ from wb.cloud_agent.utils import (
 )
 
 
+def _has_config_error(settings: AppSettings) -> bool:
+    return isinstance(getattr(settings, "config_error", None), str)
+
+
+def _reject_config_error(settings: AppSettings) -> int:
+    logging.error("Cannot use provider config %s: %s", settings.config_file, settings.config_error)
+    return 1
+
+
 def show_providers(_options) -> int:
     provider_names = get_provider_names()
     providers = load_providers_data(provider_names)
@@ -44,14 +53,6 @@ def show_providers(_options) -> int:
 def add_provider(options) -> int:
     base_url = normalize_base_url(options.base_url)
     provider_name = options.name or urlparse(base_url).netloc
-    settings = configure_app(provider_name=provider_name)
-
-    try:
-        mqtt = MQTTCloudAgent(settings, on_message)
-        mqtt.start()
-    except (FileNotFoundError, ConnectionError) as exc:
-        logging.error("Error starting MQTT client: %s", exc)
-
     providers = get_provider_names()
     if provider_name in providers:
         print(f"Provider {provider_name} already exists")
@@ -59,11 +60,22 @@ def add_provider(options) -> int:
 
     existing_providers = load_providers_data(providers)
     if any(
-        normalize_base_url(provider.config.get("CLOUD_BASE_URL", "")) == base_url
+        not isinstance(provider.config_error, str)
+        and normalize_base_url(provider.config.get("CLOUD_BASE_URL", "")) == base_url
         for provider in existing_providers
     ):
         print(f"Provider with URL {base_url} already exists")
         return 1
+
+    settings = configure_app(provider_name=provider_name)
+    if _has_config_error(settings):
+        return _reject_config_error(settings)
+
+    try:
+        mqtt = MQTTCloudAgent(settings, on_message)
+        mqtt.start()
+    except (FileNotFoundError, ConnectionError) as exc:
+        logging.error("Error starting MQTT client: %s", exc)
 
     generate_provider_config(provider_name, base_url)
     start_and_enable_service(f"wb-cloud-agent@{provider_name}.service")
@@ -85,6 +97,8 @@ def add_on_premise_provider(options) -> int:
 def del_provider(options) -> int:
     provider_name = urlparse(options.provider_name).netloc or options.provider_name
     settings = configure_app(provider_name=provider_name)
+    if _has_config_error(settings):
+        return _reject_config_error(settings)
 
     mqtt = MQTTCloudAgent(settings, on_message)
     mqtt.start()
@@ -108,6 +122,8 @@ def del_all_providers(_options, show_msg: bool = True) -> int:
 
     for provider_name in providers:
         settings = configure_app(provider_name=provider_name)
+        if _has_config_error(settings):
+            return _reject_config_error(settings)
 
         mqtt = MQTTCloudAgent(settings, on_message)
         mqtt.start()
@@ -124,6 +140,9 @@ def del_controller_from_cloud(options) -> int:
 
 def run_daemon(options) -> Optional[int]:
     settings = configure_app(provider_name=options.provider_name, recover_configs=True)
+    if _has_config_error(settings):
+        return 6
+
     settings.broker_url = options.broker or settings.broker_url
     logging.info(
         "====== Cloud Agent started (version: %s, provider: %s) ======",
