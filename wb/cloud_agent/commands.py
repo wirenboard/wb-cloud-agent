@@ -133,9 +133,49 @@ def del_controller_from_cloud(options) -> int:
     return event_delete_controller(settings)
 
 
+def refresh_settings(settings: AppSettings, broker_override: Optional[str] = None) -> bool:
+    settings.reload_config()
+    if broker_override is not None:
+        settings.broker_url = broker_override
+    return getattr(settings, "provider_removed", False) is not True
+
+
+def wait_for_cloud(settings: AppSettings, broker_override: Optional[str]) -> Optional[int]:
+    if not refresh_settings(settings, broker_override):
+        return 0
+    try:
+        wait_for_cloud_reachable(settings.cloud_base_url, settings.ping_period_seconds)
+    except CloudUnreachableError as exc:
+        logging.error(str(exc))
+        logging.debug("Cloud reachability failure details", exc_info=exc)
+        return 1
+    return None
+
+
+def send_startup_requests(
+    settings: AppSettings, mqtt: MQTTCloudAgent, broker_override: Optional[str]
+) -> Optional[int]:
+    if not refresh_settings(settings, broker_override):
+        return 0
+    try:
+        make_start_up_request(settings, mqtt)
+        if not refresh_settings(settings, broker_override):
+            return 0
+        send_packages_version(settings)
+    except CloudNetworkError as exc:
+        logging.error("Startup request failed: %s", exc)
+        return 1
+    return None
+
+
 def run_daemon(options) -> Optional[int]:
     settings = configure_app(provider_name=options.provider_name, recover_configs=True)
-    settings.broker_url = options.broker or settings.broker_url
+    broker_override = getattr(options, "broker", None)
+    if getattr(settings, "provider_removed", False) is True:
+        return 0
+    if not refresh_settings(settings, broker_override):
+        return 0
+    settings.broker_url = broker_override or settings.broker_url
     logging.info(
         "====== Cloud Agent started (version: %s, provider: %s) ======",
         agent_package_version,
@@ -151,19 +191,13 @@ def run_daemon(options) -> Optional[int]:
     mqtt.publish_vdev()
     drop_broken_tunnel_config(settings)
 
-    try:
-        wait_for_cloud_reachable(settings.cloud_base_url, settings.ping_period_seconds)
-    except CloudUnreachableError as exc:
-        logging.error(str(exc))
-        logging.debug("Cloud reachability failure details", exc_info=exc)
-        return 1
+    result = wait_for_cloud(settings, broker_override)
+    if result is not None:
+        return result
 
-    try:
-        make_start_up_request(settings, mqtt)
-        send_packages_version(settings)
-    except CloudNetworkError as exc:
-        logging.error("Startup request failed: %s", exc)
-        return 1
+    result = send_startup_requests(settings, mqtt, broker_override)
+    if result is not None:
+        return result
 
     mqtt.update_providers_list()
     mqtt.publish_ctrl("activation_link", read_activation_link(settings))
@@ -174,16 +208,20 @@ def run_daemon(options) -> Optional[int]:
 
     logging.info("Cloud Agent initialization - OK")
 
-    run_event_loop(settings, mqtt)
+    run_event_loop(settings, mqtt, broker_override)
     return None
 
 
-def run_event_loop(settings: AppSettings, mqtt: MQTTCloudAgent) -> None:
+def run_event_loop(
+    settings: AppSettings, mqtt: MQTTCloudAgent, broker_override: Optional[str] = None
+) -> None:
     with ExitStack() as stack:
         stack.callback(mqtt.remove_vdev)
         was_connected = False
 
         while True:
+            if not refresh_settings(settings, broker_override):
+                return
             mqtt.ensure_running()
             start = time.perf_counter()
             logging.debug("Sending event request")

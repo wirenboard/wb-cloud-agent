@@ -17,6 +17,7 @@ from wb.cloud_agent.commands import (
     show_providers,
 )
 from wb.cloud_agent.handlers.curl import CloudNetworkError
+from wb.cloud_agent.handlers.ping import CloudUnreachableError
 
 
 @pytest.fixture
@@ -376,6 +377,44 @@ def test_run_daemon_startup_failure():
 
 
 @pytest.mark.usefixtures("mock_mqtt_cloud_agent")
+def test_run_daemon_exits_cleanly_when_provider_directory_is_removed():
+    options = Namespace(provider_name="removed", broker=None)
+
+    with (
+        patch("wb.cloud_agent.commands.configure_app") as mock_config,
+        patch("wb.cloud_agent.commands.wait_for_cloud_reachable") as mock_wait,
+    ):
+        mock_settings = MagicMock()
+        mock_settings.provider_removed = True
+        mock_config.return_value = mock_settings
+
+        result = run_daemon(options)
+
+    assert result == 0
+    mock_wait.assert_not_called()
+
+
+def test_network_failure_does_not_rewrite_healthy_config(cloud_dirs):
+    config = cloud_dirs.providers / "provider" / "wb-cloud-agent.conf"
+    config.parent.mkdir(parents=True)
+    config.write_text('{"CLOUD_BASE_URL": "https://example.com"}', encoding="utf-8")
+    before = config.read_bytes(), config.stat().st_mtime_ns
+    options = Namespace(provider_name="provider", broker=None)
+
+    with (
+        patch("wb.cloud_agent.commands.MQTTCloudAgent") as mock_mqtt,
+        patch(
+            "wb.cloud_agent.commands.wait_for_cloud_reachable",
+            side_effect=CloudUnreachableError("network blocked"),
+        ),
+    ):
+        assert run_daemon(options) == 1
+
+    assert (config.read_bytes(), config.stat().st_mtime_ns) == before
+    mock_mqtt.return_value.start.assert_called_once_with(update_status=True)
+
+
+@pytest.mark.usefixtures("mock_mqtt_cloud_agent")
 def test_run_daemon_with_custom_broker():
     options = Namespace(provider_name="test", broker="tcp://192.168.1.1:1883")
 
@@ -497,3 +536,17 @@ def test_event_loop_publishes_through_a_stopped_network_loop(settings, build_mqt
         run_event_loop(settings, agent)
 
     assert (f"{settings.mqtt_prefix}/controls/status", "ok", True) in agent.client.delivered
+
+
+def test_event_loop_reloads_config_before_cloud_request(settings, build_mqtt_agent):
+    agent = build_mqtt_agent(settings)
+
+    with (
+        patch.object(settings, "reload_config", wraps=settings.reload_config) as reload_config,
+        patch("wb.cloud_agent.commands.make_event_request", side_effect=KeyboardInterrupt),
+        patch("time.sleep"),
+        pytest.raises(KeyboardInterrupt),
+    ):
+        run_event_loop(settings, agent)
+
+    reload_config.assert_called_once_with()
