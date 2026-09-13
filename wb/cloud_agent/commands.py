@@ -52,8 +52,7 @@ def add_provider(options) -> int:
 
     existing_providers = load_providers_data(providers)
     if any(
-        provider.config_authoritative
-        and normalize_base_url(provider.config.get("CLOUD_BASE_URL", "")) == base_url
+        normalize_base_url(provider.config.get("CLOUD_BASE_URL", "")) == base_url
         for provider in existing_providers
     ):
         print(f"Provider with URL {base_url} already exists")
@@ -222,7 +221,6 @@ def run_event_loop(
         while True:
             if not refresh_settings(settings, broker_override):
                 return
-            mqtt.ensure_running()
             start = time.perf_counter()
             logging.debug("Sending event request")
 

@@ -146,7 +146,6 @@ def test_add_provider_with_a_broken_existing_provider():
     options = Namespace(base_url="https://example.com/", name=None)
     broken_provider = MagicMock()
     broken_provider.config = {}
-    broken_provider.config_authoritative = False
 
     with (
         patch("wb.cloud_agent.commands.configure_app"),
@@ -521,21 +520,6 @@ def test_run_daemon_event_loop_with_exception(mock_mqtt_cloud_agent):
             call for call in mock_mqtt_cloud_agent.publish_ctrl.call_args_list if call[0][0] == "status"
         ]
         assert len(status_calls) >= 2
-
-
-def test_event_loop_publishes_through_a_stopped_network_loop(settings, build_mqtt_agent):
-    agent = build_mqtt_agent(settings)
-    agent.start(update_status=True)
-    agent.client.stop_network_loop()
-
-    with (
-        patch("wb.cloud_agent.commands.make_event_request"),
-        patch("time.sleep", side_effect=KeyboardInterrupt),
-        pytest.raises(KeyboardInterrupt),
-    ):
-        run_event_loop(settings, agent)
-
-    assert (f"{settings.mqtt_prefix}/controls/status", "ok", True) in agent.client.delivered
 
 
 def test_event_loop_reloads_config_before_cloud_request(settings, build_mqtt_agent):

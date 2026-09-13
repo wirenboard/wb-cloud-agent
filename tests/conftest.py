@@ -49,9 +49,6 @@ class FakeMqttClient:
     def loop_stop(self):
         self._thread = None
 
-    def stop_network_loop(self):
-        self._loop_running = False
-
     def will_set(self, *_args, **_kwargs):
         pass
 

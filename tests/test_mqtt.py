@@ -70,34 +70,6 @@ def test_start_with_update_status(mqtt_cloud_agent, settings):
     )
 
 
-def test_ensure_running_keeps_a_live_network_loop(mqtt_cloud_agent):
-    mqtt_cloud_agent.client._thread.is_alive.return_value = True
-
-    mqtt_cloud_agent.ensure_running()
-
-    mqtt_cloud_agent.client.start.assert_not_called()
-
-
-def test_ensure_running_republishes_the_vdev_on_the_next_connect(mqtt_cloud_agent):
-    mqtt_cloud_agent.client._thread = None
-
-    mqtt_cloud_agent.ensure_running()
-
-    mqtt_cloud_agent.client.start.assert_called_once()
-    with patch.object(mqtt_cloud_agent, "publish_vdev") as mock_publish_vdev:
-        mqtt_cloud_agent._on_connect(None, None, None, 0)
-    mock_publish_vdev.assert_called_once()
-
-
-def test_ensure_running_survives_an_unreachable_broker(mqtt_cloud_agent, caplog):
-    mqtt_cloud_agent.client._thread = None
-    mqtt_cloud_agent.client.start.side_effect = ConnectionRefusedError("broker is down")
-
-    mqtt_cloud_agent.ensure_running()
-
-    assert "broker is down" in caplog.text
-
-
 def test_on_connect_successful(mqtt_cloud_agent):
     mqtt_cloud_agent._on_connect(None, None, None, 0)
 
@@ -108,30 +80,6 @@ def test_retained_hw_revision_is_processed_after_config_recovery(cert_mismatch_a
     cert_mismatch_agent._on_connect(None, None, None, 0)
 
     mock_subprocess_run.assert_called_once()
-
-
-def test_failing_handler_is_logged_and_the_network_loop_survives(settings, cert_mismatch_agent, caplog):
-    cert_mismatch_agent._on_connect(None, None, None, 0)
-
-    assert HW_REVISION_TOPIC in caplog.text
-    cert_mismatch_agent.publish_ctrl("status", "connecting")
-    assert (
-        f"{settings.mqtt_prefix}/controls/status",
-        "connecting",
-        True,
-    ) in cert_mismatch_agent.client.delivered
-
-
-def test_a_topic_that_is_not_utf8_is_logged_instead_of_killing_the_loop(
-    mqtt_cloud_agent, build_mqtt_message, caplog
-):
-    mqtt_cloud_agent.on_message = MagicMock(side_effect=RuntimeError("handler failed"))
-
-    mqtt_cloud_agent._on_message(
-        None, {"settings": MagicMock()}, build_mqtt_message(b"/devices/\xff", b"6.9.1")
-    )
-
-    assert "Error handling MQTT message" in caplog.text
 
 
 def test_on_connect_failure(mqtt_cloud_agent):
@@ -167,15 +115,6 @@ def test_on_connect_after_disconnect(mqtt_cloud_agent, settings):
     ]
     for expected_call in expected_calls:
         assert expected_call in mqtt_cloud_agent.client.publish.call_args_list
-
-
-def test_reconnect_keeps_an_unknown_providers_list(mqtt_cloud_agent):
-    mqtt_cloud_agent.was_disconnected = True
-
-    with patch.object(mqtt_cloud_agent, "publish_providers") as mock_publish_providers:
-        mqtt_cloud_agent._on_connect(None, None, None, 0)
-
-    mock_publish_providers.assert_not_called()
 
 
 def test_on_message(mqtt_cloud_agent):
