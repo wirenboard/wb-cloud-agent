@@ -154,7 +154,10 @@ def test_send_packages_version_failure(settings):
 
 
 def test_on_message_success(settings):
-    with patch("wb.cloud_agent.handlers.startup.do_curl") as mock_curl:
+    with (
+        patch.object(settings, "reload_config") as mock_reload,
+        patch("wb.cloud_agent.handlers.startup.do_curl") as mock_curl,
+    ):
         mock_curl.return_value = ({"result": "ok"}, status.OK)
 
         userdata = {"settings": settings}
@@ -163,6 +166,7 @@ def test_on_message_success(settings):
 
         on_message(userdata, message)
 
+        mock_reload.assert_called_once_with()
         mock_curl.assert_called_once()
         args = mock_curl.call_args
         assert args[1]["method"] == "put"

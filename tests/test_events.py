@@ -181,8 +181,11 @@ def test_make_event_request(settings, event_data, match_str):
 
 def test_event_confirm_invalid_status(settings, mock_subprocess):
     mock_subprocess(status.BAD_REQUEST, '{"error": "bad request"}')
-    with pytest.raises(ValueError, match="Not a 204 status on event confirmation"):
-        event_confirm(settings, "event123")
+    with patch.object(settings, "reload_config") as mock_reload:
+        with pytest.raises(ValueError, match="Not a 204 status on event confirmation"):
+            event_confirm(settings, "event123")
+
+    mock_reload.assert_called_once_with()
 
 
 def test_event_delete_controller_success(settings, mock_subprocess):

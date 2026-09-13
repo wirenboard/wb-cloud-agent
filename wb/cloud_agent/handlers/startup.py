@@ -95,8 +95,13 @@ def collect_package_versions(settings: AppSettings) -> dict[str, str]:
 
 
 def on_message(userdata: dict, message):
+    settings = userdata["settings"]
+    settings.reload_config()
+    if getattr(settings, "provider_removed", False) is True:
+        return
+
     _status_data, http_status = do_curl(
-        userdata.get("settings"),
+        settings,
         method="put",
         endpoint="update_device_data/",
         params={"hardware_revision": str(message.payload, "utf-8")},

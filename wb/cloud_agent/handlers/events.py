@@ -78,6 +78,10 @@ def make_event_request(settings: AppSettings, mqtt: MQTTCloudAgent):
 
 
 def event_confirm(settings: AppSettings, event_id: str, applied: bool = True) -> None:
+    settings.reload_config()
+    if getattr(settings, "provider_removed", False) is True:
+        return
+
     _event_data, http_status = do_curl(
         settings=settings,
         method="post",
