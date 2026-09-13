@@ -137,14 +137,14 @@ def test_read_json_config_unreadable_directory(tmp_path):
     assert "cannot be read" in str(exc_info.value)
 
 
-def test_read_json_config_undecodable(tmp_path):
+def test_read_json_config_undecodable_is_broken(tmp_path):
     config_file = tmp_path / "config.json"
     config_file.write_bytes(b"\xff\xfe")
 
-    with pytest.raises(ConfigReadError) as exc_info:
+    with pytest.raises(ConfigError) as exc_info:
         read_json_config(config_file)
 
-    assert "cannot be read" in str(exc_info.value)
+    assert "is not valid JSON" in str(exc_info.value)
 
 
 def test_read_json_config_delegates_to_rebuild(tmp_path):

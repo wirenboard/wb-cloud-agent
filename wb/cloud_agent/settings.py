@@ -163,7 +163,6 @@ class AppSettings:  # pylint: disable=too-many-instance-attributes disable=too-f
 
 
 def configure_app(**kwargs: dict[str, Any]) -> AppSettings:
-    # Configured first so a recovery WARNING from AppSettings still comes out in the configured format.
     setup_log(DEFAULT_LOG_LEVEL)
     settings = AppSettings(**kwargs)
     setup_log(settings.log_level)
@@ -298,7 +297,6 @@ class Provider:
     name: str
     config: dict[str, Any]
     activation_link: Optional[str] = None
-    config_authoritative: bool = True
 
     @property
     def display_url(self) -> str:
@@ -321,11 +319,9 @@ def load_providers_data(provider_names: list[str]) -> list[Provider]:
 
     result = []
     for provider_name in provider_names:
-        config_authoritative = True
         try:
             provider_config = read_json_config(provider_config_path(provider_name))
         except ConfigError as exc:
-            config_authoritative = False
             provider_config = recover_provider_config(provider_name, False, str(exc))
 
         activation_path = Path(f"{APP_DATA_PROVIDERS_DIR}/{provider_name}/activation_link.conf")
@@ -336,7 +332,6 @@ def load_providers_data(provider_names: list[str]) -> list[Provider]:
                 name=provider_name,
                 config=provider_config,
                 activation_link=provider_activation_link,
-                config_authoritative=config_authoritative,
             )
         )
 

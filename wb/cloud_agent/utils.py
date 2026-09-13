@@ -74,7 +74,9 @@ def _parse_json_config(config_path: Path) -> dict[str, Any]:
         data = config_path.read_text(encoding="utf-8")
     except FileNotFoundError as exc:
         raise ConfigError("is missing") from exc
-    except (OSError, UnicodeDecodeError) as exc:
+    except UnicodeDecodeError as exc:
+        raise ConfigError(f"is not valid JSON ({exc})") from exc
+    except OSError as exc:
         raise ConfigReadError(f"cannot be read ({exc})") from exc
 
     if not data.strip():

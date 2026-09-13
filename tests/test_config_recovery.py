@@ -63,6 +63,18 @@ def test_damaged_config_is_rebuilt_and_logs_reason(cloud_dirs, caplog, contents,
         assert broken_copies(config)[0].read_text() == contents
 
 
+def test_undecodable_config_is_rebuilt_and_quarantined(cloud_dirs, caplog):
+    config = write_config(cloud_dirs, "provider", "")
+    config.write_bytes(b"\xff\xfe")
+    caplog.set_level(logging.WARNING)
+
+    AppSettings(provider_name="provider", recover_configs=True)
+
+    assert config.read_bytes() == json.dumps(PACKAGED_DEFAULT, indent=4).encode()
+    assert broken_copies(config)[0].read_bytes() == b"\xff\xfe"
+    assert "is not valid JSON" in caplog.text
+
+
 def test_missing_config_is_rebuilt_when_provider_directory_exists(cloud_dirs):
     provider_dir = cloud_dirs.providers / "provider"
     provider_dir.mkdir(parents=True)
@@ -184,6 +196,6 @@ def test_listing_recovers_in_memory_without_writing_or_creating_dirs(cloud_dirs)
     providers = load_providers_data(["broken", "missing"])
 
     assert [provider.name for provider in providers] == ["broken", "missing"]
-    assert all(not provider.config_authoritative for provider in providers)
+    assert all(provider.config["CLOUD_BASE_URL"] == "https://wirenboard.cloud" for provider in providers)
     assert not (cloud_dirs.providers / "missing").exists()
     assert (cloud_dirs.providers / "broken" / "wb-cloud-agent.conf").read_text() == ""
