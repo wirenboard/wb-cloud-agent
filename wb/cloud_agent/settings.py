@@ -4,7 +4,7 @@ import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Optional, Union
+from typing import Any, Optional
 from urllib.parse import urlparse, urlunparse
 
 from wb_common.mqtt_client import DEFAULT_BROKER_URL
@@ -20,6 +20,7 @@ from wb.cloud_agent.constants import (
 )
 from wb.cloud_agent.utils import (
     ConfigError,
+    ConfigReadError,
     ConfigRecoveryError,
     config_recovery_lock,
     get_controller_url,
@@ -117,12 +118,14 @@ class AppSettings:  # pylint: disable=too-many-instance-attributes disable=too-f
         self.mqtt_prefix: str = f"/devices/system__wb-cloud-agent__{self.provider_name}"
         self.diag_archive: Path = Path("/tmp")
         self.config_error: Optional[str] = None
+        self.provider_removed = False
 
         self.reload_config()
 
     def reload_config(self) -> None:
         """Re-apply the provider config file, rebuilding a damaged file when requested."""
         self.config_error = None
+        self.provider_removed = False
         if not self.skip_conf_file and (
             self.recover_configs or self.config_file.exists() or self.config_file.parent.is_dir()
         ):
@@ -134,11 +137,21 @@ class AppSettings:  # pylint: disable=too-many-instance-attributes disable=too-f
     def apply_conf_file(self) -> None:
         try:
             conf = read_json_config(self.config_file)
+        except ConfigReadError as exc:
+            self.config_error = str(exc)
+            logging.warning("Config %s %s; leaving it unchanged", self.config_file, exc)
+            if self.recover_configs:
+                raise ConfigRecoveryError(f"Cannot read config {self.config_file}: {exc}") from exc
+            conf = recover_provider_config(self.provider_name, False, str(exc))
         except ConfigError as exc:
             self.config_error = str(exc)
             conf = recover_provider_config(self.provider_name, self.recover_configs, str(exc))
-            if self.recover_configs:
+            if self.recover_configs and conf is not None:
                 self.config_error = None
+
+        if conf is None:
+            self.provider_removed = True
+            return
 
         for key, val in conf.items():
             setattr(self, key.lower(), val)
@@ -170,7 +183,7 @@ def generate_provider_config(provider: str, base_url: str) -> None:
     write_to_file(provider_config_path(provider), json.dumps(conf, indent=4))
 
 
-def _packaged_default_config() -> dict[str, str]:
+def _packaged_default_config() -> dict[str, Any]:
     """Read the packaged defaults, falling back to values safe for production."""
     engine_key = default_client_cert_engine_key()
     defaults = {
@@ -187,20 +200,31 @@ def _packaged_default_config() -> dict[str, str]:
         return defaults
 
 
-def recover_provider_config(provider_name: str, persist: bool, reason: str) -> dict:
+def recover_provider_config(provider_name: str, persist: bool, reason: str) -> Optional[dict[str, Any]]:
     """Restore a damaged provider config from safe defaults."""
     config_path = provider_config_path(provider_name)
-    recovered = _packaged_default_config()
-    recovered["CLOUD_BASE_URL"] = DEFAULT_CLOUD_BASE_URL
 
     if not persist:
-        logging.warning("Config %s %s, using production defaults for this run", config_path, reason)
+        recovered = _packaged_default_config()
+        logging.warning("Config %s %s, using defaults for this run", config_path, reason)
         return recovered
+
+    if not config_path.parent.is_dir():
+        logging.warning(
+            "Config %s is missing because the provider directory disappeared; stopping without recovery",
+            config_path,
+        )
+        return None
+
+    recovered = _packaged_default_config()
 
     try:
         with config_recovery_lock(config_path):
             try:
                 return read_json_config(config_path)
+            except ConfigReadError as exc:
+                logging.warning("Config %s %s; leaving it unchanged", config_path, exc)
+                raise ConfigRecoveryError(f"Cannot read config {config_path}: {exc}") from exc
             except ConfigError:
                 pass
 
@@ -215,12 +239,26 @@ def recover_provider_config(provider_name: str, persist: bool, reason: str) -> d
             else:
                 quarantined = None
 
-            write_to_file(config_path, json.dumps(recovered, indent=4))
+            write_to_file(config_path, json.dumps(recovered, indent=4), create_parent=False)
+    except FileNotFoundError as exc:
+        if not config_path.parent.is_dir():
+            logging.warning(
+                "Config %s cannot be recovered because the provider directory disappeared; "
+                "stopping without recovery",
+                config_path,
+            )
+            return None
+        logging.warning("Config %s %s; recovery failed: %s", config_path, reason, exc)
+        raise ConfigRecoveryError(f"Cannot recover config {config_path}: {exc}") from exc
+    except ConfigRecoveryError as exc:
+        logging.warning("Config %s %s; recovery failed: %s", config_path, reason, exc)
+        raise
     except OSError as exc:
+        logging.warning("Config %s %s; recovery failed: %s", config_path, reason, exc)
         raise ConfigRecoveryError(f"Cannot recover config {config_path}: {exc}") from exc
 
     logging.warning(
-        "Config %s %s, restored to production defaults%s",
+        "Config %s %s, restored from defaults%s",
         config_path,
         reason,
         f", broken file kept as {quarantined.name}" if quarantined else "",
@@ -258,7 +296,7 @@ def get_provider_names() -> list[str]:
 @dataclass
 class Provider:
     name: str
-    config: dict[str, Union[str, int]]
+    config: dict[str, Any]
     activation_link: Optional[str] = None
     config_authoritative: bool = True
 

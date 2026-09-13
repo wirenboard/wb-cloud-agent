@@ -7,6 +7,7 @@ import pytest
 from wb.cloud_agent.settings import AppSettings
 from wb.cloud_agent.utils import (
     ConfigError,
+    ConfigReadError,
     get_controller_url,
     normalize_base_url,
     parse_headers,
@@ -77,7 +78,20 @@ def test_parse_headers_no_colon():
 
 def test_read_json_config(tmp_path):
     config_file = tmp_path / "config.json"
-    config_data = {"key1": "value1", "key2": "value2"}
+    config_data = {"CLOUD_BASE_URL": "https://example.com", "key1": "value1", "key2": None}
+    config_file.write_text(json.dumps(config_data))
+
+    result = read_json_config(config_file)
+    assert result == config_data
+
+
+def test_read_json_config_accepts_opaque_optional_values(tmp_path):
+    config_file = tmp_path / "config.json"
+    config_data = {
+        "CLOUD_BASE_URL": "http://on-premise.example:8080/base",
+        "REQUEST_PERIOD_SECONDS": "configured elsewhere",
+        "UNKNOWN": {"preserve": True},
+    }
     config_file.write_text(json.dumps(config_data))
 
     result = read_json_config(config_file)
@@ -91,6 +105,8 @@ def test_read_json_config(tmp_path):
         ("", "is empty"),
         ("   \n", "is empty"),
         ("[1, 2]", "is not a JSON object"),
+        ("{}", "has an invalid CLOUD_BASE_URL"),
+        ('{"CLOUD_BASE_URL": "ftp://example.com"}', "has an invalid CLOUD_BASE_URL"),
     ],
 )
 def test_read_json_config_broken(tmp_path, contents, reason):
@@ -114,7 +130,7 @@ def test_read_json_config_unreadable_directory(tmp_path):
     config_file = tmp_path / "config.json"
     config_file.mkdir()
 
-    with pytest.raises(ConfigError) as exc_info:
+    with pytest.raises(ConfigReadError) as exc_info:
         read_json_config(config_file)
 
     assert "cannot be read" in str(exc_info.value)
@@ -124,7 +140,7 @@ def test_read_json_config_undecodable(tmp_path):
     config_file = tmp_path / "config.json"
     config_file.write_bytes(b"\xff\xfe")
 
-    with pytest.raises(ConfigError) as exc_info:
+    with pytest.raises(ConfigReadError) as exc_info:
         read_json_config(config_file)
 
     assert "cannot be read" in str(exc_info.value)

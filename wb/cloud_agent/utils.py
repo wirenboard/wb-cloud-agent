@@ -19,7 +19,11 @@ if TYPE_CHECKING:
 
 
 class ConfigError(Exception):
-    """A config file is missing, empty, unreadable or not a JSON object."""
+    """A config file is missing or locally unusable."""
+
+
+class ConfigReadError(ConfigError):
+    """A config file cannot be read and must not be overwritten."""
 
 
 class ConfigRecoveryError(RuntimeError):
@@ -29,7 +33,6 @@ class ConfigRecoveryError(RuntimeError):
 @contextmanager
 def config_recovery_lock(config_path: Path):
     """Serialize recovery attempts for one provider across agent processes."""
-    config_path.parent.mkdir(parents=True, exist_ok=True)
     lock_path = config_path.with_name(f".{config_path.name}.lock")
     lock_fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
     try:
@@ -71,7 +74,7 @@ def _parse_json_config(config_path: Path) -> dict[str, Any]:
     except FileNotFoundError as exc:
         raise ConfigError("is missing") from exc
     except (OSError, UnicodeDecodeError) as exc:
-        raise ConfigError(f"cannot be read ({exc})") from exc
+        raise ConfigReadError(f"cannot be read ({exc})") from exc
 
     if not data.strip():
         raise ConfigError("is empty")
@@ -83,19 +86,8 @@ def _parse_json_config(config_path: Path) -> dict[str, Any]:
 
     if not isinstance(conf, dict):
         raise ConfigError("is not a JSON object")
-    cloud_base_url = conf.get("CLOUD_BASE_URL")
-    if "CLOUD_BASE_URL" in conf and not _is_valid_base_url(cloud_base_url):
+    if not _is_valid_base_url(conf.get("CLOUD_BASE_URL")):
         raise ConfigError("has an invalid CLOUD_BASE_URL")
-    if "LOG_LEVEL" in conf and not isinstance(conf["LOG_LEVEL"], str):
-        raise ConfigError("has an invalid LOG_LEVEL")
-    for key in ("CLIENT_CERT_ENGINE_KEY", "CLIENT_CERT_FILE", "BROKER_URL"):
-        if key in conf and (not isinstance(conf[key], str) or not conf[key].strip()):
-            raise ConfigError(f"has an invalid {key}")
-    for key in ("REQUEST_PERIOD_SECONDS", "PING_PERIOD_SECONDS"):
-        if key in conf and (isinstance(conf[key], bool) or not isinstance(conf[key], int) or conf[key] <= 0):
-            raise ConfigError(f"has an invalid {key}")
-    if "METRICS_LOG_ENABLED" in conf and not isinstance(conf["METRICS_LOG_ENABLED"], bool):
-        raise ConfigError("has an invalid METRICS_LOG_ENABLED")
     return conf
 
 
@@ -120,10 +112,13 @@ def read_plaintext_config(config_path: Path) -> str:
         return ""
 
 
-def write_to_file(fpath: Path, contents: str) -> None:
+def write_to_file(fpath: Path, contents: str, create_parent: bool = True) -> None:
     """Write atomically while retaining the existing file's mode and ownership."""
     target = fpath.resolve() if fpath.is_symlink() else fpath
-    target.parent.mkdir(parents=True, exist_ok=True)
+    if create_parent:
+        target.parent.mkdir(parents=True, exist_ok=True)
+    elif not target.parent.is_dir():
+        raise FileNotFoundError(target.parent)
     try:
         old_stat = target.stat()
     except FileNotFoundError:

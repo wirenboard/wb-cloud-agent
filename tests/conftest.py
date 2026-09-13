@@ -10,7 +10,11 @@ from wb.cloud_agent.mqtt import MQTTCloudAgent
 from wb.cloud_agent.services import metrics
 from wb.cloud_agent.settings import AppSettings
 
-PACKAGED_DEFAULT = {"LOG_LEVEL": "INFO", "CLIENT_CERT_ENGINE_KEY": "ATECCx08:00:02:C0:00"}
+PACKAGED_DEFAULT = {
+    "LOG_LEVEL": "INFO",
+    "CLIENT_CERT_ENGINE_KEY": "ATECCx08:00:02:C0:00",
+    "CLOUD_BASE_URL": "https://wirenboard.cloud",
+}
 
 
 class FakeMqttMessage:  # pylint: disable=too-few-public-methods
