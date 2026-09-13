@@ -107,6 +107,7 @@ def test_read_json_config_accepts_opaque_optional_values(tmp_path):
         ("[1, 2]", "is not a JSON object"),
         ("{}", "has an invalid CLOUD_BASE_URL"),
         ('{"CLOUD_BASE_URL": "ftp://example.com"}', "has an invalid CLOUD_BASE_URL"),
+        ('{"CLOUD_BASE_URL": "http://:"}', "has an invalid CLOUD_BASE_URL"),
     ],
 )
 def test_read_json_config_broken(tmp_path, contents, reason):

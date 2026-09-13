@@ -62,9 +62,10 @@ def _is_valid_base_url(value: object) -> bool:
         return False
     try:
         parsed = urlparse(value)
+        host = parsed.hostname
     except ValueError:
         return False
-    return parsed.scheme in ("http", "https") and bool(parsed.netloc)
+    return parsed.scheme in ("http", "https") and bool(host)
 
 
 def _parse_json_config(config_path: Path) -> dict[str, Any]:
