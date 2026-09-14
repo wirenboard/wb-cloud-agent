@@ -1,4 +1,5 @@
 import sys
+from subprocess import CalledProcessError
 from unittest.mock import patch
 
 import pytest
@@ -22,6 +23,16 @@ def isolated_provider_runtime(settings, tmp_path):  # pylint: disable=redefined-
     settings.metrics_last_uid = runtime_dir / "metrics_last_uid"
     settings.activation_link_config = runtime_dir / "activation_link.conf"
     return settings
+
+
+@pytest.fixture
+def failing_systemctl():
+    error = CalledProcessError(1, ["systemctl"])
+    with (
+        patch("wb.cloud_agent.utils.stop_service", side_effect=error),
+        patch("wb.cloud_agent.utils.disable_service", side_effect=error),
+    ):
+        yield
 
 
 @pytest.fixture(autouse=True)

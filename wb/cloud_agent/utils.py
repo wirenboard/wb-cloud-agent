@@ -70,7 +70,12 @@ def start_and_enable_service(service: str, restart: bool = False, timeout: int =
         subprocess.run(["systemctl", "start", service], check=True, timeout=timeout)
 
 
-def stop_and_disable_service(service: str, timeout: int = 120) -> None:
+def stop_service(service: str, timeout: int = 120) -> None:
+    logging.debug("Stopping service %s", service)
+    subprocess.run(["systemctl", "stop", service], check=True, timeout=timeout)
+
+
+def disable_service(service: str, timeout: int = 120) -> None:
     logging.debug("Disabling service %s", service)
     result = subprocess.run(
         ["systemctl", "disable", service],
@@ -85,8 +90,19 @@ def stop_and_disable_service(service: str, timeout: int = 120) -> None:
     if result.stderr:
         logging.debug("Disabling service stderr: %s", result.stderr.strip())
 
-    logging.debug("Stopping service %s", service)
-    subprocess.run(["systemctl", "stop", service], check=True, timeout=timeout)
+
+def stop_and_disable_service(service: str, timeout: int = 120) -> None:
+    stop_service(service, timeout=timeout)
+    disable_service(service, timeout=timeout)
+
+
+def try_stop_and_disable_service(service: str, timeout: int = 120) -> None:
+    """Best-effort variant: each step runs even if the other one fails."""
+    for verb, action in (("stop", stop_service), ("disable", disable_service)):
+        try:
+            action(service, timeout=timeout)
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as exc:
+            logging.warning("Cannot %s service %s: %s", verb, service, exc)
 
 
 def show_providers_table(providers: list["Provider"]) -> None:

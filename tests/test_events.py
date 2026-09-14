@@ -1,6 +1,5 @@
 from http import HTTPStatus as status
-from subprocess import CalledProcessError
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 import pytest
 
@@ -103,7 +102,7 @@ def test_make_event_request_unbinds_before_confirmation(isolated_provider_runtim
             side_effect=lambda _: call_order.append("monitor"),
         ),
         patch(
-            "wb.cloud_agent.handlers.provider._safe_stop_and_disable_service",
+            "wb.cloud_agent.handlers.provider.try_stop_and_disable_service",
             side_effect=lambda _: call_order.append("stop"),
         ),
         patch(
@@ -121,6 +120,7 @@ def test_make_event_request_unbinds_before_confirmation(isolated_provider_runtim
     assert call_order.index("unbind") < call_order.index("confirm")
 
 
+@pytest.mark.usefixtures("failing_systemctl")
 def test_make_event_request_confirms_unbind_after_systemctl_failure(isolated_provider_runtime):
     settings = isolated_provider_runtime
     event_data = {
@@ -132,10 +132,6 @@ def test_make_event_request_confirms_unbind_after_systemctl_failure(isolated_pro
     with (
         patch("wb.cloud_agent.handlers.events.do_curl", return_value=(event_data, status.OK)),
         patch("wb.cloud_agent.handlers.provider.stop_metrics_health_monitor"),
-        patch(
-            "wb.cloud_agent.services.metrics.stop_and_disable_service",
-            side_effect=CalledProcessError(1, ["systemctl", "stop"]),
-        ),
         patch("wb.cloud_agent.handlers.events.event_confirm") as mock_confirm,
     ):
         make_event_request(settings, MagicMock())
@@ -143,6 +139,7 @@ def test_make_event_request_confirms_unbind_after_systemctl_failure(isolated_pro
     mock_confirm.assert_called_once_with(settings, "event-unbind")
 
 
+@pytest.mark.usefixtures("failing_systemctl")
 def test_make_event_request_processes_next_event_after_unbind_systemctl_failure(isolated_provider_runtime):
     settings = isolated_provider_runtime
     unbind_event = {
@@ -162,19 +159,12 @@ def test_make_event_request_processes_next_event_after_unbind_systemctl_failure(
             side_effect=[(unbind_event, status.OK), (update_event, status.OK)],
         ),
         patch("wb.cloud_agent.handlers.provider.stop_metrics_health_monitor"),
-        patch(
-            "wb.cloud_agent.services.metrics.stop_and_disable_service",
-            side_effect=CalledProcessError(1, ["systemctl", "stop"]),
-        ),
         patch("wb.cloud_agent.handlers.events.event_confirm") as mock_confirm,
     ):
         make_event_request(settings, MagicMock())
         make_event_request(settings, MagicMock())
 
-    assert mock_confirm.call_args_list == [
-        ((settings, "event-unbind"),),
-        ((settings, "event-update"),),
-    ]
+    assert mock_confirm.call_args_list == [call(settings, "event-unbind"), call(settings, "event-update")]
 
 
 def test_make_event_request_confirms_failed_metrics_config(settings):

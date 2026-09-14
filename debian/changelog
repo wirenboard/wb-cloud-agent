@@ -1,6 +1,8 @@
 wb-cloud-agent (1.8.3) stable; urgency=medium
 
   * Preserve provider configuration when a controller is unbound from the cloud.
+  * Stop provider services before disabling them, so an unbind takes effect even when
+    systemd fails to disable a unit.
 
  -- Denis Smagin <denis.smagin@wirenboard.com>  Mon, 14 Sep 2026 10:00:00 +0300
 
