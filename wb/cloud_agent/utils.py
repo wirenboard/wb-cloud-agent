@@ -2,6 +2,7 @@ import fcntl
 import json
 import logging
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -14,6 +15,15 @@ from typing import TYPE_CHECKING, Any, Callable, Optional
 from urllib.parse import urljoin
 
 from tabulate import tabulate
+
+from wb.cloud_agent.constants import (
+    DEFAULT_ENGINE_KEY_PREFIX,
+    DEVICE_TREE_COMPATIBLE_PATH,
+    ENGINE_KEY_PATTERN,
+    NOTCONFIGURED_EXIT_CODE,
+    WB6_DEVICE_TREE_COMPATIBLE,
+    WB6_ENGINE_KEY_PREFIX,
+)
 
 
 class ConfigError(Exception):
@@ -92,12 +102,15 @@ def read_json_config(
         if isinstance(exc, ConfigReadError):
             raise
         print(f"Error parsing JSON in: {config_path}")
-        sys.exit(6)
+        sys.exit(NOTCONFIGURED_EXIT_CODE)
 
 
 def read_plaintext_config(config_path: Path) -> str:
     with config_path.open("r", encoding="utf-8") as f:
         return f.readline().strip()
+
+
+DEFAULT_FILE_MODE = 0o644
 
 
 def write_to_file(fpath: Path, contents: str, create_parent: bool = True, mode: Optional[int] = None) -> None:
@@ -112,13 +125,18 @@ def write_to_file(fpath: Path, contents: str, create_parent: bool = True, mode: 
     except FileNotFoundError:
         old_stat = None
 
+    if mode is None:
+        # keep the permissions of an existing file, otherwise behave like a plain
+        # open()/write() would with the default umask instead of mkstemp's 0600
+        mode = old_stat.st_mode & 0o7777 if old_stat is not None else DEFAULT_FILE_MODE
+
     fd, tmp_name = tempfile.mkstemp(prefix=f".{target.name}.tmp-", dir=target.parent)
     tmp_path = Path(tmp_name)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as temp_file:
             if old_stat is not None:
                 os.fchown(temp_file.fileno(), old_stat.st_uid, old_stat.st_gid)
-                os.fchmod(temp_file.fileno(), mode if mode is not None else old_stat.st_mode & 0o7777)
+            os.fchmod(temp_file.fileno(), mode)
             temp_file.write(contents)
             temp_file.flush()
             os.fsync(temp_file.fileno())
@@ -156,6 +174,7 @@ def quarantine_broken_file(fpath: Path) -> Optional[Path]:
                 destination.flush()
                 os.fsync(destination.fileno())
             os.replace(tmp_path, quarantined)
+            _remove_stale_quarantine_copies(fpath, keep=quarantined)
             _fsync_directory(fpath.parent)
         finally:
             try:
@@ -168,12 +187,42 @@ def quarantine_broken_file(fpath: Path) -> Optional[Path]:
         return None
 
 
+def _remove_stale_quarantine_copies(fpath: Path, keep: Path) -> None:
+    """Keep only the most recent broken copy so repeated corruption does not fill /etc."""
+    for stale in fpath.parent.glob(f"{fpath.name}.broken-*"):
+        if stale == keep:
+            continue
+        try:
+            stale.unlink()
+        except OSError as exc:
+            logging.warning("Cannot remove stale broken copy %s: %s", stale, exc)
+
+
 def _fsync_directory(directory: Path) -> None:
     dir_fd = os.open(directory, os.O_RDONLY)
     try:
         os.fsync(dir_fd)
     finally:
         os.close(dir_fd)
+
+
+def local_engine_key_prefix() -> str:
+    """ATECC engine key prefix for this controller, same rule as check-certs.sh."""
+    try:
+        compatible = Path(DEVICE_TREE_COMPATIBLE_PATH).read_bytes().split(b"\0")
+    except OSError:
+        return DEFAULT_ENGINE_KEY_PREFIX
+    if WB6_DEVICE_TREE_COMPATIBLE.encode() in compatible:
+        return WB6_ENGINE_KEY_PREFIX
+    return DEFAULT_ENGINE_KEY_PREFIX
+
+
+def fix_engine_key(config: dict[str, Any]) -> dict[str, Any]:
+    """Point CLIENT_CERT_ENGINE_KEY at the I2C bus the ATECC chip really sits on."""
+    engine_key = config.get("CLIENT_CERT_ENGINE_KEY")
+    if isinstance(engine_key, str):
+        config["CLIENT_CERT_ENGINE_KEY"] = re.sub(ENGINE_KEY_PATTERN, local_engine_key_prefix(), engine_key)
+    return config
 
 
 def start_and_enable_service(service: str, restart: bool = False, timeout: int = 120) -> None:

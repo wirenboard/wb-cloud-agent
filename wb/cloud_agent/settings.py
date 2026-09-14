@@ -15,6 +15,7 @@ from wb.cloud_agent.constants import (
     CLOUD_AGENT_URL_POSTFIX,
     DEFAULT_PROVIDER_CONF_FILE,
     NOCONNECT_LINK,
+    NOTCONFIGURED_EXIT_CODE,
     PRODUCTION_PROVIDER_NAME,
     PROVIDERS_CONF_DIR,
 )
@@ -22,6 +23,7 @@ from wb.cloud_agent.utils import (
     ConfigError,
     ConfigReadError,
     config_recovery_lock,
+    fix_engine_key,
     get_controller_url,
     normalize_base_url,
     quarantine_broken_file,
@@ -151,7 +153,7 @@ def configure_app(**kwargs: dict[str, Any]) -> AppSettings:
     try:
         settings = AppSettings(**kwargs)
     except (ConfigError, FileNotFoundError, OSError, json.decoder.JSONDecodeError):
-        return 6  # systemd status=6/NOTCONFIGURED
+        return NOTCONFIGURED_EXIT_CODE
 
     setup_log(settings)
     return settings
@@ -198,7 +200,9 @@ def recover_provider_config(provider_name: str, reason: str) -> dict[str, Any]:
         except ConfigError:
             pass
 
-        recovered = _packaged_default_config()
+        # check-certs.sh fixes the engine key only in an existing, parseable config,
+        # so the restored one has to get the right key here
+        recovered = fix_engine_key(_packaged_default_config())
         try:
             needs_preservation = config_path.is_file() and config_path.stat().st_size > 0
         except OSError as exc:
@@ -284,7 +288,7 @@ def load_providers_data(provider_names: list[str]) -> list[Provider]:
             provider_config = read_json_config(config_path)
         else:
             print(f"The file was not found in: {config_path}")
-            sys.exit(6)
+            sys.exit(NOTCONFIGURED_EXIT_CODE)
 
         if activation_path.exists():
             provider_activation_link = read_plaintext_config(activation_path)

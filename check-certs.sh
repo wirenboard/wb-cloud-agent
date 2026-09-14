@@ -45,7 +45,6 @@ import stat
 import sys
 import tempfile
 from pathlib import Path
-from urllib.parse import urlparse
 
 config_path = Path(sys.argv[1]).resolve()
 engine_key = sys.argv[2]
@@ -84,42 +83,11 @@ finally:
 PY
 }
 
-config_usable=1
-if [ ! -s "$AGENT_CONFIG" ]; then
-    echo "Config $AGENT_CONFIG is missing or empty, the agent will restore it"
-    config_usable=0
-elif ! python3 - "$AGENT_CONFIG" <<'PY'
-import json
-import sys
-from urllib.parse import urlparse
-
-try:
-    with open(sys.argv[1], encoding="utf-8") as config_file:
-        config = json.load(config_file)
-    cloud_base_url = config.get("CLOUD_BASE_URL") if isinstance(config, dict) else None
-    parsed = urlparse(cloud_base_url) if isinstance(cloud_base_url, str) else None
-except (OSError, UnicodeError, ValueError, json.JSONDecodeError):
-    raise SystemExit(1)
-
-if parsed is None or parsed.scheme not in ("http", "https") or not parsed.netloc:
-    raise SystemExit(1)
-if "LOG_LEVEL" in config and not isinstance(config["LOG_LEVEL"], str):
-    raise SystemExit(1)
-for key in ("CLIENT_CERT_ENGINE_KEY", "CLIENT_CERT_FILE", "BROKER_URL"):
-    if key in config and (not isinstance(config[key], str) or not config[key].strip()):
-        raise SystemExit(1)
-for key in ("REQUEST_PERIOD_SECONDS", "PING_PERIOD_SECONDS"):
-    if key in config and (
-        isinstance(config[key], bool) or not isinstance(config[key], int) or config[key] <= 0
-    ):
-        raise SystemExit(1)
-if "METRICS_LOG_ENABLED" in config and not isinstance(config["METRICS_LOG_ENABLED"], bool):
-    raise SystemExit(1)
-PY
-then
-    echo "Config $AGENT_CONFIG is malformed, the agent will restore it"
-    config_usable=0
-fi
+# Only touch a parseable config: a damaged one is quarantined and restored by the agent
+# itself (recover_provider_config), which also sets the right engine key.
+config_is_json() {
+    python3 -c 'import json, sys; json.load(open(sys.argv[1], encoding="utf-8"))' "$1" 2>/dev/null
+}
 
 . /usr/lib/wb-utils/wb_env.sh
 wb_source of
@@ -131,7 +99,10 @@ else
     ENGINE_KEY="ATECCx08:00:02"
 fi
 
-fix_engine_key /etc/wb-cloud-agent.conf "$ENGINE_KEY"
-if [ "$config_usable" -eq 1 ]; then
+if [ ! -s "$AGENT_CONFIG" ]; then
+    echo "Config $AGENT_CONFIG is missing or empty, the agent will restore it"
+elif ! config_is_json "$AGENT_CONFIG"; then
+    echo "Config $AGENT_CONFIG is malformed, the agent will restore it"
+else
     fix_engine_key "$AGENT_CONFIG" "$ENGINE_KEY"
 fi
