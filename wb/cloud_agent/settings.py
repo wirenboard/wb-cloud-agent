@@ -38,6 +38,17 @@ from wb.cloud_agent.utils import (
 DEFAULT_LOG_LEVEL = "INFO"
 DEFAULT_CLOUD_BASE_URL = "https://wirenboard.cloud"
 DEFAULT_CLIENT_CERT_ENGINE_KEY = "ATECCx08:00:02:C0:00"
+_CONFIG_FIELDS = (
+    "log_level",
+    "broker_url",
+    "client_cert_engine_key",
+    "client_cert_file",
+    "cloud_base_url",
+    "cloud_agent_url",
+    "request_period_seconds",
+    "ping_period_seconds",
+    "metrics_log_enabled",
+)
 
 
 def default_client_cert_engine_key() -> str:
@@ -164,11 +175,14 @@ class AppSettings:  # pylint: disable=too-many-instance-attributes disable=too-f
         self.config_error: Optional[str] = None
         self.config_unavailable = False
         self.provider_removed = False
+        self._config_defaults = {key: getattr(self, key) for key in _CONFIG_FIELDS}
 
         self.reload_config()
 
     def reload_config(self) -> None:
         """Re-apply the provider config file and recover it when requested."""
+        for key, value in self._config_defaults.items():
+            setattr(self, key, value)
         self.config_error = None
         self.config_unavailable = False
         self.provider_removed = False

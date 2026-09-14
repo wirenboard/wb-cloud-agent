@@ -143,6 +143,36 @@ def test_custom_provider_recovers_verbatim_from_last_good(cloud_dirs):
     assert broken_copies(config)[0].read_text() == "{broken"
 
 
+def test_reload_config_restores_defaults_for_removed_settings(cloud_dirs):
+    config = write_config(
+        cloud_dirs,
+        "provider",
+        json.dumps(
+            {
+                "CLOUD_BASE_URL": "https://first.example",
+                "LOG_LEVEL": "DEBUG",
+                "BROKER_URL": "tcp://first.example:1883",
+                "CLIENT_CERT_ENGINE_KEY": "ATECCx08:00:04:C0:00",
+                "REQUEST_PERIOD_SECONDS": 3,
+                "PING_PERIOD_SECONDS": 4,
+                "METRICS_LOG_ENABLED": False,
+            }
+        ),
+    )
+    settings = AppSettings(provider_name="provider", recover_configs=True)
+
+    config.write_text('{"CLOUD_BASE_URL": "https://second.example"}', encoding="utf-8")
+    settings.reload_config()
+
+    assert settings.cloud_base_url == "https://second.example"
+    assert settings.log_level == AppSettings.log_level
+    assert settings.broker_url == AppSettings.broker_url
+    assert settings.client_cert_engine_key == AppSettings.client_cert_engine_key
+    assert settings.request_period_seconds == AppSettings.request_period_seconds
+    assert settings.ping_period_seconds == AppSettings.ping_period_seconds
+    assert settings.metrics_log_enabled == AppSettings.metrics_log_enabled
+
+
 def test_explicit_provider_replacement_discards_old_recovery_identity(cloud_dirs):
     config = write_config(cloud_dirs, "provider", '{"CLOUD_BASE_URL": "https://old.example"}')
     mark_production(cloud_dirs, "provider")
