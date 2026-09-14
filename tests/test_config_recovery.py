@@ -113,9 +113,15 @@ def test_production_config_directory_is_not_rewritten(cloud_dirs):
 def test_unreadable_production_config_is_rebuilt(cloud_dirs):
     providers, _default = cloud_dirs
     config = write_config(providers, PRODUCTION_PROVIDER_NAME, json.dumps(PACKAGED_DEFAULT))
-    config.chmod(0)
 
-    settings = AppSettings(provider_name=PRODUCTION_PROVIDER_NAME, recover_configs=True)
+    def read_config(path, rebuild=None):
+        del rebuild
+        if path == config:
+            raise ConfigReadError("cannot be read (permission denied)")
+        return json.loads(path.read_text(encoding="utf-8"))
+
+    with patch("wb.cloud_agent.settings.read_json_config", side_effect=read_config):
+        settings = AppSettings(provider_name=PRODUCTION_PROVIDER_NAME, recover_configs=True)
 
     assert settings.cloud_base_url == "https://wirenboard.cloud"
     assert json.loads(config.read_text()) == PACKAGED_DEFAULT
