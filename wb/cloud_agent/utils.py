@@ -30,6 +30,13 @@ class ConfigRecoveryError(RuntimeError):
     """Persistent config recovery failed."""
 
 
+def provider_config_available(settings: Any) -> bool:
+    return not (
+        getattr(settings, "provider_removed", False) is True
+        or getattr(settings, "config_unavailable", False) is True
+    )
+
+
 @contextmanager
 def config_recovery_lock(config_path: Path):
     """Serialize recovery attempts for one provider across agent processes."""
@@ -68,16 +75,19 @@ def _is_valid_base_url(value: object) -> bool:
     return parsed.scheme in ("http", "https") and bool(host)
 
 
-def _parse_json_config(config_path: Path) -> dict[str, Any]:
-    """Return the config object, or raise ConfigError describing why the file is unusable."""
+def _read_config_contents(config_path: Path) -> str:
     try:
-        data = config_path.read_text(encoding="utf-8")
+        return config_path.read_text(encoding="utf-8")
     except FileNotFoundError as exc:
         raise ConfigError("is missing") from exc
     except UnicodeDecodeError as exc:
         raise ConfigError(f"is not valid JSON ({exc})") from exc
     except OSError as exc:
         raise ConfigReadError(f"cannot be read ({exc})") from exc
+
+
+def _parse_json_config(data: str) -> dict[str, Any]:
+    """Return the config object, or raise ConfigError describing why the contents are unusable."""
 
     if not data.strip():
         raise ConfigError("is empty")
@@ -94,10 +104,16 @@ def _parse_json_config(config_path: Path) -> dict[str, Any]:
     return conf
 
 
+def read_json_config_with_contents(config_path: Path) -> tuple[dict[str, Any], str]:
+    """Return parsed config and its original text."""
+    contents = _read_config_contents(config_path)
+    return _parse_json_config(contents), contents
+
+
 def read_json_config(config_path: Path, rebuild: Optional[Callable[[str], dict]] = None) -> dict[str, Any]:
     """Parse a JSON config, delegating to rebuild(reason) when the file cannot be used."""
     try:
-        return _parse_json_config(config_path)
+        return read_json_config_with_contents(config_path)[0]
     except ConfigError as exc:
         if rebuild is None:
             raise

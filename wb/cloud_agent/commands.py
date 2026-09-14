@@ -25,10 +25,13 @@ from wb.cloud_agent.settings import (
     generate_provider_config,
     get_provider_names,
     load_providers_data,
+    provider_config_path,
 )
 from wb.cloud_agent.utils import (
     handle_connection_state,
     normalize_base_url,
+    provider_config_available,
+    quarantine_broken_file,
     show_providers_table,
     start_and_enable_service,
 )
@@ -46,33 +49,40 @@ def add_provider(options) -> int:
     provider_name = options.name or urlparse(base_url).netloc
 
     providers = get_provider_names()
-    if provider_name in providers:
+    existing_providers = load_providers_data(providers)
+    existing = next((provider for provider in existing_providers if provider.name == provider_name), None)
+    if existing is not None and getattr(existing, "damaged", False) is not True:
         print(f"Provider {provider_name} already exists")
         return 1
 
-    existing_providers = load_providers_data(providers)
     if any(
-        normalize_base_url(provider.config.get("CLOUD_BASE_URL", "")) == base_url
+        provider.name != provider_name
+        and getattr(provider, "damaged", False) is not True
+        and normalize_base_url(provider.config.get("CLOUD_BASE_URL", "")) == base_url
         for provider in existing_providers
     ):
         print(f"Provider with URL {base_url} already exists")
         return 1
 
+    if existing is not None and getattr(existing, "damaged", False) is True:
+        quarantine_broken_file(provider_config_path(provider_name))
+    generate_provider_config(provider_name, base_url)
     settings = configure_app(provider_name=provider_name)
 
+    mqtt = None
     try:
         mqtt = MQTTCloudAgent(settings, on_message)
         mqtt.start()
     except (FileNotFoundError, ConnectionError) as exc:
         logging.error("Error starting MQTT client: %s", exc)
 
-    generate_provider_config(provider_name, base_url)
     start_and_enable_service(f"wb-cloud-agent@{provider_name}.service")
 
-    try:
-        mqtt.update_providers_list()
-    except (FileNotFoundError, ConnectionError) as exc:
-        logging.error("Error publish MQTT providers: %s", exc)
+    if mqtt is not None:
+        try:
+            mqtt.update_providers_list()
+        except (FileNotFoundError, ConnectionError) as exc:
+            logging.error("Error publish MQTT providers: %s", exc)
 
     print(f"Provider {provider_name} successfully added")
     return 0
@@ -92,8 +102,9 @@ def del_provider(options) -> int:
 
     settings = configure_app(provider_name=provider_name)
     if isinstance(settings.config_error, str):
-        logging.error("Cannot delete provider %s: %s", provider_name, settings.config_error)
-        return 1
+        logging.warning("Skipping cloud unbind for %s: %s", provider_name, settings.config_error)
+        stop_services_and_del_configs(settings, provider_name)
+        return 0
 
     mqtt = MQTTCloudAgent(settings, on_message)
     mqtt.start()
@@ -115,8 +126,8 @@ def del_all_providers(_options, show_msg: bool = True) -> int:
         settings = configure_app(provider_name=provider_name)
 
         if isinstance(settings.config_error, str):
-            logging.error("Cannot delete provider %s: %s", provider_name, settings.config_error)
-            result = 1
+            logging.warning("Skipping cloud unbind for %s: %s", provider_name, settings.config_error)
+            stop_services_and_del_configs(settings, provider_name)
             continue
 
         mqtt = MQTTCloudAgent(settings, on_message)
@@ -136,11 +147,26 @@ def refresh_settings(settings: AppSettings, broker_override: Optional[str] = Non
     settings.reload_config()
     if broker_override is not None:
         settings.broker_url = broker_override
-    return getattr(settings, "provider_removed", False) is not True
+    return provider_config_available(settings)
 
 
-def wait_for_cloud(settings: AppSettings, broker_override: Optional[str]) -> Optional[int]:
-    if not refresh_settings(settings, broker_override):
+def wait_for_provider_config(
+    settings: AppSettings, broker_override: Optional[str], mqtt: Optional[MQTTCloudAgent] = None
+) -> bool:
+    """Wait for a damaged provider config to become usable without cloud requests."""
+    while not refresh_settings(settings, broker_override):
+        if getattr(settings, "provider_removed", False) is True:
+            return False
+        if mqtt is not None:
+            mqtt.publish_ctrl("status", "configuration_error")
+        time.sleep(settings.request_period_seconds)
+    return True
+
+
+def wait_for_cloud(
+    settings: AppSettings, broker_override: Optional[str], mqtt: Optional[MQTTCloudAgent] = None
+) -> Optional[int]:
+    if not wait_for_provider_config(settings, broker_override, mqtt):
         return 0
     try:
         wait_for_cloud_reachable(settings.cloud_base_url, settings.ping_period_seconds)
@@ -154,11 +180,11 @@ def wait_for_cloud(settings: AppSettings, broker_override: Optional[str]) -> Opt
 def send_startup_requests(
     settings: AppSettings, mqtt: MQTTCloudAgent, broker_override: Optional[str]
 ) -> Optional[int]:
-    if not refresh_settings(settings, broker_override):
+    if not wait_for_provider_config(settings, broker_override, mqtt):
         return 0
     try:
         make_start_up_request(settings, mqtt)
-        if not refresh_settings(settings, broker_override):
+        if not wait_for_provider_config(settings, broker_override, mqtt):
             return 0
         send_packages_version(settings)
     except CloudNetworkError as exc:
@@ -171,8 +197,6 @@ def run_daemon(options) -> Optional[int]:
     settings = configure_app(provider_name=options.provider_name, recover_configs=True)
     broker_override = getattr(options, "broker", None)
     if getattr(settings, "provider_removed", False) is True:
-        return 0
-    if not refresh_settings(settings, broker_override):
         return 0
     settings.broker_url = broker_override or settings.broker_url
     logging.info(
@@ -190,7 +214,7 @@ def run_daemon(options) -> Optional[int]:
     mqtt.publish_vdev()
     drop_broken_tunnel_config(settings)
 
-    result = wait_for_cloud(settings, broker_override)
+    result = wait_for_cloud(settings, broker_override, mqtt)
     if result is not None:
         return result
 
@@ -220,7 +244,11 @@ def run_event_loop(
 
         while True:
             if not refresh_settings(settings, broker_override):
-                return
+                if getattr(settings, "provider_removed", False) is True:
+                    return
+                if not wait_for_provider_config(settings, broker_override, mqtt):
+                    return
+                continue
             start = time.perf_counter()
             logging.debug("Sending event request")
 

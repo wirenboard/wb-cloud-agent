@@ -10,7 +10,7 @@ from wb.cloud_agent.handlers.curl import do_curl
 from wb.cloud_agent.mqtt import MQTTCloudAgent
 from wb.cloud_agent.services.activation import write_activation_link
 from wb.cloud_agent.settings import AppSettings
-from wb.cloud_agent.utils import get_apt_package_version
+from wb.cloud_agent.utils import get_apt_package_version, provider_config_available
 
 VersionFieldGetter = Callable[[AppSettings], str]
 
@@ -97,7 +97,7 @@ def collect_package_versions(settings: AppSettings) -> dict[str, str]:
 def on_message(userdata: dict, message):
     settings = userdata["settings"]
     settings.reload_config()
-    if getattr(settings, "provider_removed", False) is True:
+    if not provider_config_available(settings):
         return
 
     _status_data, http_status = do_curl(

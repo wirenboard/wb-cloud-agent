@@ -15,6 +15,7 @@ from wb.cloud_agent.commands import (
     run_daemon,
     run_event_loop,
     show_providers,
+    wait_for_provider_config,
 )
 from wb.cloud_agent.handlers.curl import CloudNetworkError
 from wb.cloud_agent.handlers.ping import CloudUnreachableError
@@ -111,8 +112,14 @@ def test_add_provider_already_exists():
     with (
         patch("wb.cloud_agent.commands.configure_app"),
         patch("wb.cloud_agent.commands.get_provider_names", return_value=["example.com"]),
+        patch("wb.cloud_agent.commands.load_providers_data") as mock_load,
         patch("builtins.print") as mock_print,
     ):
+        existing = MagicMock(name="example.com")
+        existing.name = "example.com"
+        existing.damaged = False
+        mock_load.return_value = [existing]
+
         result = add_provider(options)
 
         assert result == 1
@@ -124,6 +131,8 @@ def test_add_provider_with_duplicate_url():
     options = Namespace(base_url="https://example.com/", name="custom_name")
     existing_provider = MagicMock()
     existing_provider.config = {"CLOUD_BASE_URL": "https://example.com"}
+    existing_provider.name = "example.com"
+    existing_provider.damaged = False
 
     with (
         patch("wb.cloud_agent.commands.configure_app"),
@@ -146,6 +155,8 @@ def test_add_provider_with_a_broken_existing_provider():
     options = Namespace(base_url="https://example.com/", name=None)
     broken_provider = MagicMock()
     broken_provider.config = {}
+    broken_provider.name = "mycloud"
+    broken_provider.damaged = True
 
     with (
         patch("wb.cloud_agent.commands.configure_app"),
@@ -159,6 +170,30 @@ def test_add_provider_with_a_broken_existing_provider():
 
     assert result == 0
     mock_gen.assert_called_once_with("example.com", "https://example.com")
+
+
+@pytest.mark.usefixtures("mock_mqtt_cloud_agent")
+def test_add_provider_replaces_damaged_provider():
+    options = Namespace(base_url="https://new.example", name="custom")
+    broken_provider = MagicMock()
+    broken_provider.name = "custom"
+    broken_provider.damaged = True
+    broken_provider.config = {}
+
+    with (
+        patch("wb.cloud_agent.commands.configure_app", return_value=MagicMock()),
+        patch("wb.cloud_agent.commands.get_provider_names", return_value=["custom"]),
+        patch("wb.cloud_agent.commands.load_providers_data", return_value=[broken_provider]),
+        patch("wb.cloud_agent.commands.provider_config_path"),
+        patch("wb.cloud_agent.commands.quarantine_broken_file"),
+        patch("wb.cloud_agent.commands.generate_provider_config") as mock_gen,
+        patch("wb.cloud_agent.commands.start_and_enable_service"),
+        patch("builtins.print"),
+    ):
+        result = add_provider(options)
+
+    assert result == 0
+    mock_gen.assert_called_once_with("custom", "https://new.example")
 
 
 @pytest.mark.usefixtures("mock_mqtt_cloud_agent")
@@ -271,9 +306,30 @@ def test_del_provider_with_unknown_config_does_not_contact_cloud(mock_mqtt_cloud
 
         result = del_provider(options)
 
-        assert result == 1
+        assert result == 0
         mock_mqtt_cloud_agent.start.assert_not_called()
-        mock_stop.assert_not_called()
+        mock_stop.assert_called_once()
+
+
+def test_wait_for_provider_config_retries_without_cloud_requests():
+    settings = MagicMock()
+    settings.provider_removed = False
+    settings.config_unavailable = True
+    settings.request_period_seconds = 1
+
+    def reload_config():
+        if settings.reload_config.call_count == 2:
+            settings.config_unavailable = False
+
+    settings.reload_config.side_effect = reload_config
+    mqtt = MagicMock()
+
+    with patch("wb.cloud_agent.commands.time.sleep") as sleep:
+        assert wait_for_provider_config(settings, None, mqtt)
+
+    assert settings.reload_config.call_count == 2
+    sleep.assert_called_once_with(1)
+    mqtt.publish_ctrl.assert_called_once_with("status", "configuration_error")
 
 
 def test_del_all_providers_empty():

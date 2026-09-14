@@ -16,15 +16,13 @@ from wb.cloud_agent.utils import stop_and_disable_service
 def stop_services_and_del_configs(settings: AppSettings, provider_name: str) -> None:
     logging.debug("Deleting provider: %s", provider_name)
 
-    if isinstance(settings.config_error, str):
-        logging.warning("Skipping cloud unbind for %s: %s", provider_name, settings.config_error)
-        return
-
-    activation_link = read_activation_link(settings)
-
-    if activation_link == UNKNOWN_LINK:
-        thread = threading.Thread(target=event_delete_controller, args=(settings,), daemon=True)
-        thread.start()
+    activation_link = None
+    thread = None
+    if not isinstance(settings.config_error, str):
+        activation_link = read_activation_link(settings)
+        if activation_link == UNKNOWN_LINK:
+            thread = threading.Thread(target=event_delete_controller, args=(settings,), daemon=True)
+            thread.start()
 
     stop_and_disable_service(f"wb-cloud-agent@{provider_name}.service")
     stop_and_disable_service(f"wb-cloud-agent-frpc@{provider_name}.service")
@@ -33,7 +31,7 @@ def stop_services_and_del_configs(settings: AppSettings, provider_name: str) -> 
     delete_provider_config(PROVIDERS_CONF_DIR, provider_name)
     delete_provider_config(APP_DATA_PROVIDERS_DIR, provider_name)
 
-    if activation_link == UNKNOWN_LINK:
+    if thread is not None:
         thread.join(timeout=UNBIND_CTRL_REQUEST_TIMEOUT + 1)
 
     logging.info("Provider %s successfully deleted", provider_name)

@@ -54,6 +54,9 @@ if [ "$1" = "configure" ]; then
 
     echo "Add default wirenboard.cloud provider"
     wb-cloud-agent add-provider https://wirenboard.cloud || true
+    if [ -d /etc/wb-cloud-agent/providers/wirenboard.cloud ]; then
+      printf '%s\n' production > /etc/wb-cloud-agent/providers/wirenboard.cloud/.provider-identity
+    fi
   fi
   # Restart all running provider instances after upgrade
   if [ -d /etc/wb-cloud-agent/providers ]; then

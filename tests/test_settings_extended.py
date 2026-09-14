@@ -102,6 +102,7 @@ def test_generate_provider_config(tmp_path):
     with (
         patch("wb.cloud_agent.settings.DEFAULT_PROVIDER_CONF_FILE", str(default_conf_file)),
         patch("wb.cloud_agent.settings.PROVIDERS_CONF_DIR", str(providers_dir)),
+        patch("wb.cloud_agent.settings.APP_DATA_PROVIDERS_DIR", str(tmp_path / "data" / "providers")),
     ):
         generate_provider_config("new_provider", "https://new.cloud.com/")
 
@@ -254,4 +255,5 @@ def test_load_providers_data_no_activation_link(tmp_path):
 def test_load_providers_data_missing_config():
     providers = load_providers_data(["nonexistent"])
 
-    assert providers[0].config["CLOUD_BASE_URL"] == "https://wirenboard.cloud"
+    assert providers[0].config == {}
+    assert providers[0].damaged

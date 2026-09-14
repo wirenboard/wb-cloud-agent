@@ -15,7 +15,10 @@ from wb.cloud_agent.constants import (
     CLOUD_AGENT_URL_POSTFIX,
     DEFAULT_PROVIDER_CONF_FILE,
     NOCONNECT_LINK,
+    PRODUCTION_PROVIDER_IDENTITY,
     PROVIDER_CONF_FILE_NAME,
+    PROVIDER_IDENTITY_FILE_NAME,
+    PROVIDER_LAST_GOOD_FILE_NAME,
     PROVIDERS_CONF_DIR,
 )
 from wb.cloud_agent.utils import (
@@ -27,6 +30,7 @@ from wb.cloud_agent.utils import (
     normalize_base_url,
     quarantine_broken_file,
     read_json_config,
+    read_json_config_with_contents,
     read_plaintext_config,
     write_to_file,
 )
@@ -64,6 +68,45 @@ def default_client_cert_engine_key() -> str:
 
 def provider_config_path(provider_name: str) -> Path:
     return Path(PROVIDERS_CONF_DIR) / provider_name / PROVIDER_CONF_FILE_NAME
+
+
+def provider_identity_path(provider_name: str) -> Path:
+    return provider_config_path(provider_name).with_name(PROVIDER_IDENTITY_FILE_NAME)
+
+
+def provider_last_good_config_path(provider_name: str) -> Path:
+    return Path(APP_DATA_PROVIDERS_DIR) / provider_name / PROVIDER_LAST_GOOD_FILE_NAME
+
+
+def is_production_provider(provider_name: str) -> bool:
+    try:
+        return (
+            provider_identity_path(provider_name).read_text(encoding="utf-8").strip()
+            == PRODUCTION_PROVIDER_IDENTITY
+        )
+    except (OSError, UnicodeDecodeError):
+        return False
+
+
+def clear_provider_identity(provider_name: str) -> None:
+    try:
+        provider_identity_path(provider_name).unlink()
+    except FileNotFoundError:
+        pass
+
+
+def clear_last_good_config(provider_name: str) -> None:
+    try:
+        provider_last_good_config_path(provider_name).unlink()
+    except FileNotFoundError:
+        pass
+
+
+@dataclass
+class _ConfigSource:
+    config: dict[str, Any]
+    contents: str
+    description: str
 
 
 class AppSettings:  # pylint: disable=too-many-instance-attributes disable=too-few-public-methods
@@ -115,16 +158,19 @@ class AppSettings:  # pylint: disable=too-many-instance-attributes disable=too-f
         self.activation_link_config: Path = Path(
             f"{APP_DATA_PROVIDERS_DIR}/{self.provider_name}/activation_link.conf"
         )
+        self.last_good_config: Path = provider_last_good_config_path(self.provider_name)
         self.mqtt_prefix: str = f"/devices/system__wb-cloud-agent__{self.provider_name}"
         self.diag_archive: Path = Path("/tmp")
         self.config_error: Optional[str] = None
+        self.config_unavailable = False
         self.provider_removed = False
 
         self.reload_config()
 
     def reload_config(self) -> None:
-        """Re-apply the provider config file, rebuilding a damaged file when requested."""
+        """Re-apply the provider config file and recover it when requested."""
         self.config_error = None
+        self.config_unavailable = False
         self.provider_removed = False
         if not self.skip_conf_file and (
             self.recover_configs or self.config_file.exists() or self.config_file.parent.is_dir()
@@ -136,7 +182,11 @@ class AppSettings:  # pylint: disable=too-many-instance-attributes disable=too-f
 
     def apply_conf_file(self) -> None:
         try:
-            conf = read_json_config(self.config_file)
+            if self.recover_configs:
+                conf, contents = read_json_config_with_contents(self.config_file)
+                save_last_good_config(self.provider_name, contents)
+            else:
+                conf = read_json_config(self.config_file)
         except ConfigReadError as exc:
             self.config_error = str(exc)
             logging.warning("Config %s %s; leaving it unchanged", self.config_file, exc)
@@ -146,11 +196,15 @@ class AppSettings:  # pylint: disable=too-many-instance-attributes disable=too-f
         except ConfigError as exc:
             self.config_error = str(exc)
             conf = recover_provider_config(self.provider_name, self.recover_configs, str(exc))
-            if self.recover_configs and conf is not None:
-                self.config_error = None
+            if self.recover_configs:
+                if conf is not None:
+                    self.config_error = None
+                else:
+                    self.config_unavailable = True
 
         if conf is None:
-            self.provider_removed = True
+            self.provider_removed = not self.config_file.parent.is_dir()
+            self.config_unavailable = not self.provider_removed
             return
 
         for key, val in conf.items():
@@ -179,7 +233,13 @@ def setup_log(log_level: str) -> None:
 def generate_provider_config(provider: str, base_url: str) -> None:
     conf = _packaged_default_config()
     conf["CLOUD_BASE_URL"] = normalize_base_url(base_url)
-    write_to_file(provider_config_path(provider), json.dumps(conf, indent=4))
+    contents = json.dumps(conf, indent=4)
+    clear_provider_identity(provider)
+    config_path = provider_config_path(provider)
+    write_to_file(config_path, contents)
+    _, written_contents = read_json_config_with_contents(config_path)
+    clear_last_good_config(provider)
+    save_last_good_config(provider, written_contents)
 
 
 def _packaged_default_config() -> dict[str, Any]:
@@ -199,15 +259,59 @@ def _packaged_default_config() -> dict[str, Any]:
         return defaults
 
 
-def recover_provider_config(provider_name: str, persist: bool, reason: str) -> Optional[dict[str, Any]]:
-    """Restore a damaged provider config from safe defaults."""
+def save_last_good_config(provider_name: str, contents: str) -> None:
+    """Store a usable provider config for later recovery."""
+    path = provider_last_good_config_path(provider_name)
+    try:
+        if path.exists() and path.read_text(encoding="utf-8") == contents:
+            return
+        write_to_file(path, contents)
+    except (OSError, UnicodeDecodeError) as exc:
+        logging.warning("Cannot save last-good config %s: %s", path, exc)
+
+
+def _load_config_source(path: Path, description: str) -> Optional[_ConfigSource]:
+    try:
+        config, contents = read_json_config_with_contents(path)
+    except ConfigError as exc:
+        if str(exc) != "is missing":
+            logging.warning("Recovery source %s %s", path, exc)
+        return None
+    return _ConfigSource(config, contents, description)
+
+
+def _recovery_source(provider_name: str) -> Optional[_ConfigSource]:
+    source = _load_config_source(provider_last_good_config_path(provider_name), "last-good config")
+    if source is not None:
+        return source
+    if not is_production_provider(provider_name):
+        return None
+
+    config = _packaged_default_config()
+    return _ConfigSource(config, json.dumps(config, indent=4), "production defaults")
+
+
+def _recover_in_memory(provider_name: str, reason: str) -> Optional[dict[str, Any]]:
     config_path = provider_config_path(provider_name)
+    source = _recovery_source(provider_name)
+    if source is None:
+        logging.warning(
+            "Config %s %s; no safe recovery source, leaving it unchanged",
+            config_path,
+            reason,
+        )
+        return None
+    logging.warning(
+        "Config %s %s, using %s for this run; the provider remains damaged",
+        config_path,
+        reason,
+        source.description,
+    )
+    return source.config
 
-    if not persist:
-        recovered = _packaged_default_config()
-        logging.warning("Config %s %s, using defaults for this run", config_path, reason)
-        return recovered
 
+def _recover_persistently(provider_name: str, reason: str) -> Optional[dict[str, Any]]:
+    config_path = provider_config_path(provider_name)
     if not config_path.parent.is_dir():
         logging.warning(
             "Config %s is missing because the provider directory disappeared; stopping without recovery",
@@ -215,17 +319,26 @@ def recover_provider_config(provider_name: str, persist: bool, reason: str) -> O
         )
         return None
 
-    recovered = _packaged_default_config()
-
     try:
         with config_recovery_lock(config_path):
             try:
-                return read_json_config(config_path)
+                config, contents = read_json_config_with_contents(config_path)
+                save_last_good_config(provider_name, contents)
+                return config
             except ConfigReadError as exc:
                 logging.warning("Config %s %s; leaving it unchanged", config_path, exc)
                 raise ConfigRecoveryError(f"Cannot read config {config_path}: {exc}") from exc
             except ConfigError:
                 pass
+
+            source = _recovery_source(provider_name)
+            if source is None:
+                logging.warning(
+                    "Config %s %s; no safe recovery source, leaving it unchanged",
+                    config_path,
+                    reason,
+                )
+                return None
 
             try:
                 broken_size = config_path.stat().st_size
@@ -238,7 +351,10 @@ def recover_provider_config(provider_name: str, persist: bool, reason: str) -> O
             else:
                 quarantined = None
 
-            write_to_file(config_path, json.dumps(recovered, indent=4), create_parent=False)
+            write_to_file(config_path, source.contents, create_parent=False)
+            recovered, recovered_contents = read_json_config_with_contents(config_path)
+            save_last_good_config(provider_name, recovered_contents)
+            source = _ConfigSource(recovered, recovered_contents, source.description)
     except FileNotFoundError as exc:
         if not config_path.parent.is_dir():
             logging.warning(
@@ -257,12 +373,20 @@ def recover_provider_config(provider_name: str, persist: bool, reason: str) -> O
         raise ConfigRecoveryError(f"Cannot recover config {config_path}: {exc}") from exc
 
     logging.warning(
-        "Config %s %s, restored from defaults%s",
+        "Config %s %s, restored from %s%s",
         config_path,
         reason,
+        source.description,
         f", broken file kept as {quarantined.name}" if quarantined else "",
     )
-    return recovered
+    return source.config
+
+
+def recover_provider_config(provider_name: str, persist: bool, reason: str) -> Optional[dict[str, Any]]:
+    """Restore a damaged provider config from its safe recovery source."""
+    if persist:
+        return _recover_persistently(provider_name, reason)
+    return _recover_in_memory(provider_name, reason)
 
 
 def delete_provider_config(conf_path_prefix: str, provider: str) -> None:
@@ -297,9 +421,13 @@ class Provider:
     name: str
     config: dict[str, Any]
     activation_link: Optional[str] = None
+    damaged: bool = False
+    config_error: Optional[str] = None
 
     @property
     def display_url(self) -> str:
+        if self.damaged:
+            return "Broken configuration"
         base_url = self.config.get("CLOUD_BASE_URL")
         if not base_url:
             return "Broken configuration"
@@ -319,10 +447,17 @@ def load_providers_data(provider_names: list[str]) -> list[Provider]:
 
     result = []
     for provider_name in provider_names:
+        damaged = False
+        config_error = None
         try:
             provider_config = read_json_config(provider_config_path(provider_name))
         except ConfigError as exc:
+            damaged = True
+            config_error = str(exc)
             provider_config = recover_provider_config(provider_name, False, str(exc))
+
+        if provider_config is None:
+            provider_config = {}
 
         activation_path = Path(f"{APP_DATA_PROVIDERS_DIR}/{provider_name}/activation_link.conf")
         provider_activation_link = read_plaintext_config(activation_path) or NOCONNECT_LINK
@@ -332,6 +467,8 @@ def load_providers_data(provider_names: list[str]) -> list[Provider]:
                 name=provider_name,
                 config=provider_config,
                 activation_link=provider_activation_link,
+                damaged=damaged,
+                config_error=config_error,
             )
         )
 

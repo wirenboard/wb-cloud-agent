@@ -10,6 +10,7 @@ from wb.cloud_agent.services.diagnostics import fetch_diagnostics
 from wb.cloud_agent.services.metrics import update_metrics_config
 from wb.cloud_agent.services.tunnel import update_tunnel_config
 from wb.cloud_agent.settings import AppSettings
+from wb.cloud_agent.utils import provider_config_available
 
 HANDLERS = {
     "update_activation_link": update_activation_link,
@@ -79,7 +80,7 @@ def make_event_request(settings: AppSettings, mqtt: MQTTCloudAgent):
 
 def event_confirm(settings: AppSettings, event_id: str, applied: bool = True) -> None:
     settings.reload_config()
-    if getattr(settings, "provider_removed", False) is True:
+    if not provider_config_available(settings):
         return
 
     _event_data, http_status = do_curl(
