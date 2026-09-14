@@ -58,6 +58,10 @@ if [ "$1" = "configure" ]; then
       printf '%s\n' production > /etc/wb-cloud-agent/providers/wirenboard.cloud/.provider-identity
     fi
   fi
+  if [ -d /etc/wb-cloud-agent/providers/wirenboard.cloud ] \
+    && [ ! -e /etc/wb-cloud-agent/providers/wirenboard.cloud/.provider-identity ]; then
+    printf '%s\n' production > /etc/wb-cloud-agent/providers/wirenboard.cloud/.provider-identity
+  fi
   # Restart all running provider instances after upgrade
   if [ -d /etc/wb-cloud-agent/providers ]; then
     # Reload systemd units to apply updated unit files before restarting instances
