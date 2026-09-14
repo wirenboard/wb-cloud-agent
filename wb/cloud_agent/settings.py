@@ -128,8 +128,10 @@ class AppSettings:  # pylint: disable=too-many-instance-attributes disable=too-f
             try:
                 conf = read_json_config(self.config_file, rebuild=_raise_config_error)
                 _validate_provider_config(conf)
-            except ConfigReadError:
-                raise
+            except ConfigReadError as exc:
+                if not self.config_file.is_file():
+                    raise
+                conf = recover_provider_config(self.provider_name, str(exc))
             except ConfigError as exc:
                 conf = recover_provider_config(self.provider_name, str(exc))
         else:
@@ -183,13 +185,16 @@ def recover_provider_config(provider_name: str, reason: str) -> dict[str, Any]:
     if not config_path.parent.is_dir():
         raise ConfigError(f"{config_path} provider directory is missing")
 
+    unreadable = False
     with config_recovery_lock(config_path):
         try:
             current = read_json_config(config_path, rebuild=_raise_config_error)
             _validate_provider_config(current)
             return current
         except ConfigReadError:
-            raise
+            if not config_path.is_file():
+                raise
+            unreadable = True
         except ConfigError:
             pass
 
@@ -199,12 +204,17 @@ def recover_provider_config(provider_name: str, reason: str) -> dict[str, Any]:
         except OSError as exc:
             raise ConfigError(f"cannot inspect broken config {config_path}: {exc}") from exc
 
-        quarantined = quarantine_broken_file(config_path) if needs_preservation else None
-        if needs_preservation and quarantined is None:
+        quarantined = quarantine_broken_file(config_path) if needs_preservation and not unreadable else None
+        if needs_preservation and quarantined is None and not unreadable:
             raise ConfigError(f"cannot preserve broken config {config_path}")
 
         try:
-            write_to_file(config_path, json.dumps(recovered, indent=4), create_parent=False)
+            write_to_file(
+                config_path,
+                json.dumps(recovered, indent=4),
+                create_parent=False,
+                mode=0o600 if unreadable else None,
+            )
         except OSError as exc:
             raise ConfigError(f"cannot rewrite config {config_path}: {exc}") from exc
 

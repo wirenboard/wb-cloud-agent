@@ -100,7 +100,7 @@ def read_plaintext_config(config_path: Path) -> str:
         return f.readline().strip()
 
 
-def write_to_file(fpath: Path, contents: str, create_parent: bool = True) -> None:
+def write_to_file(fpath: Path, contents: str, create_parent: bool = True, mode: Optional[int] = None) -> None:
     target = fpath.resolve() if fpath.is_symlink() else fpath
     if create_parent:
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -118,7 +118,7 @@ def write_to_file(fpath: Path, contents: str, create_parent: bool = True) -> Non
         with os.fdopen(fd, "w", encoding="utf-8") as temp_file:
             if old_stat is not None:
                 os.fchown(temp_file.fileno(), old_stat.st_uid, old_stat.st_gid)
-                os.fchmod(temp_file.fileno(), old_stat.st_mode & 0o7777)
+                os.fchmod(temp_file.fileno(), mode if mode is not None else old_stat.st_mode & 0o7777)
             temp_file.write(contents)
             temp_file.flush()
             os.fsync(temp_file.fileno())

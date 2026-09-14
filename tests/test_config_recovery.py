@@ -97,7 +97,7 @@ def test_custom_provider_is_not_rewritten(cloud_dirs):
     assert not broken_copies(config)
 
 
-def test_unreadable_production_config_is_not_rewritten(cloud_dirs):
+def test_production_config_directory_is_not_rewritten(cloud_dirs):
     providers, _default = cloud_dirs
     config = providers / PRODUCTION_PROVIDER_NAME / "wb-cloud-agent.conf"
     config.parent.mkdir(parents=True)
@@ -107,6 +107,19 @@ def test_unreadable_production_config_is_not_rewritten(cloud_dirs):
         AppSettings(provider_name=PRODUCTION_PROVIDER_NAME, recover_configs=True)
 
     assert config.is_dir()
+    assert not broken_copies(config)
+
+
+def test_unreadable_production_config_is_rebuilt(cloud_dirs):
+    providers, _default = cloud_dirs
+    config = write_config(providers, PRODUCTION_PROVIDER_NAME, json.dumps(PACKAGED_DEFAULT))
+    config.chmod(0)
+
+    settings = AppSettings(provider_name=PRODUCTION_PROVIDER_NAME, recover_configs=True)
+
+    assert settings.cloud_base_url == "https://wirenboard.cloud"
+    assert json.loads(config.read_text()) == PACKAGED_DEFAULT
+    assert config.stat().st_mode & 0o777 == 0o600
     assert not broken_copies(config)
 
 
