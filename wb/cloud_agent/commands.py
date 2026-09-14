@@ -1,4 +1,5 @@
 import logging
+import stat
 import subprocess
 import time
 from contextlib import ExitStack
@@ -44,6 +45,28 @@ def show_providers(_options) -> int:
     return 0
 
 
+def _prepare_damaged_provider_replacement(provider_name: str) -> bool:
+    config_path = provider_config_path(provider_name)
+    try:
+        config_stat = config_path.stat()
+    except FileNotFoundError:
+        return True
+    except OSError as exc:
+        logging.error("Cannot inspect damaged provider config %s: %s", config_path, exc)
+        return False
+
+    if not stat.S_ISREG(config_stat.st_mode):
+        logging.error("Cannot replace damaged provider config %s: path is not a regular file", config_path)
+        return False
+
+    if config_stat.st_size and quarantine_broken_file(config_path) is None:
+        logging.error(
+            "Cannot replace damaged provider config %s: broken contents were not preserved", config_path
+        )
+        return False
+    return True
+
+
 def add_provider(options) -> int:
     base_url = normalize_base_url(options.base_url)
     provider_name = options.name or urlparse(base_url).netloc
@@ -65,7 +88,8 @@ def add_provider(options) -> int:
         return 1
 
     if existing is not None and getattr(existing, "damaged", False) is True:
-        quarantine_broken_file(provider_config_path(provider_name))
+        if not _prepare_damaged_provider_replacement(provider_name):
+            return 1
     generate_provider_config(provider_name, base_url)
     settings = configure_app(provider_name=provider_name)
 

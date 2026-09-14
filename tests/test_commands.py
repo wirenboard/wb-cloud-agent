@@ -173,19 +173,24 @@ def test_add_provider_with_a_broken_existing_provider():
 
 
 @pytest.mark.usefixtures("mock_mqtt_cloud_agent")
-def test_add_provider_replaces_damaged_provider():
+def test_add_provider_replaces_damaged_provider(tmp_path):
     options = Namespace(base_url="https://new.example", name="custom")
     broken_provider = MagicMock()
     broken_provider.name = "custom"
     broken_provider.damaged = True
     broken_provider.config = {}
+    config_path = tmp_path / "custom" / "wb-cloud-agent.conf"
+    config_path.parent.mkdir()
+    config_path.write_text("{broken}")
 
     with (
         patch("wb.cloud_agent.commands.configure_app", return_value=MagicMock()),
         patch("wb.cloud_agent.commands.get_provider_names", return_value=["custom"]),
         patch("wb.cloud_agent.commands.load_providers_data", return_value=[broken_provider]),
-        patch("wb.cloud_agent.commands.provider_config_path"),
-        patch("wb.cloud_agent.commands.quarantine_broken_file"),
+        patch("wb.cloud_agent.commands.provider_config_path", return_value=config_path),
+        patch(
+            "wb.cloud_agent.commands.quarantine_broken_file", return_value=config_path.with_suffix(".broken")
+        ) as mock_quarantine,
         patch("wb.cloud_agent.commands.generate_provider_config") as mock_gen,
         patch("wb.cloud_agent.commands.start_and_enable_service"),
         patch("builtins.print"),
@@ -193,7 +198,60 @@ def test_add_provider_replaces_damaged_provider():
         result = add_provider(options)
 
     assert result == 0
+    mock_quarantine.assert_called_once_with(config_path)
     mock_gen.assert_called_once_with("custom", "https://new.example")
+
+
+@pytest.mark.usefixtures("mock_mqtt_cloud_agent")
+def test_add_provider_keeps_damaged_config_when_quarantine_fails(tmp_path):
+    options = Namespace(base_url="https://new.example", name="custom")
+    broken_provider = MagicMock(name="custom")
+    broken_provider.name = "custom"
+    broken_provider.damaged = True
+    broken_provider.config = {}
+    config_path = tmp_path / "custom" / "wb-cloud-agent.conf"
+    config_path.parent.mkdir()
+    config_path.write_text("{broken}")
+
+    with (
+        patch("wb.cloud_agent.commands.configure_app", return_value=MagicMock()),
+        patch("wb.cloud_agent.commands.get_provider_names", return_value=["custom"]),
+        patch("wb.cloud_agent.commands.load_providers_data", return_value=[broken_provider]),
+        patch("wb.cloud_agent.commands.provider_config_path", return_value=config_path),
+        patch("wb.cloud_agent.commands.quarantine_broken_file", return_value=None),
+        patch("wb.cloud_agent.commands.generate_provider_config") as mock_gen,
+        patch("builtins.print"),
+    ):
+        result = add_provider(options)
+
+    assert result == 1
+    assert config_path.read_text() == "{broken}"
+    mock_gen.assert_not_called()
+
+
+@pytest.mark.usefixtures("mock_mqtt_cloud_agent")
+def test_add_provider_does_not_replace_damaged_directory(tmp_path):
+    options = Namespace(base_url="https://new.example", name="custom")
+    broken_provider = MagicMock(name="custom")
+    broken_provider.name = "custom"
+    broken_provider.damaged = True
+    broken_provider.config = {}
+    config_path = tmp_path / "custom" / "wb-cloud-agent.conf"
+    config_path.mkdir(parents=True)
+
+    with (
+        patch("wb.cloud_agent.commands.configure_app", return_value=MagicMock()),
+        patch("wb.cloud_agent.commands.get_provider_names", return_value=["custom"]),
+        patch("wb.cloud_agent.commands.load_providers_data", return_value=[broken_provider]),
+        patch("wb.cloud_agent.commands.provider_config_path", return_value=config_path),
+        patch("wb.cloud_agent.commands.generate_provider_config") as mock_gen,
+        patch("builtins.print"),
+    ):
+        result = add_provider(options)
+
+    assert result == 1
+    assert config_path.is_dir()
+    mock_gen.assert_not_called()
 
 
 @pytest.mark.usefixtures("mock_mqtt_cloud_agent")
