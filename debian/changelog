@@ -1,3 +1,9 @@
+wb-cloud-agent (1.8.4) stable; urgency=medium
+
+  * Recover unreadable production provider configurations.
+
+ -- Denis Smagin <denis.smagin@struhe.com>  Mon, 14 Sep 2026 20:30:00 +0300
+
 wb-cloud-agent (1.8.3) stable; urgency=medium
 
   * Restore a damaged production provider config from the packaged default.
