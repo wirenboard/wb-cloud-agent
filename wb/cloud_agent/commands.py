@@ -120,7 +120,9 @@ def del_controller_from_cloud(options) -> int:
 
 
 def run_daemon(options) -> Optional[int]:
-    settings = configure_app(provider_name=options.provider_name)
+    settings = configure_app(provider_name=options.provider_name, recover_configs=True)
+    if settings == 6:
+        return settings
     settings.broker_url = options.broker or settings.broker_url
     logging.info(
         "====== Cloud Agent started (version: %s, provider: %s) ======",

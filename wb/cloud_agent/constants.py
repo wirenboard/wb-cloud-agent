@@ -2,6 +2,7 @@ UNKNOWN_LINK = "unknown"
 NOCONNECT_LINK = "noconnect"
 
 DEFAULT_PROVIDER_CONF_FILE = "/etc/wb-cloud-agent.conf"
+PRODUCTION_PROVIDER_NAME = "wirenboard.cloud"
 PROVIDERS_CONF_DIR = "/etc/wb-cloud-agent/providers"
 
 APP_DATA_DIR = "/var/lib/wb-cloud-agent"

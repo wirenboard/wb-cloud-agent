@@ -35,13 +35,103 @@ if [ ! -f "$TARGET_CERT" ] || ! cert_is_valid "$TARGET_CERT"; then
     fi
 fi
 
-# fix agent config (ATECC path according to device version)
+fix_engine_key() {
+    local config_path="$1"
+    local engine_key="$2"
+    python3 - "$config_path" "$engine_key" <<'PY'
+import os
+import re
+import stat
+import sys
+import tempfile
+from pathlib import Path
+from urllib.parse import urlparse
+
+config_path = Path(sys.argv[1]).resolve()
+engine_key = sys.argv[2]
+try:
+    if not config_path.is_file() or not config_path.stat().st_size:
+        raise SystemExit(0)
+    old_stat = config_path.stat()
+    contents = config_path.read_text(encoding="utf-8")
+except (OSError, UnicodeError):
+    raise SystemExit(0)
+
+updated = re.sub(r"ATECCx08:00:..", engine_key, contents)
+if updated == contents:
+    raise SystemExit(0)
+
+fd, temp_name = tempfile.mkstemp(prefix=f".{config_path.name}.tmp-", dir=config_path.parent)
+temp_path = Path(temp_name)
+try:
+    with os.fdopen(fd, "w", encoding="utf-8") as temp_file:
+        os.fchown(temp_file.fileno(), old_stat.st_uid, old_stat.st_gid)
+        os.fchmod(temp_file.fileno(), stat.S_IMODE(old_stat.st_mode))
+        temp_file.write(updated)
+        temp_file.flush()
+        os.fsync(temp_file.fileno())
+    os.replace(temp_path, config_path)
+    dir_fd = os.open(config_path.parent, os.O_RDONLY)
+    try:
+        os.fsync(dir_fd)
+    finally:
+        os.close(dir_fd)
+finally:
+    try:
+        temp_path.unlink()
+    except FileNotFoundError:
+        pass
+PY
+}
+
+config_usable=1
+if [ ! -s "$AGENT_CONFIG" ]; then
+    echo "Config $AGENT_CONFIG is missing or empty, the agent will restore it"
+    config_usable=0
+elif ! python3 - "$AGENT_CONFIG" <<'PY'
+import json
+import sys
+from urllib.parse import urlparse
+
+try:
+    with open(sys.argv[1], encoding="utf-8") as config_file:
+        config = json.load(config_file)
+    cloud_base_url = config.get("CLOUD_BASE_URL") if isinstance(config, dict) else None
+    parsed = urlparse(cloud_base_url) if isinstance(cloud_base_url, str) else None
+except (OSError, UnicodeError, ValueError, json.JSONDecodeError):
+    raise SystemExit(1)
+
+if parsed is None or parsed.scheme not in ("http", "https") or not parsed.netloc:
+    raise SystemExit(1)
+if "LOG_LEVEL" in config and not isinstance(config["LOG_LEVEL"], str):
+    raise SystemExit(1)
+for key in ("CLIENT_CERT_ENGINE_KEY", "CLIENT_CERT_FILE", "BROKER_URL"):
+    if key in config and (not isinstance(config[key], str) or not config[key].strip()):
+        raise SystemExit(1)
+for key in ("REQUEST_PERIOD_SECONDS", "PING_PERIOD_SECONDS"):
+    if key in config and (
+        isinstance(config[key], bool) or not isinstance(config[key], int) or config[key] <= 0
+    ):
+        raise SystemExit(1)
+if "METRICS_LOG_ENABLED" in config and not isinstance(config["METRICS_LOG_ENABLED"], bool):
+    raise SystemExit(1)
+PY
+then
+    echo "Config $AGENT_CONFIG is malformed, the agent will restore it"
+    config_usable=0
+fi
+
 . /usr/lib/wb-utils/wb_env.sh
 wb_source of
 
 if of_machine_match "contactless,imx6ul-wirenboard60"; then
-    sed -i --follow-symlinks 's/ATECCx08:00:../ATECCx08:00:04/g' "$AGENT_CONFIG"
+    ENGINE_KEY="ATECCx08:00:04"
 else
     # Both WB7, WB8 have atecc on i2c2
-    sed -i --follow-symlinks 's/ATECCx08:00:../ATECCx08:00:02/g' "$AGENT_CONFIG"
+    ENGINE_KEY="ATECCx08:00:02"
+fi
+
+fix_engine_key /etc/wb-cloud-agent.conf "$ENGINE_KEY"
+if [ "$config_usable" -eq 1 ]; then
+    fix_engine_key "$AGENT_CONFIG" "$ENGINE_KEY"
 fi

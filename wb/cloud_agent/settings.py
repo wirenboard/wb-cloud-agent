@@ -4,7 +4,7 @@ import shutil
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Optional, Union
+from typing import Any, NoReturn, Optional, Union
 from urllib.parse import urlparse, urlunparse
 
 from wb_common.mqtt_client import DEFAULT_BROKER_URL
@@ -15,14 +15,52 @@ from wb.cloud_agent.constants import (
     CLOUD_AGENT_URL_POSTFIX,
     DEFAULT_PROVIDER_CONF_FILE,
     NOCONNECT_LINK,
+    PRODUCTION_PROVIDER_NAME,
     PROVIDERS_CONF_DIR,
 )
 from wb.cloud_agent.utils import (
+    ConfigError,
+    ConfigReadError,
+    config_recovery_lock,
     get_controller_url,
     normalize_base_url,
+    quarantine_broken_file,
     read_json_config,
     read_plaintext_config,
+    write_to_file,
 )
+
+
+def provider_config_path(provider_name: str) -> Path:
+    return Path(PROVIDERS_CONF_DIR) / provider_name / "wb-cloud-agent.conf"
+
+
+def _raise_config_error(reason: str) -> NoReturn:
+    raise ConfigError(reason)
+
+
+def _validate_provider_config(config: dict[str, Any]) -> None:
+    cloud_base_url = config.get("CLOUD_BASE_URL")
+    if not isinstance(cloud_base_url, str) or not cloud_base_url.strip():
+        raise ConfigError("has an invalid CLOUD_BASE_URL")
+    try:
+        parsed = urlparse(cloud_base_url)
+    except ValueError as exc:
+        raise ConfigError("has an invalid CLOUD_BASE_URL") from exc
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        raise ConfigError("has an invalid CLOUD_BASE_URL")
+    if "LOG_LEVEL" in config and not isinstance(config["LOG_LEVEL"], str):
+        raise ConfigError("has an invalid LOG_LEVEL")
+    for key in ("CLIENT_CERT_ENGINE_KEY", "CLIENT_CERT_FILE", "BROKER_URL"):
+        if key in config and (not isinstance(config[key], str) or not config[key].strip()):
+            raise ConfigError(f"has an invalid {key}")
+    for key in ("REQUEST_PERIOD_SECONDS", "PING_PERIOD_SECONDS"):
+        if key in config and (
+            isinstance(config[key], bool) or not isinstance(config[key], int) or config[key] <= 0
+        ):
+            raise ConfigError(f"has an invalid {key}")
+    if "METRICS_LOG_ENABLED" in config and not isinstance(config["METRICS_LOG_ENABLED"], bool):
+        raise ConfigError("has an invalid METRICS_LOG_ENABLED")
 
 
 class AppSettings:  # pylint: disable=too-many-instance-attributes disable=too-few-public-methods
@@ -41,6 +79,7 @@ class AppSettings:  # pylint: disable=too-many-instance-attributes disable=too-f
     provider_name: str
 
     skip_conf_file: bool = False
+    recover_configs: bool = False
 
     log_level: str = "INFO"
 
@@ -59,7 +98,7 @@ class AppSettings:  # pylint: disable=too-many-instance-attributes disable=too-f
         for key, val in kwargs.items():
             setattr(self, key, val)
 
-        self.config_file: Path = Path(f"{PROVIDERS_CONF_DIR}/{self.provider_name}/wb-cloud-agent.conf")
+        self.config_file: Path = provider_config_path(self.provider_name)
         self.frp_service: str = f"wb-cloud-agent-frpc@{self.provider_name}.service"
         self.metrics_service: str = f"wb-cloud-agent-metrics@{self.provider_name}.service"
         self.frp_config: Path = Path(f"{APP_DATA_PROVIDERS_DIR}/{self.provider_name}/frpc.conf")
@@ -76,14 +115,26 @@ class AppSettings:  # pylint: disable=too-many-instance-attributes disable=too-f
         self.mqtt_prefix: str = f"/devices/system__wb-cloud-agent__{self.provider_name}"
         self.diag_archive: Path = Path("/tmp")
 
-        if not self.skip_conf_file and self.config_file.exists():
+        if not self.skip_conf_file and (
+            self.config_file.exists() or (self.recover_configs and self.config_file.parent.is_dir())
+        ):
             self.apply_conf_file()
 
         self.cloud_base_url = normalize_base_url(self.cloud_base_url)
         self.cloud_agent_url = self.base_url_to_agent_url(self.cloud_base_url)
 
     def apply_conf_file(self) -> None:
-        conf = read_json_config(self.config_file)
+        if self.recover_configs:
+            try:
+                conf = read_json_config(self.config_file, rebuild=_raise_config_error)
+                _validate_provider_config(conf)
+            except ConfigReadError:
+                raise
+            except ConfigError as exc:
+                conf = recover_provider_config(self.provider_name, str(exc))
+        else:
+            conf = read_json_config(self.config_file)
+            _validate_provider_config(conf)
 
         for key, val in conf.items():
             setattr(self, key.lower(), val)
@@ -97,7 +148,7 @@ class AppSettings:  # pylint: disable=too-many-instance-attributes disable=too-f
 def configure_app(**kwargs: dict[str, Any]) -> AppSettings:
     try:
         settings = AppSettings(**kwargs)
-    except (FileNotFoundError, OSError, json.decoder.JSONDecodeError):
+    except (ConfigError, FileNotFoundError, OSError, json.decoder.JSONDecodeError):
         return 6  # systemd status=6/NOTCONFIGURED
 
     setup_log(settings)
@@ -112,15 +163,58 @@ def setup_log(settings: AppSettings) -> None:
 
 
 def generate_provider_config(provider: str, base_url: str) -> None:
-    conf = read_json_config(Path(DEFAULT_PROVIDER_CONF_FILE))
+    conf = _packaged_default_config()
     conf["CLOUD_BASE_URL"] = normalize_base_url(base_url)
 
-    conf_dir = Path(PROVIDERS_CONF_DIR) / provider
-    if not conf_dir.exists():
-        conf_dir.mkdir(parents=True, exist_ok=True)
+    write_to_file(provider_config_path(provider), json.dumps(conf, indent=4))
 
-    conf_file = conf_dir / "wb-cloud-agent.conf"
-    conf_file.write_text(json.dumps(conf, indent=4), encoding="utf-8")
+
+def _packaged_default_config() -> dict[str, Any]:
+    config = read_json_config(Path(DEFAULT_PROVIDER_CONF_FILE), rebuild=_raise_config_error)
+    _validate_provider_config(config)
+    return config
+
+
+def recover_provider_config(provider_name: str, reason: str) -> dict[str, Any]:
+    if provider_name != PRODUCTION_PROVIDER_NAME:
+        raise ConfigError(f"{reason}; recovery is limited to {PRODUCTION_PROVIDER_NAME}")
+
+    config_path = provider_config_path(provider_name)
+    if not config_path.parent.is_dir():
+        raise ConfigError(f"{config_path} provider directory is missing")
+
+    with config_recovery_lock(config_path):
+        try:
+            current = read_json_config(config_path, rebuild=_raise_config_error)
+            _validate_provider_config(current)
+            return current
+        except ConfigReadError:
+            raise
+        except ConfigError:
+            pass
+
+        recovered = _packaged_default_config()
+        try:
+            needs_preservation = config_path.is_file() and config_path.stat().st_size > 0
+        except OSError as exc:
+            raise ConfigError(f"cannot inspect broken config {config_path}: {exc}") from exc
+
+        quarantined = quarantine_broken_file(config_path) if needs_preservation else None
+        if needs_preservation and quarantined is None:
+            raise ConfigError(f"cannot preserve broken config {config_path}")
+
+        try:
+            write_to_file(config_path, json.dumps(recovered, indent=4), create_parent=False)
+        except OSError as exc:
+            raise ConfigError(f"cannot rewrite config {config_path}: {exc}") from exc
+
+    logging.warning(
+        "Config %s %s, restored from packaged defaults%s",
+        config_path,
+        reason,
+        f", broken file kept as {quarantined.name}" if quarantined else "",
+    )
+    return recovered
 
 
 def delete_provider_config(conf_path_prefix: str, provider: str) -> None:
