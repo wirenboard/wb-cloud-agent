@@ -428,15 +428,17 @@ def test_built_in_url_follows_the_production_provider_name():
 
 
 def test_unwritable_directory_reports_not_configured(cloud_dirs):
-    """A read-only /etc or a non-root caller must not leak OSError past main()."""
+    """A read-only /etc or a non-root caller must not leak OSError past main().
+
+    The permission error is injected rather than produced with chmod: the test suite also
+    runs as root during the package build, and root ignores directory permissions.
+    """
     providers, _default = cloud_dirs
-    config = write_config(providers, PRODUCTION_PROVIDER_NAME, "{broken")
-    config.parent.chmod(0o555)
-    try:
-        with pytest.raises(ConfigError):
+    write_config(providers, PRODUCTION_PROVIDER_NAME, "{broken")
+
+    with patch("wb.cloud_agent.utils.os.open", side_effect=PermissionError(13, "Permission denied")):
+        with pytest.raises(ConfigError, match="cannot be locked"):
             AppSettings(provider_name=PRODUCTION_PROVIDER_NAME, recover_configs=True)
-    finally:
-        config.parent.chmod(0o755)
 
 
 def test_recovery_converges_when_the_packaged_default_is_unusable(cloud_dirs):
