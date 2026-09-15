@@ -63,7 +63,8 @@ def get_controller_url(base_url: str) -> str:
     return urljoin(normalize_base_url(base_url), f"controllers/{ctrl_serial_number}")
 
 
-def _parse_json_config(config_path: Path) -> dict[str, Any]:
+def read_json_config(config_path: Path) -> dict[str, Any]:
+    """Read a JSON config. Raises ConfigError describing what is wrong with it."""
     try:
         data = config_path.read_text(encoding="utf-8")
     except FileNotFoundError as exc:
@@ -84,11 +85,6 @@ def _parse_json_config(config_path: Path) -> dict[str, Any]:
     if not isinstance(config, dict):
         raise ConfigError("is not a JSON object")
     return config
-
-
-def read_json_config(config_path: Path) -> dict[str, Any]:
-    """Read a JSON config. Raises ConfigError describing what is wrong with it."""
-    return _parse_json_config(config_path)
 
 
 def read_plaintext_config(config_path: Path) -> str:
@@ -132,11 +128,7 @@ def write_to_file(fpath: Path, contents: str, create_parent: bool = True) -> Non
         except FileNotFoundError:
             pass
 
-    dir_fd = os.open(target.parent, os.O_RDONLY)
-    try:
-        os.fsync(dir_fd)
-    finally:
-        os.close(dir_fd)
+    _fsync_directory(target.parent)
 
 
 def quarantine_broken_file(fpath: Path) -> Path:

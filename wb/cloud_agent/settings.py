@@ -40,14 +40,17 @@ def provider_config_path(provider_name: str) -> Path:
 
 def _validate_provider_config(config: dict[str, Any]) -> None:
     """
-    Check only what the agent cannot run without.
+    Decide whether a parseable config is worth repairing.
 
-    Everything else is applied as written: a config the previous version accepted
-    must keep working, and a self-healing agent should not invent new reasons to fail.
+    Only CLOUD_BASE_URL is looked at, and only when it is present: configs
+    predating 1.6.0 have no such key and work off the built-in default, so
+    demanding it would break upgrades from those versions.
     """
-    cloud_base_url = config.get("CLOUD_BASE_URL")
+    if "CLOUD_BASE_URL" not in config:
+        return
+    cloud_base_url = config["CLOUD_BASE_URL"]
     if not isinstance(cloud_base_url, str) or not cloud_base_url.strip():
-        raise ConfigError("has no usable CLOUD_BASE_URL")
+        raise ConfigError("has an invalid CLOUD_BASE_URL")
     try:
         parsed = urlparse(cloud_base_url)
     except ValueError as exc:
@@ -120,17 +123,23 @@ class AppSettings:  # pylint: disable=too-many-instance-attributes disable=too-f
         self.cloud_agent_url = self.base_url_to_agent_url(self.cloud_base_url)
 
     def apply_conf_file(self) -> None:
+        if not self.recover_configs:
+            conf = read_json_config(self.config_file)
+            self._apply(conf)
+            return
+
         try:
             conf = read_json_config(self.config_file)
             _validate_provider_config(conf)
         except ConfigError as exc:
-            if not self.recover_configs:
-                raise
             # a config that is not a regular file (a directory, say) is not ours to replace
             if isinstance(exc, ConfigReadError) and not self.config_file.is_file():
                 raise
             conf = recover_provider_config(self.provider_name, str(exc))
 
+        self._apply(conf)
+
+    def _apply(self, conf: dict[str, Any]) -> None:
         for key, val in conf.items():
             setattr(self, key.lower(), val)
 
@@ -151,10 +160,12 @@ def setup_log(settings: AppSettings) -> None:
     level = settings.log_level
     numeric_level = getattr(logging, level.upper(), None) if isinstance(level, str) else None
     if not isinstance(numeric_level, int):
-        logging.basicConfig(level=logging.INFO, encoding="utf-8", format="%(message)s")
+        logging.basicConfig(level=logging.INFO, encoding="utf-8", format="%(message)s", force=True)
         logging.warning("Invalid LOG_LEVEL %r in config, using INFO", level)
         return
-    logging.basicConfig(level=numeric_level, encoding="utf-8", format="%(message)s")
+    # force=True: config recovery may have logged a warning before us, and that
+    # call already configured the root logger at WARNING
+    logging.basicConfig(level=numeric_level, encoding="utf-8", format="%(message)s", force=True)
 
 
 def generate_provider_config(provider: str, base_url: str) -> None:
@@ -165,9 +176,7 @@ def generate_provider_config(provider: str, base_url: str) -> None:
 
 
 def _packaged_default_config() -> dict[str, Any]:
-    config = read_json_config(Path(DEFAULT_PROVIDER_CONF_FILE))
-    _validate_provider_config(config)
-    return config
+    return read_json_config(Path(DEFAULT_PROVIDER_CONF_FILE))
 
 
 def recover_provider_config(provider_name: str, reason: str) -> dict[str, Any]:

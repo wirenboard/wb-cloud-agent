@@ -1,11 +1,12 @@
 import json
+import logging
 from argparse import Namespace
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
-from wb.cloud_agent.commands import run_daemon
+from wb.cloud_agent.commands import del_provider, run_daemon
 from wb.cloud_agent.constants import (
     NOTCONFIGURED_EXIT_CODE,
     PRODUCTION_PROVIDER_NAME,
@@ -14,7 +15,7 @@ from wb.cloud_agent.constants import (
 )
 from wb.cloud_agent.handlers.ping import CloudUnreachableError
 from wb.cloud_agent.main import main
-from wb.cloud_agent.settings import AppSettings, configure_app
+from wb.cloud_agent.settings import AppSettings, configure_app, generate_provider_config
 from wb.cloud_agent.utils import (
     ConfigError,
     ConfigReadError,
@@ -65,7 +66,7 @@ def test_missing_production_config_is_rebuilt(cloud_dirs):
     assert json.loads(config.read_text()) == PACKAGED_DEFAULT
 
 
-@pytest.mark.parametrize("contents", ["", "{broken", "[]", "{}", '{"CLOUD_BASE_URL": "ftp://nope"}'])
+@pytest.mark.parametrize("contents", ["", "{broken", "[]", '{"CLOUD_BASE_URL": "ftp://nope"}'])
 def test_damaged_production_config_is_rebuilt(cloud_dirs, contents):
     providers, _default = cloud_dirs
     config = write_config(providers, PRODUCTION_PROVIDER_NAME, contents)
@@ -290,3 +291,72 @@ def test_write_to_file_permissions(tmp_path):
     write_to_file(existing, "new")
     assert existing.read_text() == "new"
     assert existing.stat().st_mode & 0o777 == 0o640
+
+
+def test_config_without_base_url_is_left_alone(cloud_dirs):
+    """Configs predating 1.6.0 have no CLOUD_BASE_URL and run off the built-in default."""
+    providers, _default = cloud_dirs
+    config = write_config(providers, PRODUCTION_PROVIDER_NAME, json.dumps({"LOG_LEVEL": "INFO"}))
+    original = config.read_text()
+
+    settings = AppSettings(provider_name=PRODUCTION_PROVIDER_NAME, recover_configs=True)
+
+    assert settings.cloud_base_url == "https://wirenboard.cloud"
+    assert config.read_text() == original
+    assert not broken_copies(config)
+
+
+def test_provider_without_base_url_can_still_be_deleted(cloud_dirs):
+    """del-provider must not depend on the config being complete."""
+    providers, _default = cloud_dirs
+    write_config(providers, "old-provider", json.dumps({"LOG_LEVEL": "INFO"}))
+
+    with (
+        patch("wb.cloud_agent.commands.MQTTCloudAgent"),
+        patch("wb.cloud_agent.commands.get_provider_names", return_value=["old-provider"]),
+        patch("wb.cloud_agent.commands.stop_services_and_del_configs") as stop,
+    ):
+        assert del_provider(Namespace(provider_name="old-provider")) == 0
+
+    stop.assert_called_once()
+
+
+def test_recovery_works_with_pre_1_6_packaged_default(cloud_dirs):
+    """/etc/wb-cloud-agent.conf from 1.5.x has no CLOUD_BASE_URL and is a modified conffile."""
+    providers, default = cloud_dirs
+    default.write_text(
+        json.dumps({"LOG_LEVEL": "INFO", "CLIENT_CERT_ENGINE_KEY": "ATECCx08:00:04:C0:00"}),
+        encoding="utf-8",
+    )
+    config = write_config(providers, PRODUCTION_PROVIDER_NAME, "{broken")
+
+    with patch("wb.cloud_agent.utils.local_engine_key_prefix", return_value="ATECCx08:00:02"):
+        settings = AppSettings(provider_name=PRODUCTION_PROVIDER_NAME, recover_configs=True)
+
+    restored = json.loads(config.read_text())
+    assert settings.cloud_base_url == "https://wirenboard.cloud"
+    assert restored["LOG_LEVEL"] == "INFO"
+    assert "CLOUD_BASE_URL" not in restored
+    assert broken_copies(config)[0].read_text() == "{broken"
+
+
+def test_add_provider_works_with_pre_1_6_packaged_default(cloud_dirs):
+    providers, default = cloud_dirs
+    default.write_text(json.dumps({"LOG_LEVEL": "INFO"}), encoding="utf-8")
+
+    generate_provider_config("my.cloud", "https://my.cloud")
+
+    written = json.loads((providers / "my.cloud" / "wb-cloud-agent.conf").read_text())
+    assert written["CLOUD_BASE_URL"] == "https://my.cloud"
+
+
+def test_info_logging_survives_a_recovery(cloud_dirs):
+    """The recovery warning must not leave the root logger stuck at WARNING."""
+    providers, _default = cloud_dirs
+    write_config(providers, PRODUCTION_PROVIDER_NAME, "{broken")
+    logging.getLogger().handlers.clear()
+    logging.getLogger().setLevel(logging.NOTSET)
+
+    configure_app(provider_name=PRODUCTION_PROVIDER_NAME, recover_configs=True)
+
+    assert logging.getLogger().isEnabledFor(logging.INFO)
