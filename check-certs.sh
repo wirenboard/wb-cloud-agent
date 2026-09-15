@@ -1,8 +1,5 @@
 #!/bin/bash
 
-# Prepares the device certificate. Configs are the agent's own business:
-# it picks the ATECC bus and repairs a damaged config itself.
-
 set -e
 
 print_bundle_part() {

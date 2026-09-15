@@ -42,7 +42,6 @@ def show_providers(_options) -> int:
 
 
 def settings_for_removal(provider_name: str) -> tuple[AppSettings, bool]:
-    """Deleting a provider must work even when its config is damaged; then its cloud is unknown."""
     try:
         return configure_app(provider_name=provider_name), True
     except ConfigError:

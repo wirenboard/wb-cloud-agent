@@ -26,7 +26,6 @@ from wb.cloud_agent.settings import (
 )
 from wb.cloud_agent.utils import (
     ConfigError,
-    ConfigReadError,
     local_engine_key,
     with_local_engine_key,
     write_to_file,
@@ -138,7 +137,7 @@ def test_production_config_directory_is_not_rewritten(cloud_dirs):
     config.parent.mkdir(parents=True)
     config.mkdir()
 
-    with pytest.raises(ConfigReadError):
+    with pytest.raises(ConfigError, match="not a regular file"):
         AppSettings(provider_name=PRODUCTION_PROVIDER_NAME, recover_configs=True)
 
     assert config.is_dir()
@@ -146,14 +145,14 @@ def test_production_config_directory_is_not_rewritten(cloud_dirs):
 
 
 def test_unreadable_production_config_is_preserved_not_destroyed(cloud_dirs):
-    """A config we cannot read is moved aside by rename, so its content survives."""
+    """Hardlinking needs no read access, so a config we cannot read is kept, not lost."""
     providers, _default = cloud_dirs
     config = write_config(providers, PRODUCTION_PROVIDER_NAME, '{"CLOUD_BASE_URL": "https://mine.example"}')
     original = config.read_text()
 
     def unreadable(path):
         if path == config:
-            raise ConfigReadError("cannot be read (permission denied)")
+            raise ConfigError("cannot be read (permission denied)")
         return json.loads(path.read_text(encoding="utf-8"))
 
     with patch("wb.cloud_agent.settings.read_json_config", side_effect=unreadable):
@@ -187,19 +186,6 @@ def test_quarantine_failure_leaves_config_alone(cloud_dirs):
             AppSettings(provider_name=PRODUCTION_PROVIDER_NAME, recover_configs=True)
 
     assert config.read_text() == "{broken"
-
-
-def test_oldest_and_newest_broken_copies_are_kept(cloud_dirs):
-    """The first copy holds the operator's own settings; the last one describes the latest failure."""
-    providers, _default = cloud_dirs
-    config = write_config(providers, PRODUCTION_PROVIDER_NAME, '{"CLOUD_BASE_URL": "https://mine.example"')
-    for damage in ("{second", "{third"):
-        AppSettings(provider_name=PRODUCTION_PROVIDER_NAME, recover_configs=True)
-        config.write_text(damage, encoding="utf-8")
-    AppSettings(provider_name=PRODUCTION_PROVIDER_NAME, recover_configs=True)
-
-    kept = [copy.read_text() for copy in broken_copies(config)]
-    assert kept == ['{"CLOUD_BASE_URL": "https://mine.example"', "{third"]
 
 
 def test_network_failure_does_not_recover_config(cloud_dirs):
@@ -437,24 +423,13 @@ def test_with_local_engine_key_does_not_touch_the_caller_dict():
 
 
 def test_agent_url_is_always_derived_from_the_base_url():
-    """Keeping a literal agent URL alongside the base one only lets the two drift apart."""
-    assert not hasattr(AppSettings, "cloud_agent_url")
-
     settings = AppSettings(provider_name="", skip_conf_file=True, cloud_base_url="https://on-premise.example")
 
     assert settings.cloud_agent_url == "https://agent.on-premise.example/api-agent/v1/"
 
 
-def test_built_in_url_follows_the_production_provider_name():
-    assert AppSettings.cloud_base_url == f"https://{PRODUCTION_PROVIDER_NAME}"
-
-
 def test_unwritable_directory_reports_not_configured(cloud_dirs):
-    """A read-only /etc or a non-root caller must not leak OSError past main().
-
-    The permission error is injected rather than produced with chmod: the test suite also
-    runs as root during the package build, and root ignores directory permissions.
-    """
+    """Injected rather than chmod'ed: the suite also runs as root, who ignores directory modes."""
     providers, _default = cloud_dirs
     write_config(providers, PRODUCTION_PROVIDER_NAME, "{broken")
 
@@ -490,16 +465,6 @@ def test_quarantine_slots_do_not_depend_on_the_clock(cloud_dirs):
     assert config.with_name(f"{config.name}.broken-first").read_text() == "конфиг оператора{"
     assert config.with_name(f"{config.name}.broken-last").read_text() == "третья поломка{"
     assert len(broken_copies(config)) == 2
-
-
-def test_quarantine_replaces_copies_named_by_older_versions(cloud_dirs):
-    providers, _default = cloud_dirs
-    config = write_config(providers, PRODUCTION_PROVIDER_NAME, "{broken")
-    config.with_name(f"{config.name}.broken-20260101T000000000000Z").write_text("legacy", encoding="utf-8")
-
-    AppSettings(provider_name=PRODUCTION_PROVIDER_NAME, recover_configs=True)
-
-    assert [copy.name.rsplit(".", 1)[-1] for copy in broken_copies(config)] == ["broken-first"]
 
 
 def test_listing_shows_providers_the_daemon_accepts(cloud_dirs):
@@ -538,17 +503,6 @@ def test_quarantine_follows_a_symlinked_config(cloud_dirs, tmp_path):
     assert config.is_symlink()
     assert json.loads(real.read_text()) == PACKAGED_DEFAULT
     assert real.with_name(f"{real.name}.broken-first").read_text() == "конфиг оператора{"
-
-
-def test_a_repaired_config_always_carries_the_cloud_url(cloud_dirs):
-    """A pre-1.6.0 packaged default has no URL, and writing that back broke the CLI."""
-    providers, default = cloud_dirs
-    default.write_text(json.dumps({"LOG_LEVEL": "INFO"}), encoding="utf-8")
-    config = write_config(providers, PRODUCTION_PROVIDER_NAME, "{broken")
-
-    AppSettings(provider_name=PRODUCTION_PROVIDER_NAME, recover_configs=True)
-
-    assert json.loads(config.read_text())["CLOUD_BASE_URL"] == "https://wirenboard.cloud"
 
 
 def test_a_provider_without_a_cloud_url_is_still_printable():

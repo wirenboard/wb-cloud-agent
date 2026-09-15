@@ -20,7 +20,6 @@ from wb.cloud_agent.constants import (
 )
 from wb.cloud_agent.utils import (
     ConfigError,
-    ConfigReadError,
     commit_staged,
     config_recovery_lock,
     drop_stale_files,
@@ -42,13 +41,7 @@ def provider_config_path(provider_name: str) -> Path:
 
 
 def _validate_provider_config(config: dict[str, Any]) -> None:
-    """
-    Decide whether a parseable config is worth repairing.
-
-    Only CLOUD_BASE_URL is looked at, and only when it is present: configs
-    predating 1.6.0 have no such key and work off the built-in default, so
-    demanding it would break upgrades from those versions.
-    """
+    """Only CLOUD_BASE_URL is checked, and only when present: configs before 1.6.0 have none."""
     if "CLOUD_BASE_URL" not in config:
         return
     cloud_base_url = config["CLOUD_BASE_URL"]
@@ -88,7 +81,6 @@ class AppSettings:  # pylint: disable=too-many-instance-attributes disable=too-f
     client_cert_file: str = f"{APP_DATA_DIR}/device_bundle.crt.pem"
 
     cloud_base_url: str = PRODUCTION_CLOUD_URL
-    # always derived from cloud_base_url in __init__, never a literal of its own
     cloud_agent_url: str
     request_period_seconds: int = 10
     ping_period_seconds: int = 10
@@ -120,7 +112,6 @@ class AppSettings:  # pylint: disable=too-many-instance-attributes disable=too-f
         ):
             self.apply_conf_file()
 
-        # the packaged default names the WB7/WB8 bus; on WB6 the chip sits elsewhere
         self.client_cert_engine_key = local_engine_key(self.client_cert_engine_key)
 
         self.cloud_base_url = normalize_base_url(self.cloud_base_url)
@@ -146,9 +137,6 @@ class AppSettings:  # pylint: disable=too-many-instance-attributes disable=too-f
             conf = read_json_config(self.config_file)
             _validate_provider_config(conf)
         except ConfigError as exc:
-            # a config that is not a regular file (a directory, say) is not ours to replace
-            if isinstance(exc, ConfigReadError) and not self.config_file.is_file():
-                raise
             conf = recover_provider_config(self.provider_name, str(exc))
 
         self._apply(conf)
@@ -164,7 +152,6 @@ class AppSettings:  # pylint: disable=too-many-instance-attributes disable=too-f
 
 
 def configure_app(**kwargs: dict[str, Any]) -> AppSettings:
-    """Raises ConfigError when the provider config is unusable; main() turns that into status 6."""
     settings = AppSettings(**kwargs)
     setup_log(settings)
     return settings
@@ -177,8 +164,7 @@ def setup_log(settings: AppSettings) -> None:
         logging.basicConfig(level=logging.INFO, encoding="utf-8", format="%(message)s", force=True)
         logging.warning("Invalid LOG_LEVEL %r in config, using INFO", level)
         return
-    # force=True: config recovery may have logged a warning before us, and that
-    # call already configured the root logger at WARNING
+    # force=True: a logging.warning() during recovery has already run basicConfig at WARNING
     logging.basicConfig(level=numeric_level, encoding="utf-8", format="%(message)s", force=True)
 
 
@@ -201,7 +187,6 @@ def _built_in_config() -> dict[str, Any]:
 def _packaged_default_config() -> dict[str, Any]:
     try:
         config = read_json_config(Path(DEFAULT_PROVIDER_CONF_FILE))
-        # an unusable default would be written back and rejected again on every start
         _validate_provider_config(config)
         return config
     except ConfigError as exc:
@@ -220,12 +205,13 @@ def recover_provider_config(provider_name: str, reason: str) -> dict[str, Any]:
     config_path = provider_config_path(provider_name)
     if not config_path.parent.is_dir():
         raise ConfigError(f"{config_path} provider directory is missing")
+    if config_path.exists() and not config_path.is_file():
+        raise ConfigError(f"{config_path} is not a regular file")
 
+    real = resolve_through_symlink(config_path)
     with config_recovery_lock(config_path):
-        # leftovers from an attempt that a power cut interrupted
-        drop_stale_files(resolve_through_symlink(config_path))
+        drop_stale_files(real)
 
-        # another agent process may have fixed it while we waited for the lock
         try:
             current = read_json_config(config_path)
             _validate_provider_config(current)
@@ -235,26 +221,15 @@ def recover_provider_config(provider_name: str, reason: str) -> dict[str, Any]:
 
         # the packaged default may predate 1.6.0 and carry no CLOUD_BASE_URL
         recovered = with_local_engine_key({**_built_in_config(), **_packaged_default_config()})
+        staged = quarantined = None
         try:
-            # an empty file carries nothing worth keeping
-            keep_broken = config_path.exists() and config_path.stat().st_size > 0
+            staged = stage_file(real, json.dumps(recovered, indent=4))
+            if real.is_file() and real.stat().st_size > 0:
+                quarantined = quarantine_broken_file(real)
+            commit_staged(staged, real)
         except OSError as exc:
-            raise ConfigError(f"cannot inspect broken config {config_path}: {exc}") from exc
-
-        # stage the replacement first: moving the broken file aside before the new one
-        # exists would leave the directory with no config at all if the write failed
-        try:
-            staged = stage_file(resolve_through_symlink(config_path), json.dumps(recovered, indent=4))
-        except OSError as exc:
-            raise ConfigError(f"cannot prepare a new config for {config_path}: {exc}") from exc
-
-        quarantined = None
-        try:
-            if keep_broken:
-                quarantined = quarantine_broken_file(config_path)
-            commit_staged(staged, resolve_through_symlink(config_path))
-        except OSError as exc:
-            staged.unlink(missing_ok=True)
+            if staged:
+                staged.unlink(missing_ok=True)
             raise ConfigError(f"cannot rewrite config {config_path}: {exc}") from exc
 
     logging.warning(
@@ -324,13 +299,8 @@ def load_providers_data(provider_names: list[str]) -> list[Provider]:
         activation_path = Path(f"{APP_DATA_PROVIDERS_DIR}/{provider_name}/activation_link.conf")
 
         try:
-            # the CLI is how users meet a damaged config (CLOUD-592), so repair it here too.
-            # Only unreadable configs are repaired: judging a readable one is the daemon's job,
-            # otherwise listing providers would refuse to show perfectly usable ones.
             provider_config = read_json_config(config_path)
         except ConfigError as exc:
-            if isinstance(exc, ConfigReadError) and not config_path.is_file():
-                raise
             provider_config = recover_provider_config(provider_name, str(exc))
 
         if activation_path.exists():

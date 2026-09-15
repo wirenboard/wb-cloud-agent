@@ -33,18 +33,8 @@ class ConfigError(Exception):
     """A config file is missing or locally unusable."""
 
 
-class ConfigReadError(ConfigError):
-    """A config file cannot be read without risking data loss."""
-
-
 @contextmanager
 def config_recovery_lock(config_path: Path):
-    """
-    Serialize recovery attempts for one provider across agent processes.
-
-    A read-only directory or a non-root caller must come out as ConfigError, so that
-    the caller reports "not configured" instead of leaking OSError past main().
-    """
     lock_path = config_path.with_name(f".{config_path.name}.lock")
     try:
         lock_fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
@@ -75,7 +65,6 @@ def get_controller_url(base_url: str) -> str:
 
 
 def read_json_config(config_path: Path) -> dict[str, Any]:
-    """Read a JSON config. Raises ConfigError describing what is wrong with it."""
     try:
         data = config_path.read_text(encoding="utf-8")
     except FileNotFoundError as exc:
@@ -83,7 +72,7 @@ def read_json_config(config_path: Path) -> dict[str, Any]:
     except UnicodeDecodeError as exc:
         raise ConfigError(f"is not valid JSON ({exc})") from exc
     except OSError as exc:
-        raise ConfigReadError(f"cannot be read ({exc})") from exc
+        raise ConfigError(f"cannot be read ({exc})") from exc
 
     if not data.strip():
         raise ConfigError("is empty")
@@ -109,27 +98,15 @@ def resolve_through_symlink(fpath: Path) -> Path:
 
 
 def stage_file(target: Path, contents: str) -> Path:
-    """
-    Write contents to a temporary file next to target, ready to be put in place.
-
-    Staging first lets the caller keep the old file until the new one is safely on
-    disk, so a failed write cannot leave the directory with no config at all.
-    """
     try:
-        old_stat = target.stat()
+        mode = target.stat().st_mode & 0o7777
     except FileNotFoundError:
-        old_stat = None
-
-    # keep the permissions of an existing file, otherwise behave like a plain
-    # open()/write() would with the default umask instead of mkstemp's 0600
-    mode = old_stat.st_mode & 0o7777 if old_stat is not None else DEFAULT_FILE_MODE
+        mode = DEFAULT_FILE_MODE  # mkstemp would otherwise leave the new file at 0600
 
     fd, tmp_name = tempfile.mkstemp(prefix=f".{target.name}.tmp-", dir=target.parent)
     tmp_path = Path(tmp_name)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as temp_file:
-            if old_stat is not None:
-                os.fchown(temp_file.fileno(), old_stat.st_uid, old_stat.st_gid)
             os.fchmod(temp_file.fileno(), mode)
             temp_file.write(contents)
             temp_file.flush()
@@ -141,7 +118,6 @@ def stage_file(target: Path, contents: str) -> Path:
 
 
 def commit_staged(staged: Path, target: Path) -> None:
-    """Put a staged file in place atomically."""
     try:
         os.replace(staged, target)
     except OSError:
@@ -150,59 +126,26 @@ def commit_staged(staged: Path, target: Path) -> None:
     _fsync_directory(target.parent)
 
 
-def write_to_file(fpath: Path, contents: str, create_parent: bool = True) -> None:
+def write_to_file(fpath: Path, contents: str) -> None:
     target = resolve_through_symlink(fpath)
-    if create_parent:
-        target.parent.mkdir(parents=True, exist_ok=True)
-    elif not target.parent.is_dir():
-        raise FileNotFoundError(target.parent)
-
+    target.parent.mkdir(parents=True, exist_ok=True)
     commit_staged(stage_file(target, contents), target)
 
 
-def quarantine_broken_file(fpath: Path) -> Path:
-    """
-    Move a damaged file aside, keeping its content untouched.
-
-    Two fixed slots, "first" and "last": the first one holds whatever the operator had
-    before the very first corruption, the last one describes the most recent failure.
-    Slots are used instead of timestamps on purpose - these controllers boot with a
-    wrong clock until NTP catches up, which is exactly the situation this code runs in,
-    and sorting broken copies by name would then drop the wrong one.
-
-    Neither hardlinking nor renaming needs read access to the file itself, only a writable
-    parent directory, so a config that cannot be read is preserved rather than lost. A
-    hardlink is tried first because it leaves the original in place until the replacement
-    is committed; filesystems without hardlinks fall back to a rename. Raises OSError if
-    the file cannot be set aside; the caller then leaves it alone.
-    """
-    target = resolve_through_symlink(fpath)
+def quarantine_broken_file(target: Path) -> Path:
     first = target.with_name(f"{target.name}{BROKEN_FIRST_SUFFIX}")
+    # fixed slots, not timestamps: controllers boot with a wrong clock until NTP catches up
     quarantined = first if not first.exists() else target.with_name(f"{target.name}{BROKEN_LAST_SUFFIX}")
 
     quarantined.unlink(missing_ok=True)
-    try:
-        os.link(target, quarantined)
-    except OSError:
-        os.replace(target, quarantined)
+    os.link(target, quarantined)
     _fsync_directory(target.parent)
     return quarantined
 
 
 def drop_stale_files(fpath: Path) -> None:
-    """
-    Remove what earlier attempts left behind next to the config.
-
-    Copies named after the time of the failure come from earlier versions; a staged
-    temp file is what a power cut between writing and renaming leaves. Neither is
-    read by anything, and both would otherwise sit in /etc forever.
-    """
-    slots = {f"{fpath.name}{BROKEN_FIRST_SUFFIX}", f"{fpath.name}{BROKEN_LAST_SUFFIX}"}
-    stale_files = list(fpath.parent.glob(f"{fpath.name}.broken-*"))
-    stale_files += fpath.parent.glob(f".{fpath.name}.tmp-*")
-    for stale in stale_files:
-        if stale.name in slots:
-            continue
+    """Remove staged temp files that a power cut between writing and renaming left behind."""
+    for stale in fpath.parent.glob(f".{fpath.name}.tmp-*"):
         try:
             stale.unlink()
         except OSError as exc:
@@ -236,14 +179,12 @@ def local_engine_key_prefix() -> str:
 
 
 def local_engine_key(value: Any) -> Any:
-    """Point an engine key at the I2C bus the ATECC chip really sits on."""
     if not isinstance(value, str):
         return value
     return re.sub(ENGINE_KEY_PATTERN, local_engine_key_prefix(), value)
 
 
 def with_local_engine_key(config: dict[str, Any]) -> dict[str, Any]:
-    """Return a copy of the config with the engine key pointed at this board's bus."""
     if "CLIENT_CERT_ENGINE_KEY" not in config:
         return config
     return {**config, "CLIENT_CERT_ENGINE_KEY": local_engine_key(config["CLIENT_CERT_ENGINE_KEY"])}

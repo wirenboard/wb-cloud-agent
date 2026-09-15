@@ -3,22 +3,18 @@ NOCONNECT_LINK = "noconnect"
 
 DEFAULT_PROVIDER_CONF_FILE = "/etc/wb-cloud-agent.conf"
 
-# Config files are world-readable, as a plain write under the default umask would make them.
 DEFAULT_FILE_MODE = 0o644
 
-# Two slots for damaged configs: the operator's original, and the latest failure.
 BROKEN_FIRST_SUFFIX = ".broken-first"
 BROKEN_LAST_SUFFIX = ".broken-last"
 PRODUCTION_PROVIDER_NAME = "wirenboard.cloud"
-# A provider is named after its host, so the production URL follows from the name.
 PRODUCTION_CLOUD_URL = f"https://{PRODUCTION_PROVIDER_NAME}"
 PROVIDERS_CONF_DIR = "/etc/wb-cloud-agent/providers"
 
-# systemd status=6/NOTCONFIGURED: the provider config is missing or unusable.
+# systemd status=6/NOTCONFIGURED
 NOTCONFIGURED_EXIT_CODE = 6
 
-# ATECC crypto chip sits on a different I2C bus on WB6 than on WB7/WB8,
-# The agent is the only place that decides this; check-certs.sh no longer touches configs.
+# the ATECC chip sits on another I2C bus on WB6 than on WB7/WB8
 DEVICE_TREE_COMPATIBLE_PATH = "/proc/device-tree/compatible"
 WB6_DEVICE_TREE_COMPATIBLE = "contactless,imx6ul-wirenboard60"
 ENGINE_KEY_PATTERN = r"ATECCx08:00:.."
