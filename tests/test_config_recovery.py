@@ -147,15 +147,18 @@ def test_unreadable_production_config_is_preserved_not_destroyed(cloud_dirs):
     assert broken_copies(config)[0].read_text() == original
 
 
-def test_recovery_write_failure_preserves_damaged_config(cloud_dirs):
+@pytest.mark.parametrize("failing_step", ["stage_file", "commit_staged"])
+def test_a_failed_recovery_never_leaves_the_directory_without_a_config(cloud_dirs, failing_step):
+    """A full disk must not turn a damaged config into no config at all."""
     providers, _default = cloud_dirs
     config = write_config(providers, PRODUCTION_PROVIDER_NAME, "{broken")
 
-    with patch("wb.cloud_agent.settings.write_to_file", side_effect=OSError("read-only")):
+    with patch(f"wb.cloud_agent.settings.{failing_step}", side_effect=OSError("no space left")):
         with pytest.raises(ConfigError):
             AppSettings(provider_name=PRODUCTION_PROVIDER_NAME, recover_configs=True)
 
-    assert broken_copies(config)[0].read_text() == "{broken"
+    assert config.read_text() == "{broken"
+    assert not list(config.parent.glob(f"{config.name}.tmp-*"))
 
 
 def test_quarantine_failure_leaves_config_alone(cloud_dirs):
@@ -422,3 +425,92 @@ def test_agent_url_is_always_derived_from_the_base_url():
 
 def test_built_in_url_follows_the_production_provider_name():
     assert AppSettings.cloud_base_url == f"https://{PRODUCTION_PROVIDER_NAME}"
+
+
+def test_unwritable_directory_reports_not_configured(cloud_dirs):
+    """A read-only /etc or a non-root caller must not leak OSError past main()."""
+    providers, _default = cloud_dirs
+    config = write_config(providers, PRODUCTION_PROVIDER_NAME, "{broken")
+    config.parent.chmod(0o555)
+    try:
+        with pytest.raises(ConfigError):
+            AppSettings(provider_name=PRODUCTION_PROVIDER_NAME, recover_configs=True)
+    finally:
+        config.parent.chmod(0o755)
+
+
+def test_recovery_converges_when_the_packaged_default_is_unusable(cloud_dirs):
+    """An invalid default would otherwise be written back and rejected again on every start."""
+    providers, default = cloud_dirs
+    default.write_text(json.dumps({"CLOUD_BASE_URL": "wirenboard.cloud"}), encoding="utf-8")
+    config = write_config(providers, PRODUCTION_PROVIDER_NAME, "{broken")
+
+    AppSettings(provider_name=PRODUCTION_PROVIDER_NAME, recover_configs=True)
+    settled = config.stat().st_mtime_ns
+    for _ in range(2):
+        AppSettings(provider_name=PRODUCTION_PROVIDER_NAME, recover_configs=True)
+
+    assert config.stat().st_mtime_ns == settled
+    assert json.loads(config.read_text())["CLOUD_BASE_URL"] == "https://wirenboard.cloud"
+
+
+def test_quarantine_slots_do_not_depend_on_the_clock(cloud_dirs):
+    """These controllers boot with a wrong clock, so copies cannot be ordered by timestamp."""
+    providers, _default = cloud_dirs
+    config = write_config(providers, PRODUCTION_PROVIDER_NAME, "конфиг оператора{")
+    for damage in ("вторая поломка{", "третья поломка{"):
+        AppSettings(provider_name=PRODUCTION_PROVIDER_NAME, recover_configs=True)
+        config.write_text(damage, encoding="utf-8")
+    AppSettings(provider_name=PRODUCTION_PROVIDER_NAME, recover_configs=True)
+
+    assert config.with_name(f"{config.name}.broken-first").read_text() == "конфиг оператора{"
+    assert config.with_name(f"{config.name}.broken-last").read_text() == "третья поломка{"
+    assert len(broken_copies(config)) == 2
+
+
+def test_quarantine_replaces_copies_named_by_older_versions(cloud_dirs):
+    providers, _default = cloud_dirs
+    config = write_config(providers, PRODUCTION_PROVIDER_NAME, "{broken")
+    config.with_name(f"{config.name}.broken-20260101T000000000000Z").write_text("legacy", encoding="utf-8")
+
+    AppSettings(provider_name=PRODUCTION_PROVIDER_NAME, recover_configs=True)
+
+    assert [copy.name.rsplit(".", 1)[-1] for copy in broken_copies(config)] == ["broken-first"]
+
+
+def test_listing_shows_providers_the_daemon_accepts(cloud_dirs):
+    """A readable config is the daemon's business to judge; listing must not refuse to print it."""
+    providers, _default = cloud_dirs
+    write_config(providers, "my.cloud", json.dumps({"CLOUD_BASE_URL": "my.cloud"}))
+    write_config(providers, PRODUCTION_PROVIDER_NAME, json.dumps(PACKAGED_DEFAULT))
+
+    listed = load_providers_data(["my.cloud", PRODUCTION_PROVIDER_NAME])
+
+    assert [provider.name for provider in listed] == ["my.cloud", PRODUCTION_PROVIDER_NAME]
+
+
+def test_listing_a_healthy_config_changes_nothing(cloud_dirs):
+    providers, _default = cloud_dirs
+    config = write_config(providers, PRODUCTION_PROVIDER_NAME, json.dumps(PACKAGED_DEFAULT))
+    before = config.stat().st_mtime_ns
+
+    load_providers_data([PRODUCTION_PROVIDER_NAME])
+
+    assert config.stat().st_mtime_ns == before
+    assert sorted(path.name for path in config.parent.iterdir()) == [config.name]
+
+
+def test_quarantine_follows_a_symlinked_config(cloud_dirs, tmp_path):
+    """wb-configs moves configs to /mnt/data and leaves a symlink behind."""
+    providers, _default = cloud_dirs
+    real = tmp_path / "persisted.conf"
+    real.write_text("конфиг оператора{", encoding="utf-8")
+    config = providers / PRODUCTION_PROVIDER_NAME / "wb-cloud-agent.conf"
+    config.parent.mkdir(parents=True, exist_ok=True)
+    config.symlink_to(real)
+
+    AppSettings(provider_name=PRODUCTION_PROVIDER_NAME, recover_configs=True)
+
+    assert config.is_symlink()
+    assert json.loads(real.read_text()) == PACKAGED_DEFAULT
+    assert real.with_name(f"{real.name}.broken-first").read_text() == "конфиг оператора{"

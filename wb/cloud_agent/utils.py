@@ -6,7 +6,6 @@ import re
 import subprocess
 import tempfile
 from contextlib import contextmanager
-from datetime import datetime, timezone
 from functools import cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -15,6 +14,8 @@ from urllib.parse import urljoin
 from tabulate import tabulate
 
 from wb.cloud_agent.constants import (
+    BROKEN_FIRST_SUFFIX,
+    BROKEN_LAST_SUFFIX,
     DEFAULT_ENGINE_KEY_PREFIX,
     DEFAULT_FILE_MODE,
     DEVICE_TREE_COMPATIBLE_PATH,
@@ -38,12 +39,22 @@ class ConfigReadError(ConfigError):
 
 @contextmanager
 def config_recovery_lock(config_path: Path):
-    """Serialize recovery attempts for one provider across agent processes."""
+    """
+    Serialize recovery attempts for one provider across agent processes.
+
+    A read-only directory or a non-root caller must come out as ConfigError, so that
+    the caller reports "not configured" instead of leaking OSError past main().
+    """
     lock_path = config_path.with_name(f".{config_path.name}.lock")
-    lock_fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+    try:
+        lock_fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+    except OSError as exc:
+        raise ConfigError(f"cannot be locked for recovery ({exc})") from exc
     try:
         fcntl.flock(lock_fd, fcntl.LOCK_EX)
         yield
+    except OSError as exc:
+        raise ConfigError(f"cannot be locked for recovery ({exc})") from exc
     finally:
         fcntl.flock(lock_fd, fcntl.LOCK_UN)
         os.close(lock_fd)
@@ -92,13 +103,18 @@ def read_plaintext_config(config_path: Path) -> str:
         return f.readline().strip()
 
 
-def write_to_file(fpath: Path, contents: str, create_parent: bool = True) -> None:
-    target = fpath.resolve() if fpath.is_symlink() else fpath
-    if create_parent:
-        target.parent.mkdir(parents=True, exist_ok=True)
-    elif not target.parent.is_dir():
-        raise FileNotFoundError(target.parent)
+def resolve_through_symlink(fpath: Path) -> Path:
+    """Configs are often symlinks into /mnt/data (wb-configs), so act on the real file."""
+    return fpath.resolve() if fpath.is_symlink() else fpath
 
+
+def stage_file(target: Path, contents: str) -> Path:
+    """
+    Write contents to a temporary file next to target, ready to be put in place.
+
+    Staging first lets the caller keep the old file until the new one is safely on
+    disk, so a failed write cannot leave the directory with no config at all.
+    """
     try:
         old_stat = target.stat()
     except FileNotFoundError:
@@ -118,44 +134,67 @@ def write_to_file(fpath: Path, contents: str, create_parent: bool = True) -> Non
             temp_file.write(contents)
             temp_file.flush()
             os.fsync(temp_file.fileno())
-        os.replace(tmp_path, target)
-    finally:
-        try:
-            tmp_path.unlink()
-        except FileNotFoundError:
-            pass
+    except OSError:
+        tmp_path.unlink(missing_ok=True)
+        raise
+    return tmp_path
 
+
+def commit_staged(staged: Path, target: Path) -> None:
+    """Put a staged file in place atomically."""
+    try:
+        os.replace(staged, target)
+    except OSError:
+        staged.unlink(missing_ok=True)
+        raise
     _fsync_directory(target.parent)
+
+
+def write_to_file(fpath: Path, contents: str, create_parent: bool = True) -> None:
+    target = resolve_through_symlink(fpath)
+    if create_parent:
+        target.parent.mkdir(parents=True, exist_ok=True)
+    elif not target.parent.is_dir():
+        raise FileNotFoundError(target.parent)
+
+    commit_staged(stage_file(target, contents), target)
 
 
 def quarantine_broken_file(fpath: Path) -> Path:
     """
     Move a damaged file aside, keeping its content untouched.
 
-    Renaming needs no read access to the file itself, only a writable parent
-    directory - the same access the replacement write needs anyway. So a config
-    that cannot be read (bad permissions, I/O error) is preserved rather than lost.
-    Raises OSError if the file cannot be moved; the caller then leaves it alone.
+    Two fixed slots, "first" and "last": the first one holds whatever the operator had
+    before the very first corruption, the last one describes the most recent failure.
+    Slots are used instead of timestamps on purpose - these controllers boot with a
+    wrong clock until NTP catches up, which is exactly the situation this code runs in,
+    and sorting broken copies by name would then drop the wrong one.
+
+    Neither hardlinking nor renaming needs read access to the file itself, only a writable
+    parent directory, so a config that cannot be read is preserved rather than lost. A
+    hardlink is tried first because it leaves the original in place until the replacement
+    is committed; filesystems without hardlinks fall back to a rename. Raises OSError if
+    the file cannot be set aside; the caller then leaves it alone.
     """
-    quarantined = fpath.with_name(f"{fpath.name}.broken-{datetime.now(timezone.utc):%Y%m%dT%H%M%S%fZ}")
-    os.replace(fpath, quarantined)
-    _remove_stale_quarantine_copies(fpath, keep=quarantined)
-    _fsync_directory(fpath.parent)
+    target = resolve_through_symlink(fpath)
+    first = target.with_name(f"{target.name}{BROKEN_FIRST_SUFFIX}")
+    quarantined = first if not first.exists() else target.with_name(f"{target.name}{BROKEN_LAST_SUFFIX}")
+
+    quarantined.unlink(missing_ok=True)
+    try:
+        os.link(target, quarantined)
+    except OSError:
+        os.replace(target, quarantined)
+    _drop_legacy_quarantine_copies(target)
+    _fsync_directory(target.parent)
     return quarantined
 
 
-def _remove_stale_quarantine_copies(fpath: Path, keep: Path) -> None:
-    """
-    Keep the oldest and the newest broken copy, drop what is in between.
-
-    The oldest one holds whatever the operator had configured before the first
-    corruption; the newest describes the failure that just happened. Keeping only
-    one of them would either lose the operator's settings or lose the fresh
-    evidence, and keeping all of them would slowly fill /etc.
-    """
-    copies = sorted(fpath.parent.glob(f"{fpath.name}.broken-*"))
-    for stale in copies[1:-1]:
-        if stale == keep:
+def _drop_legacy_quarantine_copies(fpath: Path) -> None:
+    """Earlier versions named copies after the time of the failure; keep /etc tidy."""
+    slots = {f"{fpath.name}{BROKEN_FIRST_SUFFIX}", f"{fpath.name}{BROKEN_LAST_SUFFIX}"}
+    for stale in fpath.parent.glob(f"{fpath.name}.broken-*"):
+        if stale.name in slots:
             continue
         try:
             stale.unlink()
@@ -164,9 +203,16 @@ def _remove_stale_quarantine_copies(fpath: Path, keep: Path) -> None:
 
 
 def _fsync_directory(directory: Path) -> None:
-    dir_fd = os.open(directory, os.O_RDONLY)
+    """Best effort: the rename is already committed, a failure here must not undo it."""
+    try:
+        dir_fd = os.open(directory, os.O_RDONLY)
+    except OSError as exc:
+        logging.warning("Cannot fsync directory %s: %s", directory, exc)
+        return
     try:
         os.fsync(dir_fd)
+    except OSError as exc:
+        logging.warning("Cannot fsync directory %s: %s", directory, exc)
     finally:
         os.close(dir_fd)
 

@@ -21,6 +21,7 @@ from wb.cloud_agent.constants import (
 from wb.cloud_agent.utils import (
     ConfigError,
     ConfigReadError,
+    commit_staged,
     config_recovery_lock,
     get_controller_url,
     local_engine_key,
@@ -28,6 +29,8 @@ from wb.cloud_agent.utils import (
     quarantine_broken_file,
     read_json_config,
     read_plaintext_config,
+    resolve_through_symlink,
+    stage_file,
     with_local_engine_key,
     write_to_file,
 )
@@ -196,7 +199,10 @@ def _built_in_config() -> dict[str, Any]:
 
 def _packaged_default_config() -> dict[str, Any]:
     try:
-        return read_json_config(Path(DEFAULT_PROVIDER_CONF_FILE))
+        config = read_json_config(Path(DEFAULT_PROVIDER_CONF_FILE))
+        # an unusable default would be written back and rejected again on every start
+        _validate_provider_config(config)
+        return config
     except ConfigError as exc:
         logging.warning(
             "Packaged default %s %s, falling back to built-in values",
@@ -230,16 +236,20 @@ def recover_provider_config(provider_name: str, reason: str) -> dict[str, Any]:
         except OSError as exc:
             raise ConfigError(f"cannot inspect broken config {config_path}: {exc}") from exc
 
-        quarantined = None
-        if keep_broken:
-            try:
-                quarantined = quarantine_broken_file(config_path)
-            except OSError as exc:
-                raise ConfigError(f"cannot move broken config {config_path} aside: {exc}") from exc
-
+        # stage the replacement first: moving the broken file aside before the new one
+        # exists would leave the directory with no config at all if the write failed
         try:
-            write_to_file(config_path, json.dumps(recovered, indent=4), create_parent=False)
+            staged = stage_file(resolve_through_symlink(config_path), json.dumps(recovered, indent=4))
         except OSError as exc:
+            raise ConfigError(f"cannot prepare a new config for {config_path}: {exc}") from exc
+
+        quarantined = None
+        try:
+            if keep_broken:
+                quarantined = quarantine_broken_file(config_path)
+            commit_staged(staged, resolve_through_symlink(config_path))
+        except OSError as exc:
+            staged.unlink(missing_ok=True)
             raise ConfigError(f"cannot rewrite config {config_path}: {exc}") from exc
 
     logging.warning(
@@ -305,10 +315,11 @@ def load_providers_data(provider_names: list[str]) -> list[Provider]:
         activation_path = Path(f"{APP_DATA_PROVIDERS_DIR}/{provider_name}/activation_link.conf")
 
         try:
+            # the CLI is how users meet a damaged config (CLOUD-592), so repair it here too.
+            # Only unreadable configs are repaired: judging a readable one is the daemon's job,
+            # otherwise listing providers would refuse to show perfectly usable ones.
             provider_config = read_json_config(config_path)
-            _validate_provider_config(provider_config)
         except ConfigError as exc:
-            # the CLI is how users meet a damaged config (CLOUD-592), so repair it here too
             if isinstance(exc, ConfigReadError) and not config_path.is_file():
                 raise
             provider_config = recover_provider_config(provider_name, str(exc))
