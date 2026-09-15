@@ -150,12 +150,14 @@ def run_daemon(options) -> int:
         logging.error("Invalid MQTT broker configuration: %s", error)
         return EXIT_INVALID_ARGUMENT if options.broker else EXIT_NOT_CONFIGURED
     try:
-        if mqtt.connect(stop_requested):
+        try:
+            connected = mqtt.connect(stop_requested)
+        except PermissionError as error:
+            logging.error("%s", error)
+            return EXIT_SUCCESS if stop_requested.is_set() else EXIT_INVALID_ARGUMENT
+        if connected:
             _run_cloud(settings, mqtt, stop_requested)
         return EXIT_SUCCESS
-    except PermissionError as error:
-        logging.error("%s", error)
-        return EXIT_SUCCESS if stop_requested.is_set() else EXIT_INVALID_ARGUMENT
     except Exception as exc:  # pylint:disable=broad-exception-caught
         logging.error("Cloud agent failed: %s", exc)
         return EXIT_SUCCESS if stop_requested.is_set() else EXIT_FAILURE

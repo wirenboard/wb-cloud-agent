@@ -26,6 +26,7 @@ the bundled template, including when pytest runs from the Debian `.pybuild` tree
 | `test_event_failure_recovers_in_the_same_daemon` | Retry timeout/network errors without restarting the daemon |
 | `test_stop_while_cloud_unavailable_preserves_saved_link_then_cleans_up` | Publish the saved link before cloud availability; SIGINT/SIGTERM remove owned topics |
 | `test_daemon_accepts_custom_broker` | Preserve the CLI broker override |
+| `test_unreadable_activation_state_is_not_an_authentication_error` | Do not mistake a local state-file permission error for initial MQTT authentication refusal |
 | `test_authentication_refusal_after_connection_is_not_terminal` | Runtime connection refusals do not become fatal authentication errors |
 | `test_stop_during_initial_broker_outage` | Stop successfully and log unavailable cleanup |
 | `test_invalid_configuration_exits_six` | Missing, malformed and non-object configurations exit with 6 |

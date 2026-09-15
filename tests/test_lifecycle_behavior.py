@@ -190,6 +190,15 @@ def test_daemon_accepts_custom_broker(daemon):
     assert daemon.settings.broker_url == daemon.options.broker
 
 
+def test_unreadable_activation_state_is_not_an_authentication_error(daemon, monkeypatch):
+    def read(_settings):
+        raise PermissionError("activation state is unreadable")
+
+    monkeypatch.setattr("wb.cloud_agent.commands.read_activation_link", read)
+    assert run_daemon(daemon.options) == 1
+    daemon.transport.disconnect.assert_called_once()
+
+
 @pytest.mark.parametrize("reason", [3, 4, 5])
 def test_authentication_refusal_after_connection_is_not_terminal(daemon, reason):
     def event(*_args):
