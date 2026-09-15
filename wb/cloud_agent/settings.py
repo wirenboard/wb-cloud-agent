@@ -84,7 +84,7 @@ class AppSettings:  # pylint: disable=too-many-instance-attributes disable=too-f
 
     @property
     def runtime_files(self) -> tuple[Path, ...]:
-        """Runtime files deleted on unbind; the activation link is rewritten instead of deleted."""
+        """Per-provider runtime state; the provider config and activation link are not part of it."""
         return (
             self.frp_config,
             self.metrics_script,

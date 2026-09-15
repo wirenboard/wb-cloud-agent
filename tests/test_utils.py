@@ -177,6 +177,18 @@ def test_try_stop_and_disable_service_disables_after_stop_failure(mock_subproces
     assert mock_subprocess_run.call_args_list[1][0][0] == ["systemctl", "disable", "test.service"]
 
 
+def test_try_stop_and_disable_service_swallows_disable_failure(mock_subprocess_run):
+    mock_subprocess_run.side_effect = [
+        MagicMock(returncode=0),
+        CalledProcessError(1, ["systemctl", "disable"]),
+    ]
+
+    try_stop_and_disable_service("test.service")
+
+    assert mock_subprocess_run.call_args_list[0][0][0] == ["systemctl", "stop", "test.service"]
+    assert mock_subprocess_run.call_count == 2
+
+
 def test_show_providers_table_empty(mock_print):
     show_providers_table([])
 

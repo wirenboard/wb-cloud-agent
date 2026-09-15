@@ -98,11 +98,14 @@ def stop_and_disable_service(service: str, timeout: int = 120) -> None:
 
 def try_stop_and_disable_service(service: str, timeout: int = 120) -> None:
     """Best-effort variant: each step runs even if the other one fails."""
-    for verb, action in (("stop", stop_service), ("disable", disable_service)):
-        try:
-            action(service, timeout=timeout)
-        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as exc:
-            logging.warning("Cannot %s service %s: %s", verb, service, exc)
+    try:
+        stop_service(service, timeout=timeout)
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as exc:
+        logging.warning("Cannot stop service %s: %s", service, exc)
+    try:
+        disable_service(service, timeout=timeout)
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as exc:
+        logging.warning("Cannot disable service %s: %s", service, exc)
 
 
 def show_providers_table(providers: list["Provider"]) -> None:

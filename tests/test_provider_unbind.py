@@ -5,8 +5,6 @@ import pytest
 from wb.cloud_agent.constants import UNKNOWN_LINK
 from wb.cloud_agent.handlers.provider import unbind_provider
 
-# pylint: disable=redefined-outer-name  # pytest fixtures pattern
-
 
 def test_unbind_provider_preserves_identity_and_clears_runtime(isolated_provider_runtime, tmp_path):
     settings = isolated_provider_runtime

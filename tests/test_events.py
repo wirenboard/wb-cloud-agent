@@ -87,7 +87,6 @@ def test_make_event_request_update_metrics_config(settings):
 
 def test_make_event_request_unbinds_before_confirmation(isolated_provider_runtime):
     settings = isolated_provider_runtime
-    settings.activation_link_config.write_text("old-link")
     event_data = {
         "id": "event-unbind",
         "code": "delete_provider",
@@ -97,14 +96,8 @@ def test_make_event_request_unbinds_before_confirmation(isolated_provider_runtim
 
     with (
         patch("wb.cloud_agent.handlers.events.do_curl", return_value=(event_data, status.OK)),
-        patch(
-            "wb.cloud_agent.handlers.provider.stop_metrics_health_monitor",
-            side_effect=lambda _: call_order.append("monitor"),
-        ),
-        patch(
-            "wb.cloud_agent.handlers.provider.try_stop_and_disable_service",
-            side_effect=lambda _: call_order.append("stop"),
-        ),
+        patch("wb.cloud_agent.handlers.provider.stop_metrics_health_monitor"),
+        patch("wb.cloud_agent.handlers.provider.try_stop_and_disable_service"),
         patch(
             "wb.cloud_agent.handlers.provider.write_activation_link",
             side_effect=lambda *_: call_order.append("unbind"),
@@ -116,8 +109,7 @@ def test_make_event_request_unbinds_before_confirmation(isolated_provider_runtim
     ):
         make_event_request(settings, MagicMock())
 
-    assert call_order[-1] == "confirm"
-    assert call_order.index("unbind") < call_order.index("confirm")
+    assert call_order == ["unbind", "confirm"]
 
 
 @pytest.mark.usefixtures("failing_systemctl")
