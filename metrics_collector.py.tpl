@@ -24,11 +24,20 @@ import functools
 import gzip
 import logging
 import re
+import signal
 import subprocess
 import sys
+import threading
 import time
+from concurrent.futures import Future
 from pathlib import Path
 from typing import Any, Callable
+
+from wb.cloud_agent.constants import EXIT_INVALID_ARGUMENT, EXIT_SUCCESS
+from wb.cloud_agent.mqtt import connect_mqtt as wait_for_mqtt
+
+STOP_REQUESTED = threading.Event()
+MQTT_HAS_CONNECTED = threading.Event()
 
 try:
     from mqttrpc.client import (  # type: ignore[import-not-found]
@@ -310,9 +319,33 @@ def connect_mqtt() -> Any:
 
     logger.info("Connecting to MQTT broker %s (client_id_prefix=%s)", BROKER_URL, CLIENT_ID)
     client = MQTTClient(CLIENT_ID, BROKER_URL)
-    client.start()
-    logger.info("MQTT broker connected")
-    return client
+    connected = Future()
+
+    def on_connect(_client, _userdata, _flags, reason_code, *_args):
+        if reason_code == 0:
+            MQTT_HAS_CONNECTED.set()
+            if not connected.done():
+                connected.set_result(None)
+        elif reason_code in (4, 5) and not MQTT_HAS_CONNECTED.is_set() and not connected.done():
+            connected.set_exception(PermissionError("MQTT authentication failed"))
+
+    client.on_connect = on_connect
+    try:
+        try:
+            if not wait_for_mqtt(client, STOP_REQUESTED, connected):
+                sys.exit(EXIT_SUCCESS)
+        except PermissionError as error:
+            logger.error("%s", error)
+            sys.exit(EXIT_INVALID_ARGUMENT)
+        return client
+    except BaseException:
+        stop_mqtt_client(client)
+        raise
+
+
+def wait_or_stop(seconds: float) -> None:
+    if STOP_REQUESTED.wait(seconds):
+        sys.exit(EXIT_SUCCESS)
 
 
 def create_rpc_client(mqtt_client: Any) -> Any:
@@ -322,6 +355,13 @@ def create_rpc_client(mqtt_client: Any) -> Any:
 
     rpc = TMQTTRPCClient(mqtt_client)
     mqtt_client.on_message = rpc.on_mqtt_message
+    on_connect = mqtt_client.on_connect
+
+    def restore_reply_subscriptions(*args: Any) -> None:
+        rpc.subscribes.clear()
+        on_connect(*args)
+
+    mqtt_client.on_connect = restore_reply_subscriptions
     return rpc
 
 
@@ -334,7 +374,10 @@ def connect_mqtt_rpc() -> tuple[Any, Any]:
 def stop_mqtt_client(mqtt_client: Any) -> None:
     """Stop MQTT client and keep shutdown/reconnect cleanup best-effort."""
     try:
-        mqtt_client.stop()
+        try:
+            mqtt_client.disconnect()
+        finally:
+            mqtt_client.loop_stop()
     except Exception as exc:  # pylint: disable=broad-except
         logger.warning("Cannot stop MQTT client: %s", exc)
 
@@ -418,7 +461,7 @@ def get_static_values_from_mqtt(mqtt_client: Any) -> list[dict[str, Any]]:
 
     # Retained messages are delivered immediately after subscribe on a local broker;
     # 0.5 s is enough for the async network thread to process all incoming messages.
-    time.sleep(0.5)
+    wait_or_stop(0.5)
 
     for topic in topics:
         mqtt_client.message_callback_remove(topic)
@@ -459,7 +502,7 @@ def get_values(
     has_more = False
     for i, channel_batch in enumerate(channel_batches, 1):
         if i > 1 and inter_batch_sleep > 0:
-            time.sleep(inter_batch_sleep)
+            wait_or_stop(inter_batch_sleep)
         logger.info(
             "wb-mqtt-db get_values RPC call %d/%d: channels=%d uid>%d limit=%d",
             i,
@@ -613,7 +656,7 @@ def send_lines(lines: list[str]) -> None:
                 attempt + 1,
                 SEND_MAX_RETRIES,
             )
-            time.sleep(SEND_RATE_LIMIT_RETRY_DELAY_SECONDS)
+            wait_or_stop(SEND_RATE_LIMIT_RETRY_DELAY_SECONDS)
             continue
         raise RuntimeError(f"HTTP {http_code} error while sending metrics to {METRICS_URL}")
 
@@ -787,7 +830,7 @@ def _wait_until_service_active() -> bool:
         WB_MQTT_DB_SERVICE_NAME,
         state,
     )
-    time.sleep(INTERVAL_SECONDS)
+    wait_or_stop(INTERVAL_SECONDS)
     return False
 
 
@@ -829,7 +872,7 @@ def run_forever() -> None:
     skip_until_active = False
     mqtt_client, rpc = connect_mqtt_rpc()
     try:
-        while True:
+        while not STOP_REQUESTED.is_set():
             if skip_until_active:
                 if _wait_until_service_active():
                     skip_until_active = False
@@ -849,13 +892,15 @@ def run_forever() -> None:
 
             sleep_seconds = CATCH_UP_SLEEP_SECONDS if catch_up else INTERVAL_SECONDS
             logger.debug("Sleeping %ds before next iteration", sleep_seconds)
-            time.sleep(sleep_seconds)
+            wait_or_stop(sleep_seconds)
     finally:
         stop_mqtt_client(mqtt_client)
 
 
 def main() -> None:
     """Entrypoint for the systemd metrics collector service."""
+    for signum in (signal.SIGINT, signal.SIGTERM):
+        signal.signal(signum, lambda *_args: STOP_REQUESTED.set())
     logger.info("Starting metrics collector version=%s created_at=%s", VERSION, CREATED_AT)
     if not Path(CERT_FILE).exists():
         logger.warning(

@@ -7,6 +7,12 @@ from wb.cloud_agent.services import metrics
 from wb.cloud_agent.settings import AppSettings
 
 
+@pytest.fixture(autouse=True)
+def mock_signal_registration():
+    with patch("signal.signal"):
+        yield
+
+
 @pytest.fixture
 def settings():
     return AppSettings(provider_name="default")

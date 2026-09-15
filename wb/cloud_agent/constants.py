@@ -62,3 +62,7 @@ METRICS_HEALTH_JOURNAL_MAX_BYTES = 262144  # byte cap on the report log
 # The script uses format="%(levelname)s wb-cloud-metrics: ...", so this string
 # appears only in genuine ERROR/EXCEPTION calls, not in WARNING or INFO lines.
 METRICS_HEALTH_ERROR_MARKER = "ERROR wb-cloud-metrics:"
+EXIT_SUCCESS = 0
+EXIT_FAILURE = 1
+EXIT_INVALID_ARGUMENT = 2
+EXIT_NOT_CONFIGURED = 6

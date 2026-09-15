@@ -9,6 +9,8 @@ from urllib.parse import urljoin
 
 from tabulate import tabulate
 
+from wb.cloud_agent.constants import EXIT_NOT_CONFIGURED
+
 if TYPE_CHECKING:
     from wb.cloud_agent.mqtt import MQTTCloudAgent
     from wb.cloud_agent.settings import Provider
@@ -34,7 +36,7 @@ def read_json_config(config_path: Path) -> dict[str, str]:
         return json.loads(data)
     except json.JSONDecodeError:
         print(f"Error parsing JSON in: {config_path}")
-        sys.exit(6)
+        sys.exit(EXIT_NOT_CONFIGURED)
 
 
 def read_plaintext_config(config_path: Path) -> str:

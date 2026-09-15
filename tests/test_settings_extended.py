@@ -67,9 +67,9 @@ def test_configure_app_success():
 
 def test_configure_app_file_not_found():
     with patch("wb.cloud_agent.settings.AppSettings", side_effect=FileNotFoundError):
-        result = configure_app(provider_name="test")
-
-        assert result == 6
+        with pytest.raises(SystemExit) as result:
+            configure_app(provider_name="test")
+        assert result.value.code == 6
 
 
 def test_configure_app_json_decode_error():
@@ -77,9 +77,9 @@ def test_configure_app_json_decode_error():
         "wb.cloud_agent.settings.AppSettings",
         side_effect=json.decoder.JSONDecodeError("msg", "doc", 0),
     ):
-        result = configure_app(provider_name="test")
-
-        assert result == 6
+        with pytest.raises(SystemExit) as result:
+            configure_app(provider_name="test")
+        assert result.value.code == 6
 
 
 def test_setup_log_info_level():

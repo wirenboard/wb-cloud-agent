@@ -94,12 +94,12 @@ def collect_package_versions(settings: AppSettings) -> dict[str, str]:
     return {field_name: getter(settings) for field_name, getter in PACKAGE_VERSION_FIELDS.items()}
 
 
-def on_message(userdata: dict, message):
+def send_hardware_revision(settings: AppSettings, hardware_revision: str):
     _status_data, http_status = do_curl(
-        userdata.get("settings"),
+        settings,
         method="put",
         endpoint="update_device_data/",
-        params={"hardware_revision": str(message.payload, "utf-8")},
+        params={"hardware_revision": hardware_revision},
     )
     if http_status != status.OK:
         raise ValueError(f"Not a {status.OK} status while making start up request: {http_status}")

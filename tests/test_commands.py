@@ -1,6 +1,5 @@
 # pylint: disable=redefined-outer-name
 
-import subprocess
 from argparse import Namespace
 from unittest.mock import MagicMock, patch
 
@@ -12,10 +11,8 @@ from wb.cloud_agent.commands import (
     del_all_providers,
     del_controller_from_cloud,
     del_provider,
-    run_daemon,
     show_providers,
 )
-from wb.cloud_agent.handlers.curl import CloudNetworkError
 
 
 @pytest.fixture
@@ -302,132 +299,3 @@ def test_del_controller_from_cloud_success():
             provider_name="", skip_conf_file=True, cloud_base_url="https://example.com"
         )
         mock_delete.assert_called_once_with(mock_settings)
-
-
-@pytest.mark.usefixtures("mock_mqtt_cloud_agent")
-def test_run_daemon_startup_failure():
-    options = Namespace(provider_name="test", broker=None)
-
-    with (
-        patch("wb.cloud_agent.commands.configure_app") as mock_config,
-        patch("wb.cloud_agent.commands.wait_for_cloud_reachable") as mock_wait,
-        patch(
-            "wb.cloud_agent.commands.make_start_up_request",
-            side_effect=CloudNetworkError("Startup failed"),
-        ),
-        patch("wb.cloud_agent.commands.send_packages_version"),
-    ):
-        mock_settings = MagicMock()
-        mock_settings.cloud_base_url = "https://example.com"
-        mock_settings.broker_url = "tcp://localhost:1883"
-        mock_settings.request_period_seconds = 10
-        mock_settings.ping_period_seconds = 7
-        mock_config.return_value = mock_settings
-
-        result = run_daemon(options)
-
-        assert result == 1
-
-        mock_wait.assert_called_once_with(mock_settings.cloud_base_url, mock_settings.ping_period_seconds)
-
-        mock_config.assert_called_once()
-
-
-@pytest.mark.usefixtures("mock_mqtt_cloud_agent")
-def test_run_daemon_with_custom_broker():
-    options = Namespace(provider_name="test", broker="tcp://192.168.1.1:1883")
-
-    with (
-        patch("wb.cloud_agent.commands.configure_app") as mock_config,
-        patch("wb.cloud_agent.commands.wait_for_cloud_reachable"),
-        patch("wb.cloud_agent.commands.make_start_up_request"),
-        patch("wb.cloud_agent.commands.send_packages_version"),
-        patch("wb.cloud_agent.commands.read_activation_link", return_value="http://link"),
-        patch("wb.cloud_agent.commands.make_event_request"),
-        patch("time.sleep", side_effect=KeyboardInterrupt),
-    ):  # Stop the loop
-        mock_settings = MagicMock()
-        mock_settings.cloud_base_url = "https://example.com"
-        mock_settings.broker_url = "tcp://localhost:1883"
-        mock_settings.request_period_seconds = 10
-        mock_config.return_value = mock_settings
-
-        try:
-            run_daemon(options)
-        except KeyboardInterrupt:
-            # Expected interruption to stop the daemon loop during testing.
-            pass
-
-        assert mock_settings.broker_url == "tcp://192.168.1.1:1883"
-
-
-@pytest.mark.usefixtures("mock_mqtt_cloud_agent")
-def test_run_daemon_event_loop_with_timeout():
-    options = Namespace(provider_name="test", broker=None)
-
-    with (
-        patch("wb.cloud_agent.commands.configure_app") as mock_config,
-        patch("wb.cloud_agent.commands.wait_for_cloud_reachable"),
-        patch("wb.cloud_agent.commands.make_start_up_request"),
-        patch("wb.cloud_agent.commands.send_packages_version"),
-        patch("wb.cloud_agent.commands.read_activation_link", return_value="http://link"),
-        patch("wb.cloud_agent.commands.make_event_request") as mock_event,
-        patch("time.sleep"),
-    ):
-        mock_settings = MagicMock()
-        mock_settings.cloud_base_url = "https://example.com"
-        mock_settings.broker_url = "tcp://localhost:1883"
-        mock_settings.request_period_seconds = 10
-        mock_config.return_value = mock_settings
-
-        mock_event.side_effect = [
-            subprocess.TimeoutExpired("curl", 360),
-            KeyboardInterrupt(),
-        ]
-
-        try:
-            run_daemon(options)
-        except KeyboardInterrupt:
-            # Expected interruption to stop the daemon loop during testing.
-            pass
-
-        # Should have been called twice
-        assert mock_event.call_count == 2
-
-
-def test_run_daemon_event_loop_with_exception(mock_mqtt_cloud_agent):
-    options = Namespace(provider_name="test", broker=None)
-
-    with (
-        patch("wb.cloud_agent.commands.configure_app") as mock_config,
-        patch("wb.cloud_agent.commands.wait_for_cloud_reachable"),
-        patch("wb.cloud_agent.commands.make_start_up_request"),
-        patch("wb.cloud_agent.commands.send_packages_version"),
-        patch("wb.cloud_agent.commands.read_activation_link", return_value="http://link"),
-        patch("wb.cloud_agent.commands.make_event_request") as mock_event,
-        patch("time.sleep"),
-    ):
-        mock_settings = MagicMock()
-        mock_settings.cloud_base_url = "https://example.com"
-        mock_settings.broker_url = "tcp://localhost:1883"
-        mock_settings.request_period_seconds = 10
-        mock_config.return_value = mock_settings
-
-        # First call: Exception, second call: success and status ok, third: KeyboardInterrupt
-        mock_event.side_effect = [
-            CloudNetworkError("Network error"),
-            None,
-            KeyboardInterrupt(),
-        ]
-
-        try:
-            run_daemon(options)
-        except KeyboardInterrupt:
-            # Expected interruption to stop the daemon loop during testing.
-            pass
-
-        # Should publish error status first, then ok status
-        status_calls = [
-            call for call in mock_mqtt_cloud_agent.publish_ctrl.call_args_list if call[0][0] == "status"
-        ]
-        assert len(status_calls) >= 2

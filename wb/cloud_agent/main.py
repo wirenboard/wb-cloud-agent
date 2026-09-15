@@ -77,6 +77,7 @@ def parse_args() -> Namespace:
         help="Cloud Provider name to run",
     )
     run_daemon_parser.add_argument("--broker", help="MQTT broker url", required=False)
+    run_daemon_parser.add_argument("-c", "--config", help="Provider configuration file")
     run_daemon_parser.set_defaults(func=run_daemon)
 
     return main_parser.parse_args()

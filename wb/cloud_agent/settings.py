@@ -14,6 +14,7 @@ from wb.cloud_agent.constants import (
     APP_DATA_PROVIDERS_DIR,
     CLOUD_AGENT_URL_POSTFIX,
     DEFAULT_PROVIDER_CONF_FILE,
+    EXIT_NOT_CONFIGURED,
     NOCONNECT_LINK,
     PROVIDERS_CONF_DIR,
 )
@@ -55,11 +56,13 @@ class AppSettings:  # pylint: disable=too-many-instance-attributes disable=too-f
     ping_period_seconds: int = 10
     metrics_log_enabled: bool = True
 
-    def __init__(self, /, **kwargs: dict[str, Any]) -> None:
+    def __init__(self, /, config_file=None, require_conf_file=False, **kwargs: dict[str, Any]) -> None:
         for key, val in kwargs.items():
             setattr(self, key, val)
 
-        self.config_file: Path = Path(f"{PROVIDERS_CONF_DIR}/{self.provider_name}/wb-cloud-agent.conf")
+        self.config_file: Path = Path(
+            config_file or f"{PROVIDERS_CONF_DIR}/{self.provider_name}/wb-cloud-agent.conf"
+        )
         self.frp_service: str = f"wb-cloud-agent-frpc@{self.provider_name}.service"
         self.metrics_service: str = f"wb-cloud-agent-metrics@{self.provider_name}.service"
         self.frp_config: Path = Path(f"{APP_DATA_PROVIDERS_DIR}/{self.provider_name}/frpc.conf")
@@ -76,7 +79,7 @@ class AppSettings:  # pylint: disable=too-many-instance-attributes disable=too-f
         self.mqtt_prefix: str = f"/devices/system__wb-cloud-agent__{self.provider_name}"
         self.diag_archive: Path = Path("/tmp")
 
-        if not self.skip_conf_file and self.config_file.exists():
+        if not self.skip_conf_file and (require_conf_file or self.config_file.exists()):
             self.apply_conf_file()
 
         self.cloud_base_url = normalize_base_url(self.cloud_base_url)
@@ -97,10 +100,12 @@ class AppSettings:  # pylint: disable=too-many-instance-attributes disable=too-f
 def configure_app(**kwargs: dict[str, Any]) -> AppSettings:
     try:
         settings = AppSettings(**kwargs)
-    except (FileNotFoundError, OSError, json.decoder.JSONDecodeError):
-        return 6  # systemd status=6/NOTCONFIGURED
+        setup_log(settings)
+    except (OSError, ValueError, TypeError, AttributeError) as error:
+        logging.error("Cannot read cloud agent configuration: %s", error)
+        sys.exit(EXIT_NOT_CONFIGURED)
 
-    setup_log(settings)
+    logging.info("Cloud agent configuration loaded: %s", settings.config_file)
     return settings
 
 
@@ -180,7 +185,7 @@ def load_providers_data(provider_names: list[str]) -> list[Provider]:
             provider_config = read_json_config(config_path)
         else:
             print(f"The file was not found in: {config_path}")
-            sys.exit(6)
+            sys.exit(EXIT_NOT_CONFIGURED)
 
         if activation_path.exists():
             provider_activation_link = read_plaintext_config(activation_path)

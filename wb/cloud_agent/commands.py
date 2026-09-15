@@ -1,17 +1,23 @@
 import logging
+import signal
 import subprocess
+import threading
 import time
-from contextlib import ExitStack
-from typing import Optional
 from urllib.parse import urlparse
 
 from wb.cloud_agent import __version__ as agent_package_version
+from wb.cloud_agent.constants import (
+    EXIT_FAILURE,
+    EXIT_INVALID_ARGUMENT,
+    EXIT_NOT_CONFIGURED,
+    EXIT_SUCCESS,
+)
 from wb.cloud_agent.handlers.curl import CloudNetworkError
 from wb.cloud_agent.handlers.events import event_delete_controller, make_event_request
-from wb.cloud_agent.handlers.ping import CloudUnreachableError, wait_for_cloud_reachable
+from wb.cloud_agent.handlers.ping import wait_for_cloud_reachable
 from wb.cloud_agent.handlers.startup import (
     make_start_up_request,
-    on_message,
+    send_hardware_revision,
     send_packages_version,
 )
 from wb.cloud_agent.mqtt import MQTTCloudAgent
@@ -45,7 +51,7 @@ def add_provider(options) -> int:
     settings = configure_app(provider_name=provider_name)
 
     try:
-        mqtt = MQTTCloudAgent(settings, on_message)
+        mqtt = MQTTCloudAgent(settings)
         mqtt.start()
     except (FileNotFoundError, ConnectionError) as exc:
         logging.error("Error starting MQTT client: %s", exc)
@@ -83,7 +89,7 @@ def del_provider(options) -> int:
     provider_name = urlparse(options.provider_name).netloc or options.provider_name
     settings = configure_app(provider_name=provider_name)
 
-    mqtt = MQTTCloudAgent(settings, on_message)
+    mqtt = MQTTCloudAgent(settings)
     mqtt.start()
 
     providers = get_provider_names()
@@ -106,7 +112,7 @@ def del_all_providers(_options, show_msg: bool = True) -> int:
     for provider_name in providers:
         settings = configure_app(provider_name=provider_name)
 
-        mqtt = MQTTCloudAgent(settings, on_message)
+        mqtt = MQTTCloudAgent(settings)
         mqtt.start()
 
         stop_services_and_del_configs(settings, provider_name)
@@ -119,8 +125,18 @@ def del_controller_from_cloud(options) -> int:
     return event_delete_controller(settings)
 
 
-def run_daemon(options) -> Optional[int]:
-    settings = configure_app(provider_name=options.provider_name)
+def run_daemon(options) -> int:
+    stop_requested = threading.Event()
+    for signum in (signal.SIGINT, signal.SIGTERM):
+        signal.signal(signum, lambda *_args: stop_requested.set())
+    try:
+        settings = configure_app(
+            provider_name=options.provider_name, config_file=options.config, require_conf_file=True
+        )
+    except SystemExit as error:
+        return EXIT_SUCCESS if stop_requested.is_set() else error.code
+    if stop_requested.is_set():
+        return EXIT_SUCCESS
     settings.broker_url = options.broker or settings.broker_url
     logging.info(
         "====== Cloud Agent started (version: %s, provider: %s) ======",
@@ -129,61 +145,74 @@ def run_daemon(options) -> Optional[int]:
     )
 
     try:
-        wait_for_cloud_reachable(settings.cloud_base_url, settings.ping_period_seconds)
-    except CloudUnreachableError as exc:
-        logging.error(str(exc))
-        logging.debug("Cloud reachability failure details", exc_info=exc)
-        return 1
-
-    mqtt = MQTTCloudAgent(settings, on_message)
+        mqtt = MQTTCloudAgent(settings)
+    except ValueError as error:
+        logging.error("Invalid MQTT broker configuration: %s", error)
+        return EXIT_INVALID_ARGUMENT if options.broker else EXIT_NOT_CONFIGURED
     try:
-        mqtt.start(update_status=True)
+        if mqtt.connect(stop_requested):
+            _run_cloud(settings, mqtt, stop_requested)
+        return EXIT_SUCCESS
+    except PermissionError as error:
+        logging.error("%s", error)
+        return EXIT_SUCCESS if stop_requested.is_set() else EXIT_INVALID_ARGUMENT
     except Exception as exc:  # pylint:disable=broad-exception-caught
-        logging.error("Error starting MQTT client: %s", exc)
+        logging.error("Cloud agent failed: %s", exc)
+        return EXIT_SUCCESS if stop_requested.is_set() else EXIT_FAILURE
+    finally:
+        try:
+            mqtt.remove_vdev()
+        finally:
+            mqtt.stop()
 
-    try:
-        make_start_up_request(settings, mqtt)
-        send_packages_version(settings)
-    except CloudNetworkError as exc:
-        logging.error("Startup request failed: %s", exc)
-        return 1
 
+def _send_startup_requests(settings, mqtt, stop_requested: threading.Event) -> bool:
+    make_start_up_request(settings, mqtt)
+    if stop_requested.is_set():
+        return False
+    send_packages_version(settings)
+    return not stop_requested.is_set()
+
+
+def _run_cloud(settings, mqtt, stop_requested: threading.Event) -> None:
+    mqtt.publish_ctrl("status", "starting")
     mqtt.update_providers_list()
     mqtt.publish_vdev()
     mqtt.publish_ctrl("activation_link", read_activation_link(settings))
     mqtt.publish_ctrl("cloud_base_url", settings.cloud_base_url)
-    mqtt.publish_ctrl("status", "connecting")
+    if not wait_for_cloud_reachable(settings.cloud_base_url, settings.ping_period_seconds, stop_requested):
+        return
 
-    reconcile_metrics_script(settings)
-
-    logging.info("Cloud Agent initialization - OK")
-
-    with ExitStack() as stack:
-        stack.callback(mqtt.remove_vdev)
-        was_connected = False
-
-        while True:
-            start = time.perf_counter()
-            logging.debug("Sending event request")
-
-            try:
+    initialized = False
+    was_connected = False
+    hardware_revision = None
+    while not stop_requested.is_set():
+        start = time.perf_counter()
+        try:
+            if not initialized and not _send_startup_requests(settings, mqtt, stop_requested):
+                break
+            if mqtt.hardware_revision is not None and mqtt.hardware_revision != hardware_revision:
+                revision = mqtt.hardware_revision
+                send_hardware_revision(settings, revision)
+                hardware_revision = revision
+            if not initialized and not stop_requested.is_set():
+                reconcile_metrics_script(settings)
+                initialized = True
+                mqtt.publish_ctrl("status", "connecting")
+                logging.info("Cloud Agent initialization - OK")
+            if not stop_requested.is_set():
                 make_event_request(settings, mqtt)
-                conn_state, msg, exc_info = True, "Cloud Agent is successfully connected to the cloud!", None
-
-            except subprocess.TimeoutExpired as exc:
-                conn_state, msg, exc_info = False, "Request timeout. Retrying...", exc
-
-            except CloudNetworkError as exc:
-                conn_state, msg, exc_info = False, "Network or Cloud is unreachable! Retrying...", exc
-
-            except Exception:  # pylint:disable=broad-exception-caught
-                logging.exception("Cloud connection exception")
-                conn_state, msg, exc_info = False, "Error making request to cloud! Retrying...", None
-
+            conn_state, msg = True, "Cloud Agent is successfully connected to the cloud!"
+        except subprocess.TimeoutExpired:
+            conn_state, msg = False, "Request timeout. Retrying..."
+        except CloudNetworkError:
+            conn_state, msg = False, "Network or Cloud is unreachable! Retrying..."
+        except Exception:  # pylint:disable=broad-exception-caught
+            logging.exception("Cloud request failed")
+            conn_state, msg = False, "Error making request to cloud! Retrying..."
+        if initialized:
             was_connected = handle_connection_state(was_connected, conn_state, msg, mqtt)
-
-            if exc_info is not None:
-                logging.debug(msg, exc_info=exc_info)
-
-            logging.debug("Event request completed in %s ms", int((time.perf_counter() - start) * 1000))
-            time.sleep(settings.request_period_seconds)
+        elif not conn_state:
+            logging.warning("Cloud startup incomplete: %s", msg)
+        logging.debug("Cloud request completed in %s ms", int((time.perf_counter() - start) * 1000))
+        stop_requested.wait(settings.request_period_seconds)

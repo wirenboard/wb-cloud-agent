@@ -7,7 +7,7 @@ from wb.cloud_agent.constants import UNKNOWN_LINK
 from wb.cloud_agent.handlers.startup import (
     collect_package_versions,
     make_start_up_request,
-    on_message,
+    send_hardware_revision,
     send_packages_version,
 )
 
@@ -153,15 +153,11 @@ def test_send_packages_version_failure(settings):
         send_packages_version(settings)
 
 
-def test_on_message_success(settings):
+def test_send_hardware_revision_success(settings):
     with patch("wb.cloud_agent.handlers.startup.do_curl") as mock_curl:
         mock_curl.return_value = ({"result": "ok"}, status.OK)
 
-        userdata = {"settings": settings}
-        message = MagicMock()
-        message.payload = b"WB7-v3.5"
-
-        on_message(userdata, message)
+        send_hardware_revision(settings, "WB7-v3.5")
 
         mock_curl.assert_called_once()
         args = mock_curl.call_args
@@ -170,13 +166,9 @@ def test_on_message_success(settings):
         assert args[1]["params"]["hardware_revision"] == "WB7-v3.5"
 
 
-def test_on_message_invalid_status(settings):
+def test_send_hardware_revision_invalid_status(settings):
     with patch("wb.cloud_agent.handlers.startup.do_curl") as mock_curl:
         mock_curl.return_value = ({"error": "bad request"}, status.BAD_REQUEST)
 
-        userdata = {"settings": settings}
-        message = MagicMock()
-        message.payload = b"WB7-v3.5"
-
         with pytest.raises(ValueError, match="Not a 200 status while making start up request"):
-            on_message(userdata, message)
+            send_hardware_revision(settings, "WB7-v3.5")
