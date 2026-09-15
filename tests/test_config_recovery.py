@@ -15,7 +15,12 @@ from wb.cloud_agent.constants import (
 from wb.cloud_agent.handlers.ping import CloudUnreachableError
 from wb.cloud_agent.main import main
 from wb.cloud_agent.settings import AppSettings, configure_app
-from wb.cloud_agent.utils import ConfigError, ConfigReadError, local_engine_key, write_to_file
+from wb.cloud_agent.utils import (
+    ConfigError,
+    ConfigReadError,
+    local_engine_key,
+    write_to_file,
+)
 
 PACKAGED_DEFAULT = {
     "LOG_LEVEL": "INFO",

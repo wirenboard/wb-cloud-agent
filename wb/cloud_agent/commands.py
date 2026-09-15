@@ -9,7 +9,11 @@ from wb.cloud_agent import __version__ as agent_package_version
 from wb.cloud_agent.handlers.curl import CloudNetworkError
 from wb.cloud_agent.handlers.events import event_delete_controller, make_event_request
 from wb.cloud_agent.handlers.ping import CloudUnreachableError, wait_for_cloud_reachable
-from wb.cloud_agent.handlers.startup import make_start_up_request, on_message, send_packages_version
+from wb.cloud_agent.handlers.startup import (
+    make_start_up_request,
+    on_message,
+    send_packages_version,
+)
 from wb.cloud_agent.mqtt import MQTTCloudAgent
 from wb.cloud_agent.services.activation import read_activation_link
 from wb.cloud_agent.services.lifecycle import stop_services_and_del_configs
