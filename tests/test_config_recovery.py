@@ -11,6 +11,7 @@ from wb.cloud_agent.constants import (
     NOCONNECT_LINK,
     NOTCONFIGURED_EXIT_CODE,
     PRODUCTION_PROVIDER_NAME,
+    UNKNOWN_LINK,
     WB6_DEVICE_TREE_COMPATIBLE,
     WB6_ENGINE_KEY_PREFIX,
 )
@@ -337,20 +338,27 @@ def test_config_without_base_url_is_left_alone(cloud_dirs):
     assert not broken_copies(config)
 
 
-@pytest.mark.parametrize("contents", [json.dumps({"LOG_LEVEL": "INFO"}), "{broken", ""])
-def test_a_provider_can_be_deleted_whatever_its_config(cloud_dirs, contents):
-    """Deleting a provider must not depend on its config being complete or even readable."""
+@pytest.mark.parametrize(
+    ("contents", "unbound"),
+    [(json.dumps({"LOG_LEVEL": "INFO"}), True), ("{broken", False), ("", False)],
+)
+def test_a_provider_can_be_deleted_whatever_its_config(cloud_dirs, contents, unbound):
+    """A damaged config hides the provider's cloud, so the unbind must not go to the built-in one."""
     providers, _default = cloud_dirs
     write_config(providers, "doomed", contents)
 
     with (
         patch("wb.cloud_agent.commands.MQTTCloudAgent"),
         patch("wb.cloud_agent.commands.get_provider_names", return_value=["doomed"]),
-        patch("wb.cloud_agent.commands.stop_services_and_del_configs") as stop,
+        patch("wb.cloud_agent.services.lifecycle.read_activation_link", return_value=UNKNOWN_LINK),
+        patch("wb.cloud_agent.services.lifecycle.stop_and_disable_service") as stop,
+        patch("wb.cloud_agent.services.lifecycle.delete_provider_config"),
+        patch("wb.cloud_agent.services.lifecycle.event_delete_controller", return_value=0) as unbind,
     ):
         assert del_provider(Namespace(provider_name="doomed")) == 0
 
-    stop.assert_called_once()
+    assert stop.call_count == 3
+    assert unbind.called is unbound
 
 
 def test_recovery_works_with_pre_1_6_packaged_default(cloud_dirs):

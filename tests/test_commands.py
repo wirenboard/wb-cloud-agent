@@ -200,7 +200,7 @@ def test_del_provider_success(mock_mqtt_cloud_agent):
         result = del_provider(options)
 
         assert result == 0
-        mock_stop.assert_called_once_with(mock_settings, "test_provider")
+        mock_stop.assert_called_once_with(mock_settings, "test_provider", unbind=True)
         mock_mqtt_cloud_agent.update_providers_list.assert_called_once()
 
 
