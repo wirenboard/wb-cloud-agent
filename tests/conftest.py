@@ -70,12 +70,11 @@ def metrics_template(tmp_path):
 
 
 @pytest.fixture
-def cloud_vars_settings(isolated_provider_runtime):
-    settings = isolated_provider_runtime  # pylint: disable=redefined-outer-name
-    settings.metrics_service = "wb-cloud-agent-metrics@default.service"
-    settings.broker_url = "tcp://localhost:1883"
-    settings.client_cert_engine_key = "ATECCx08:00:02:C0:00"
-    return settings
+def cloud_vars_settings(isolated_provider_runtime):  # pylint: disable=redefined-outer-name
+    isolated_provider_runtime.metrics_service = "wb-cloud-agent-metrics@default.service"
+    isolated_provider_runtime.broker_url = "tcp://localhost:1883"
+    isolated_provider_runtime.client_cert_engine_key = "ATECCx08:00:02:C0:00"
+    return isolated_provider_runtime
 
 
 @pytest.fixture
