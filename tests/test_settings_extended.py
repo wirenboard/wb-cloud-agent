@@ -15,6 +15,7 @@ from wb.cloud_agent.settings import (
     load_providers_data,
     setup_log,
 )
+from wb.cloud_agent.utils import ConfigError
 
 
 def test_app_settings_with_config_file(tmp_path):
@@ -33,7 +34,8 @@ def test_app_settings_with_config_file(tmp_path):
         "wb.cloud_agent.settings.PROVIDERS_CONF_DIR",
         str(tmp_path / "etc" / "wb-cloud-agent" / "providers"),
     ):
-        settings = AppSettings(provider_name="test")
+        with patch("wb.cloud_agent.utils.local_engine_key_prefix", return_value="ATECCx08:00:04"):
+            settings = AppSettings(provider_name="test")
 
         assert settings.client_cert_engine_key == "ATECCx08:00:04:C0:00"
         assert settings.cloud_base_url == "https://custom.cloud.com"
@@ -65,21 +67,11 @@ def test_configure_app_success():
         assert result == mock_instance
 
 
-def test_configure_app_file_not_found():
-    with patch("wb.cloud_agent.settings.AppSettings", side_effect=FileNotFoundError):
-        result = configure_app(provider_name="test")
-
-        assert result == 6
-
-
-def test_configure_app_json_decode_error():
-    with patch(
-        "wb.cloud_agent.settings.AppSettings",
-        side_effect=json.decoder.JSONDecodeError("msg", "doc", 0),
-    ):
-        result = configure_app(provider_name="test")
-
-        assert result == 6
+def test_configure_app_propagates_config_error():
+    """configure_app no longer returns a bare 6: main() maps the error to that status."""
+    with patch("wb.cloud_agent.settings.AppSettings", side_effect=ConfigError("is missing")):
+        with pytest.raises(ConfigError):
+            configure_app(provider_name="test")
 
 
 def test_setup_log_info_level():
@@ -277,14 +269,9 @@ def test_load_providers_data_no_activation_link(tmp_path):
 
 
 def test_load_providers_data_missing_config(tmp_path):
+    """A non-production provider has no packaged default to fall back on; main() maps this to status 6."""
     providers_conf_dir = tmp_path / "conf" / "providers"
 
-    with (
-        patch("wb.cloud_agent.settings.PROVIDERS_CONF_DIR", str(providers_conf_dir)),
-        patch("builtins.print") as mock_print,
-    ):
-        with pytest.raises(SystemExit) as exc_info:
+    with patch("wb.cloud_agent.settings.PROVIDERS_CONF_DIR", str(providers_conf_dir)):
+        with pytest.raises(ConfigError, match="recovery is limited to"):
             load_providers_data(["nonexistent"])
-
-        assert exc_info.value.code == 6
-        mock_print.assert_called_once()
