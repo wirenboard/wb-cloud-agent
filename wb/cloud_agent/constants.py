@@ -9,7 +9,7 @@ PROVIDERS_CONF_DIR = "/etc/wb-cloud-agent/providers"
 NOTCONFIGURED_EXIT_CODE = 6
 
 # ATECC crypto chip sits on a different I2C bus on WB6 than on WB7/WB8,
-# mirrors the of_machine_match() logic in check-certs.sh.
+# The agent is the only place that decides this; check-certs.sh no longer touches configs.
 DEVICE_TREE_COMPATIBLE_PATH = "/proc/device-tree/compatible"
 WB6_DEVICE_TREE_COMPATIBLE = "contactless,imx6ul-wirenboard60"
 ENGINE_KEY_PATTERN = r"ATECCx08:00:.."

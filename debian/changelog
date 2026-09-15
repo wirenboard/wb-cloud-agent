@@ -1,7 +1,10 @@
 wb-cloud-agent (1.8.3) stable; urgency=medium
 
-  * Restore a damaged or unreadable wirenboard.cloud provider config from the packaged default,
-    keeping the latest broken copy next to it.
+  * Restore a damaged, empty or unreadable wirenboard.cloud provider config from the packaged
+    default, moving the broken file aside instead of losing it.
+  * Write configs atomically, so an interrupted write cannot leave a truncated config behind.
+  * Pick the ATECC bus for this board in the agent itself; check-certs.sh no longer rewrites
+    configuration files and only prepares the device certificate.
 
  -- Denis Smagin <denis.smagin@wirenboard.com>  Mon, 14 Sep 2026 16:00:00 +0300
 

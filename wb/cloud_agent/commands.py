@@ -6,15 +6,10 @@ from typing import Optional
 from urllib.parse import urlparse
 
 from wb.cloud_agent import __version__ as agent_package_version
-from wb.cloud_agent.constants import NOTCONFIGURED_EXIT_CODE
 from wb.cloud_agent.handlers.curl import CloudNetworkError
 from wb.cloud_agent.handlers.events import event_delete_controller, make_event_request
 from wb.cloud_agent.handlers.ping import CloudUnreachableError, wait_for_cloud_reachable
-from wb.cloud_agent.handlers.startup import (
-    make_start_up_request,
-    on_message,
-    send_packages_version,
-)
+from wb.cloud_agent.handlers.startup import make_start_up_request, on_message, send_packages_version
 from wb.cloud_agent.mqtt import MQTTCloudAgent
 from wb.cloud_agent.services.activation import read_activation_link
 from wb.cloud_agent.services.lifecycle import stop_services_and_del_configs
@@ -44,8 +39,6 @@ def add_provider(options) -> int:
     base_url = normalize_base_url(options.base_url)
     provider_name = options.name or urlparse(base_url).netloc
     settings = configure_app(provider_name=provider_name)
-    if settings == NOTCONFIGURED_EXIT_CODE:
-        return settings
 
     try:
         mqtt = MQTTCloudAgent(settings, on_message)
@@ -85,8 +78,6 @@ def add_on_premise_provider(options) -> int:
 def del_provider(options) -> int:
     provider_name = urlparse(options.provider_name).netloc or options.provider_name
     settings = configure_app(provider_name=provider_name)
-    if settings == NOTCONFIGURED_EXIT_CODE:
-        return settings
 
     mqtt = MQTTCloudAgent(settings, on_message)
     mqtt.start()
@@ -110,8 +101,6 @@ def del_all_providers(_options, show_msg: bool = True) -> int:
 
     for provider_name in providers:
         settings = configure_app(provider_name=provider_name)
-        if settings == NOTCONFIGURED_EXIT_CODE:
-            return settings
 
         mqtt = MQTTCloudAgent(settings, on_message)
         mqtt.start()
@@ -128,8 +117,6 @@ def del_controller_from_cloud(options) -> int:
 
 def run_daemon(options) -> Optional[int]:
     settings = configure_app(provider_name=options.provider_name, recover_configs=True)
-    if settings == NOTCONFIGURED_EXIT_CODE:
-        return settings
     settings.broker_url = options.broker or settings.broker_url
     logging.info(
         "====== Cloud Agent started (version: %s, provider: %s) ======",

@@ -3,15 +3,13 @@ import json
 import logging
 import os
 import re
-import shutil
 import subprocess
-import sys
 import tempfile
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from functools import cache
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Optional
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urljoin
 
 from tabulate import tabulate
@@ -20,7 +18,6 @@ from wb.cloud_agent.constants import (
     DEFAULT_ENGINE_KEY_PREFIX,
     DEVICE_TREE_COMPATIBLE_PATH,
     ENGINE_KEY_PATTERN,
-    NOTCONFIGURED_EXIT_CODE,
     WB6_DEVICE_TREE_COMPATIBLE,
     WB6_ENGINE_KEY_PREFIX,
 )
@@ -89,20 +86,9 @@ def _parse_json_config(config_path: Path) -> dict[str, Any]:
     return config
 
 
-def read_json_config(
-    config_path: Path, rebuild: Optional[Callable[[str], dict[str, Any]]] = None
-) -> dict[str, Any]:
-    try:
-        return _parse_json_config(config_path)
-    except ConfigError as exc:
-        if rebuild is not None:
-            if isinstance(exc, ConfigReadError):
-                raise
-            return rebuild(str(exc))
-        if isinstance(exc, ConfigReadError):
-            raise
-        print(f"Error parsing JSON in: {config_path}")
-        sys.exit(NOTCONFIGURED_EXIT_CODE)
+def read_json_config(config_path: Path) -> dict[str, Any]:
+    """Read a JSON config. Raises ConfigError describing what is wrong with it."""
+    return _parse_json_config(config_path)
 
 
 def read_plaintext_config(config_path: Path) -> str:
@@ -113,7 +99,7 @@ def read_plaintext_config(config_path: Path) -> str:
 DEFAULT_FILE_MODE = 0o644
 
 
-def write_to_file(fpath: Path, contents: str, create_parent: bool = True, mode: Optional[int] = None) -> None:
+def write_to_file(fpath: Path, contents: str, create_parent: bool = True) -> None:
     target = fpath.resolve() if fpath.is_symlink() else fpath
     if create_parent:
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -125,10 +111,9 @@ def write_to_file(fpath: Path, contents: str, create_parent: bool = True, mode: 
     except FileNotFoundError:
         old_stat = None
 
-    if mode is None:
-        # keep the permissions of an existing file, otherwise behave like a plain
-        # open()/write() would with the default umask instead of mkstemp's 0600
-        mode = old_stat.st_mode & 0o7777 if old_stat is not None else DEFAULT_FILE_MODE
+    # keep the permissions of an existing file, otherwise behave like a plain
+    # open()/write() would with the default umask instead of mkstemp's 0600
+    mode = old_stat.st_mode & 0o7777 if old_stat is not None else DEFAULT_FILE_MODE
 
     fd, tmp_name = tempfile.mkstemp(prefix=f".{target.name}.tmp-", dir=target.parent)
     tmp_path = Path(tmp_name)
@@ -154,37 +139,20 @@ def write_to_file(fpath: Path, contents: str, create_parent: bool = True, mode: 
         os.close(dir_fd)
 
 
-def quarantine_broken_file(fpath: Path) -> Optional[Path]:
-    try:
-        source_stat = fpath.stat()
-        if not fpath.is_file() or source_stat.st_size == 0:
-            return None
+def quarantine_broken_file(fpath: Path) -> Path:
+    """
+    Move a damaged file aside, keeping its content untouched.
 
-        fd, tmp_name = tempfile.mkstemp(prefix=f".{fpath.name}.broken-", dir=fpath.parent)
-        tmp_path = Path(tmp_name)
-        quarantined = fpath.with_name(
-            f"{fpath.name}.broken-{datetime.now(timezone.utc):%Y%m%dT%H%M%S%fZ}-"
-            f"{Path(tmp_name).name.rsplit('-', 1)[-1]}"
-        )
-        try:
-            with fpath.open("rb") as source, os.fdopen(fd, "wb") as destination:
-                shutil.copyfileobj(source, destination)
-                os.fchown(destination.fileno(), source_stat.st_uid, source_stat.st_gid)
-                os.fchmod(destination.fileno(), source_stat.st_mode & 0o7777)
-                destination.flush()
-                os.fsync(destination.fileno())
-            os.replace(tmp_path, quarantined)
-            _remove_stale_quarantine_copies(fpath, keep=quarantined)
-            _fsync_directory(fpath.parent)
-        finally:
-            try:
-                tmp_path.unlink()
-            except FileNotFoundError:
-                pass
-        return quarantined
-    except OSError as exc:
-        logging.warning("Cannot preserve broken file %s: %s", fpath, exc)
-        return None
+    Renaming needs no read access to the file itself, only a writable parent
+    directory - the same access the replacement write needs anyway. So a config
+    that cannot be read (bad permissions, I/O error) is preserved rather than lost.
+    Raises OSError if the file cannot be moved; the caller then leaves it alone.
+    """
+    quarantined = fpath.with_name(f"{fpath.name}.broken-{datetime.now(timezone.utc):%Y%m%dT%H%M%S%fZ}")
+    os.replace(fpath, quarantined)
+    _remove_stale_quarantine_copies(fpath, keep=quarantined)
+    _fsync_directory(fpath.parent)
+    return quarantined
 
 
 def _remove_stale_quarantine_copies(fpath: Path, keep: Path) -> None:
@@ -207,7 +175,7 @@ def _fsync_directory(directory: Path) -> None:
 
 
 def local_engine_key_prefix() -> str:
-    """ATECC engine key prefix for this controller, same rule as check-certs.sh."""
+    """ATECC engine key prefix for this controller: the chip sits on a different I2C bus on WB6."""
     try:
         compatible = Path(DEVICE_TREE_COMPATIBLE_PATH).read_bytes().split(b"\0")
     except OSError:
@@ -217,11 +185,16 @@ def local_engine_key_prefix() -> str:
     return DEFAULT_ENGINE_KEY_PREFIX
 
 
-def fix_engine_key(config: dict[str, Any]) -> dict[str, Any]:
-    """Point CLIENT_CERT_ENGINE_KEY at the I2C bus the ATECC chip really sits on."""
-    engine_key = config.get("CLIENT_CERT_ENGINE_KEY")
-    if isinstance(engine_key, str):
-        config["CLIENT_CERT_ENGINE_KEY"] = re.sub(ENGINE_KEY_PATTERN, local_engine_key_prefix(), engine_key)
+def local_engine_key(value: Any) -> Any:
+    """Point an engine key at the I2C bus the ATECC chip really sits on."""
+    if not isinstance(value, str):
+        return value
+    return re.sub(ENGINE_KEY_PATTERN, local_engine_key_prefix(), value)
+
+
+def with_local_engine_key(config: dict[str, Any]) -> dict[str, Any]:
+    if "CLIENT_CERT_ENGINE_KEY" in config:
+        config["CLIENT_CERT_ENGINE_KEY"] = local_engine_key(config["CLIENT_CERT_ENGINE_KEY"])
     return config
 
 

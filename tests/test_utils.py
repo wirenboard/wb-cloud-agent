@@ -5,6 +5,7 @@ import pytest
 
 from wb.cloud_agent.settings import AppSettings
 from wb.cloud_agent.utils import (
+    ConfigError,
     get_controller_url,
     normalize_base_url,
     parse_headers,
@@ -85,10 +86,14 @@ def test_read_json_config_invalid_json(tmp_path):
     config_file = tmp_path / "config.json"
     config_file.write_text("{invalid json")
 
-    with pytest.raises(SystemExit) as exc_info:
+    # the caller decides what to do about it; main() turns this into systemd status 6
+    with pytest.raises(ConfigError, match="is not valid JSON"):
         read_json_config(config_file)
 
-    assert exc_info.value.code == 6
+
+def test_read_json_config_missing(tmp_path):
+    with pytest.raises(ConfigError, match="is missing"):
+        read_json_config(tmp_path / "absent.json")
 
 
 def test_read_plaintext_config(tmp_path):
