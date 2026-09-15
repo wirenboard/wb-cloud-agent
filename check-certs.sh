@@ -1,8 +1,7 @@
 #!/bin/bash
 
-# Prepares the device certificate the agent talks to the cloud with.
-# The agent owns its config: it picks the right ATECC bus itself and repairs
-# a damaged config on startup, so nothing here rewrites configuration files.
+# Prepares the device certificate. Configs are the agent's own business:
+# it picks the ATECC bus and repairs a damaged config itself.
 
 set -e
 
