@@ -8,6 +8,7 @@ import pytest
 
 from wb.cloud_agent.commands import del_provider, run_daemon
 from wb.cloud_agent.constants import (
+    NOCONNECT_LINK,
     NOTCONFIGURED_EXIT_CODE,
     PRODUCTION_PROVIDER_NAME,
     WB6_DEVICE_TREE_COMPATIBLE,
@@ -17,6 +18,7 @@ from wb.cloud_agent.handlers.ping import CloudUnreachableError
 from wb.cloud_agent.main import main
 from wb.cloud_agent.settings import (
     AppSettings,
+    Provider,
     configure_app,
     generate_provider_config,
     load_providers_data,
@@ -34,6 +36,18 @@ PACKAGED_DEFAULT = {
     "CLIENT_CERT_ENGINE_KEY": "ATECCx08:00:02:C0:00",
     "CLOUD_BASE_URL": "https://wirenboard.cloud/",
 }
+
+
+@pytest.fixture(autouse=True)
+def isolated_logging():
+    """setup_log() configures the root logger, and that state leaks between tests."""
+    root = logging.getLogger()
+    handlers, level = root.handlers[:], root.level
+    root.handlers.clear()
+    root.setLevel(logging.WARNING)  # the default a fresh process starts with
+    yield
+    root.handlers[:] = handlers
+    root.setLevel(level)
 
 
 @pytest.fixture(name="cloud_dirs")
@@ -214,9 +228,11 @@ def test_main_turns_unusable_config_into_systemd_status(cloud_dirs):
         "wb.cloud_agent.main.parse_args",
         return_value=Namespace(func=run_daemon, provider_name="custom", broker=None),
     ):
-        # the literal the systemd unit keys RestartPreventExitStatus on
         assert main() == 6
-        assert NOTCONFIGURED_EXIT_CODE == 6
+
+    # the unit stops retrying on exactly this status, so the two must agree
+    unit = Path("debian/wb-cloud-agent.wb-cloud-agent@.service").read_text()
+    assert f"RestartPreventExitStatus={NOTCONFIGURED_EXIT_CODE}" in unit
 
 
 @pytest.mark.parametrize(
@@ -317,17 +333,18 @@ def test_config_without_base_url_is_left_alone(cloud_dirs):
     assert not broken_copies(config)
 
 
-def test_provider_without_base_url_can_still_be_deleted(cloud_dirs):
-    """del-provider must not depend on the config being complete."""
+@pytest.mark.parametrize("contents", [json.dumps({"LOG_LEVEL": "INFO"}), "{broken", ""])
+def test_a_provider_can_be_deleted_whatever_its_config(cloud_dirs, contents):
+    """Deleting a provider must not depend on its config being complete or even readable."""
     providers, _default = cloud_dirs
-    write_config(providers, "old-provider", json.dumps({"LOG_LEVEL": "INFO"}))
+    write_config(providers, "doomed", contents)
 
     with (
         patch("wb.cloud_agent.commands.MQTTCloudAgent"),
-        patch("wb.cloud_agent.commands.get_provider_names", return_value=["old-provider"]),
+        patch("wb.cloud_agent.commands.get_provider_names", return_value=["doomed"]),
         patch("wb.cloud_agent.commands.stop_services_and_del_configs") as stop,
     ):
-        assert del_provider(Namespace(provider_name="old-provider")) == 0
+        assert del_provider(Namespace(provider_name="doomed")) == 0
 
     stop.assert_called_once()
 
@@ -353,9 +370,10 @@ def test_recovery_works_with_pre_1_6_packaged_default(cloud_dirs):
     assert broken_copies(config)[0].read_text() == "{broken"
 
 
-def test_add_provider_works_with_pre_1_6_packaged_default(cloud_dirs):
+@pytest.mark.parametrize("packaged_default", [json.dumps({"LOG_LEVEL": "INFO"}), "{broken", ""])
+def test_add_provider_survives_any_packaged_default(cloud_dirs, packaged_default):
     providers, default = cloud_dirs
-    default.write_text(json.dumps({"LOG_LEVEL": "INFO"}), encoding="utf-8")
+    default.write_text(packaged_default, encoding="utf-8")
 
     generate_provider_config("my.cloud", "https://my.cloud")
 
@@ -367,8 +385,6 @@ def test_info_logging_survives_a_recovery(cloud_dirs):
     """The recovery warning must not leave the root logger stuck at WARNING."""
     providers, _default = cloud_dirs
     write_config(providers, PRODUCTION_PROVIDER_NAME, "{broken")
-    logging.getLogger().handlers.clear()
-    logging.getLogger().setLevel(logging.NOTSET)
 
     configure_app(provider_name=PRODUCTION_PROVIDER_NAME, recover_configs=True)
 
@@ -397,16 +413,6 @@ def test_recovery_falls_back_to_built_in_values(cloud_dirs):
     assert settings.cloud_base_url == "https://wirenboard.cloud"
     assert json.loads(config.read_text())["CLOUD_BASE_URL"] == "https://wirenboard.cloud"
     assert broken_copies(config)[0].read_text() == "{broken"
-
-
-def test_add_provider_survives_a_damaged_packaged_default(cloud_dirs):
-    providers, default = cloud_dirs
-    default.write_text("{broken", encoding="utf-8")
-
-    generate_provider_config("my.cloud", "https://my.cloud")
-
-    written = json.loads((providers / "my.cloud" / "wb-cloud-agent.conf").read_text())
-    assert written["CLOUD_BASE_URL"] == "https://my.cloud"
 
 
 def test_with_local_engine_key_does_not_touch_the_caller_dict():
@@ -522,33 +528,24 @@ def test_quarantine_follows_a_symlinked_config(cloud_dirs, tmp_path):
     assert real.with_name(f"{real.name}.broken-first").read_text() == "конфиг оператора{"
 
 
-def test_a_repaired_config_is_always_printable(cloud_dirs):
-    """The daemon healing itself must not leave the CLI with a config it cannot print."""
+def test_a_repaired_config_always_carries_the_cloud_url(cloud_dirs):
+    """A pre-1.6.0 packaged default has no URL, and writing that back broke the CLI."""
     providers, default = cloud_dirs
     default.write_text(json.dumps({"LOG_LEVEL": "INFO"}), encoding="utf-8")
-    write_config(providers, PRODUCTION_PROVIDER_NAME, "{broken")
+    config = write_config(providers, PRODUCTION_PROVIDER_NAME, "{broken")
 
     AppSettings(provider_name=PRODUCTION_PROVIDER_NAME, recover_configs=True)
 
-    listed = load_providers_data([PRODUCTION_PROVIDER_NAME])
-
-    # printing it used to raise KeyError when the packaged default carried no URL
-    assert "wirenboard.cloud" in listed[0].display_url
+    assert json.loads(config.read_text())["CLOUD_BASE_URL"] == "https://wirenboard.cloud"
 
 
-def test_a_provider_with_a_damaged_config_can_still_be_deleted(cloud_dirs):
-    """Deleting a provider must not depend on its config being readable."""
-    providers, _default = cloud_dirs
-    write_config(providers, PRODUCTION_PROVIDER_NAME, "{broken")
+def test_a_provider_without_a_cloud_url_is_still_printable():
+    """Configs written before 1.6.0 are left alone, so printing must cope with them."""
+    provider = Provider(
+        name=PRODUCTION_PROVIDER_NAME, config={"LOG_LEVEL": "INFO"}, activation_link=NOCONNECT_LINK
+    )
 
-    with (
-        patch("wb.cloud_agent.commands.MQTTCloudAgent"),
-        patch("wb.cloud_agent.commands.get_provider_names", return_value=[PRODUCTION_PROVIDER_NAME]),
-        patch("wb.cloud_agent.commands.stop_services_and_del_configs") as stop,
-    ):
-        assert del_provider(Namespace(provider_name=PRODUCTION_PROVIDER_NAME)) == 0
-
-    stop.assert_called_once()
+    assert provider.display_url == "No connect to: https://wirenboard.cloud"
 
 
 def test_a_power_cut_does_not_leave_temp_files_behind(cloud_dirs):

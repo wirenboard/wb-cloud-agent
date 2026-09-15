@@ -183,7 +183,7 @@ def setup_log(settings: AppSettings) -> None:
 
 
 def generate_provider_config(provider: str, base_url: str) -> None:
-    conf = with_local_engine_key({**_built_in_config(), **_packaged_default_config()})
+    conf = with_local_engine_key(_packaged_default_config())
     conf["CLOUD_BASE_URL"] = normalize_base_url(base_url)
 
     write_to_file(provider_config_path(provider), json.dumps(conf, indent=4))
