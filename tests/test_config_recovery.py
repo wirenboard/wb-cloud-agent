@@ -409,3 +409,16 @@ def test_with_local_engine_key_does_not_touch_the_caller_dict():
 
     assert original["CLIENT_CERT_ENGINE_KEY"] == "ATECCx08:00:09:C0:00"
     assert updated["CLIENT_CERT_ENGINE_KEY"] == "ATECCx08:00:02:C0:00"
+
+
+def test_agent_url_is_always_derived_from_the_base_url():
+    """Keeping a literal agent URL alongside the base one only lets the two drift apart."""
+    assert not hasattr(AppSettings, "cloud_agent_url")
+
+    settings = AppSettings(provider_name="", skip_conf_file=True, cloud_base_url="https://on-premise.example")
+
+    assert settings.cloud_agent_url == "https://agent.on-premise.example/api-agent/v1/"
+
+
+def test_built_in_url_follows_the_production_provider_name():
+    assert AppSettings.cloud_base_url == f"https://{PRODUCTION_PROVIDER_NAME}"

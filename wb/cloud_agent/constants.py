@@ -6,6 +6,8 @@ DEFAULT_PROVIDER_CONF_FILE = "/etc/wb-cloud-agent.conf"
 # Config files are world-readable, as a plain write under the default umask would make them.
 DEFAULT_FILE_MODE = 0o644
 PRODUCTION_PROVIDER_NAME = "wirenboard.cloud"
+# A provider is named after its host, so the production URL follows from the name.
+PRODUCTION_CLOUD_URL = f"https://{PRODUCTION_PROVIDER_NAME}"
 PROVIDERS_CONF_DIR = "/etc/wb-cloud-agent/providers"
 
 # systemd status=6/NOTCONFIGURED: the provider config is missing or unusable.

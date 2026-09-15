@@ -14,6 +14,7 @@ from wb.cloud_agent.constants import (
     CLOUD_AGENT_URL_POSTFIX,
     DEFAULT_PROVIDER_CONF_FILE,
     NOCONNECT_LINK,
+    PRODUCTION_CLOUD_URL,
     PRODUCTION_PROVIDER_NAME,
     PROVIDERS_CONF_DIR,
 )
@@ -82,8 +83,9 @@ class AppSettings:  # pylint: disable=too-many-instance-attributes disable=too-f
     client_cert_engine_key: str = "ATECCx08:00:02:C0:00"
     client_cert_file: str = f"{APP_DATA_DIR}/device_bundle.crt.pem"
 
-    cloud_base_url: str = "https://wirenboard.cloud"
-    cloud_agent_url: str = f"https://agent.wirenboard.cloud{CLOUD_AGENT_URL_POSTFIX}"
+    cloud_base_url: str = PRODUCTION_CLOUD_URL
+    # always derived from cloud_base_url in __init__, never a literal of its own
+    cloud_agent_url: str
     request_period_seconds: int = 10
     ping_period_seconds: int = 10
     metrics_log_enabled: bool = True
