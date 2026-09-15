@@ -31,6 +31,8 @@ from wb.cloud_agent.utils import (
     write_to_file,
 )
 
+UNIT_FILE = Path(__file__).resolve().parents[1] / "debian" / "wb-cloud-agent.wb-cloud-agent@.service"
+
 PACKAGED_DEFAULT = {
     "LOG_LEVEL": "INFO",
     "CLIENT_CERT_ENGINE_KEY": "ATECCx08:00:02:C0:00",
@@ -230,9 +232,11 @@ def test_main_turns_unusable_config_into_systemd_status(cloud_dirs):
     ):
         assert main() == 6
 
-    # the unit stops retrying on exactly this status, so the two must agree
-    unit = Path("debian/wb-cloud-agent.wb-cloud-agent@.service").read_text()
-    assert f"RestartPreventExitStatus={NOTCONFIGURED_EXIT_CODE}" in unit
+
+@pytest.mark.skipif(not UNIT_FILE.is_file(), reason="the packaging tree is not part of the built package")
+def test_the_unit_stops_retrying_on_our_exit_status():
+    """The literal above only means anything if the unit keys on the same one."""
+    assert f"RestartPreventExitStatus={NOTCONFIGURED_EXIT_CODE}" in UNIT_FILE.read_text()
 
 
 @pytest.mark.parametrize(
