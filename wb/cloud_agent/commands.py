@@ -25,6 +25,7 @@ from wb.cloud_agent.settings import (
     load_providers_data,
 )
 from wb.cloud_agent.utils import (
+    ConfigError,
     handle_connection_state,
     normalize_base_url,
     show_providers_table,
@@ -37,6 +38,14 @@ def show_providers(_options) -> int:
     providers = load_providers_data(provider_names)
     show_providers_table(providers)
     return 0
+
+
+def settings_for_removal(provider_name: str):
+    """Deleting a provider must work even when its config is damaged."""
+    try:
+        return configure_app(provider_name=provider_name)
+    except ConfigError:
+        return configure_app(provider_name=provider_name, skip_conf_file=True)
 
 
 def add_provider(options) -> int:
@@ -81,7 +90,7 @@ def add_on_premise_provider(options) -> int:
 
 def del_provider(options) -> int:
     provider_name = urlparse(options.provider_name).netloc or options.provider_name
-    settings = configure_app(provider_name=provider_name)
+    settings = settings_for_removal(provider_name)
 
     mqtt = MQTTCloudAgent(settings, on_message)
     mqtt.start()
@@ -104,7 +113,7 @@ def del_all_providers(_options, show_msg: bool = True) -> int:
         return 1
 
     for provider_name in providers:
-        settings = configure_app(provider_name=provider_name)
+        settings = settings_for_removal(provider_name)
 
         mqtt = MQTTCloudAgent(settings, on_message)
         mqtt.start()

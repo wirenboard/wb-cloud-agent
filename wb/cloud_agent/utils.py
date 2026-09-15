@@ -185,21 +185,28 @@ def quarantine_broken_file(fpath: Path) -> Path:
         os.link(target, quarantined)
     except OSError:
         os.replace(target, quarantined)
-    _drop_legacy_quarantine_copies(target)
     _fsync_directory(target.parent)
     return quarantined
 
 
-def _drop_legacy_quarantine_copies(fpath: Path) -> None:
-    """Earlier versions named copies after the time of the failure; keep /etc tidy."""
+def drop_stale_files(fpath: Path) -> None:
+    """
+    Remove what earlier attempts left behind next to the config.
+
+    Copies named after the time of the failure come from earlier versions; a staged
+    temp file is what a power cut between writing and renaming leaves. Neither is
+    read by anything, and both would otherwise sit in /etc forever.
+    """
     slots = {f"{fpath.name}{BROKEN_FIRST_SUFFIX}", f"{fpath.name}{BROKEN_LAST_SUFFIX}"}
-    for stale in fpath.parent.glob(f"{fpath.name}.broken-*"):
+    stale_files = list(fpath.parent.glob(f"{fpath.name}.broken-*"))
+    stale_files += fpath.parent.glob(f".{fpath.name}.tmp-*")
+    for stale in stale_files:
         if stale.name in slots:
             continue
         try:
             stale.unlink()
         except OSError as exc:
-            logging.warning("Cannot remove stale broken copy %s: %s", stale, exc)
+            logging.warning("Cannot remove stale file %s: %s", stale, exc)
 
 
 def _fsync_directory(directory: Path) -> None:

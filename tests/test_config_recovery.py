@@ -158,7 +158,7 @@ def test_a_failed_recovery_never_leaves_the_directory_without_a_config(cloud_dir
             AppSettings(provider_name=PRODUCTION_PROVIDER_NAME, recover_configs=True)
 
     assert config.read_text() == "{broken"
-    assert not list(config.parent.glob(f"{config.name}.tmp-*"))
+    assert not list(config.parent.glob(f".{config.name}.tmp-*"))
 
 
 def test_quarantine_failure_leaves_config_alone(cloud_dirs):
@@ -214,7 +214,9 @@ def test_main_turns_unusable_config_into_systemd_status(cloud_dirs):
         "wb.cloud_agent.main.parse_args",
         return_value=Namespace(func=run_daemon, provider_name="custom", broker=None),
     ):
-        assert main() == NOTCONFIGURED_EXIT_CODE
+        # the literal the systemd unit keys RestartPreventExitStatus on
+        assert main() == 6
+        assert NOTCONFIGURED_EXIT_CODE == 6
 
 
 @pytest.mark.parametrize(
@@ -345,7 +347,9 @@ def test_recovery_works_with_pre_1_6_packaged_default(cloud_dirs):
     restored = json.loads(config.read_text())
     assert settings.cloud_base_url == "https://wirenboard.cloud"
     assert restored["LOG_LEVEL"] == "INFO"
-    assert "CLOUD_BASE_URL" not in restored
+    # the old default carries no URL, so the built-in one fills the gap: a config
+    # without it would later crash the CLI that prints the controller's link
+    assert restored["CLOUD_BASE_URL"] == "https://wirenboard.cloud"
     assert broken_copies(config)[0].read_text() == "{broken"
 
 
@@ -516,3 +520,44 @@ def test_quarantine_follows_a_symlinked_config(cloud_dirs, tmp_path):
     assert config.is_symlink()
     assert json.loads(real.read_text()) == PACKAGED_DEFAULT
     assert real.with_name(f"{real.name}.broken-first").read_text() == "конфиг оператора{"
+
+
+def test_a_repaired_config_is_always_printable(cloud_dirs):
+    """The daemon healing itself must not leave the CLI with a config it cannot print."""
+    providers, default = cloud_dirs
+    default.write_text(json.dumps({"LOG_LEVEL": "INFO"}), encoding="utf-8")
+    write_config(providers, PRODUCTION_PROVIDER_NAME, "{broken")
+
+    AppSettings(provider_name=PRODUCTION_PROVIDER_NAME, recover_configs=True)
+
+    listed = load_providers_data([PRODUCTION_PROVIDER_NAME])
+
+    # printing it used to raise KeyError when the packaged default carried no URL
+    assert "wirenboard.cloud" in listed[0].display_url
+
+
+def test_a_provider_with_a_damaged_config_can_still_be_deleted(cloud_dirs):
+    """Deleting a provider must not depend on its config being readable."""
+    providers, _default = cloud_dirs
+    write_config(providers, PRODUCTION_PROVIDER_NAME, "{broken")
+
+    with (
+        patch("wb.cloud_agent.commands.MQTTCloudAgent"),
+        patch("wb.cloud_agent.commands.get_provider_names", return_value=[PRODUCTION_PROVIDER_NAME]),
+        patch("wb.cloud_agent.commands.stop_services_and_del_configs") as stop,
+    ):
+        assert del_provider(Namespace(provider_name=PRODUCTION_PROVIDER_NAME)) == 0
+
+    stop.assert_called_once()
+
+
+def test_a_power_cut_does_not_leave_temp_files_behind(cloud_dirs):
+    providers, _default = cloud_dirs
+    config = write_config(providers, PRODUCTION_PROVIDER_NAME, "{broken")
+    orphan = config.parent / f".{config.name}.tmp-interrupted"
+    orphan.write_text("half written", encoding="utf-8")
+
+    AppSettings(provider_name=PRODUCTION_PROVIDER_NAME, recover_configs=True)
+
+    assert not orphan.exists()
+    assert not list(config.parent.glob(f".{config.name}.tmp-*"))

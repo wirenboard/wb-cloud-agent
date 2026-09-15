@@ -23,6 +23,7 @@ from wb.cloud_agent.utils import (
     ConfigReadError,
     commit_staged,
     config_recovery_lock,
+    drop_stale_files,
     get_controller_url,
     local_engine_key,
     normalize_base_url,
@@ -182,7 +183,7 @@ def setup_log(settings: AppSettings) -> None:
 
 
 def generate_provider_config(provider: str, base_url: str) -> None:
-    conf = with_local_engine_key(_packaged_default_config())
+    conf = with_local_engine_key({**_built_in_config(), **_packaged_default_config()})
     conf["CLOUD_BASE_URL"] = normalize_base_url(base_url)
 
     write_to_file(provider_config_path(provider), json.dumps(conf, indent=4))
@@ -221,6 +222,9 @@ def recover_provider_config(provider_name: str, reason: str) -> dict[str, Any]:
         raise ConfigError(f"{config_path} provider directory is missing")
 
     with config_recovery_lock(config_path):
+        # leftovers from an attempt that a power cut interrupted
+        drop_stale_files(resolve_through_symlink(config_path))
+
         # another agent process may have fixed it while we waited for the lock
         try:
             current = read_json_config(config_path)
@@ -229,7 +233,8 @@ def recover_provider_config(provider_name: str, reason: str) -> dict[str, Any]:
         except ConfigError:
             pass
 
-        recovered = with_local_engine_key(_packaged_default_config())
+        # the packaged default may predate 1.6.0 and carry no CLOUD_BASE_URL
+        recovered = with_local_engine_key({**_built_in_config(), **_packaged_default_config()})
         try:
             # an empty file carries nothing worth keeping
             keep_broken = config_path.exists() and config_path.stat().st_size > 0
@@ -295,14 +300,18 @@ class Provider:
     activation_link: Optional[str] = None
 
     @property
+    def base_url(self) -> str:
+        return self.config.get("CLOUD_BASE_URL") or AppSettings.cloud_base_url
+
+    @property
     def display_url(self) -> str:
         if self.activation_link and self.activation_link.startswith("http"):
             return self.activation_link
 
         if self.activation_link == NOCONNECT_LINK:
-            return f"No connect to: {self.config['CLOUD_BASE_URL']}"
+            return f"No connect to: {self.base_url}"
 
-        return get_controller_url(self.config["CLOUD_BASE_URL"])
+        return get_controller_url(self.base_url)
 
 
 def load_providers_data(provider_names: list[str]) -> list[Provider]:
