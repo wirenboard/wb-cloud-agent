@@ -1,5 +1,5 @@
 from http import HTTPStatus as status
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 import pytest
 
@@ -83,6 +83,80 @@ def test_make_event_request_update_metrics_config(settings):
         mock_chmod.assert_called_once()
         mock_link.assert_called_once()
         mock_confirm.assert_called_once_with(settings, "event789")
+
+
+def test_make_event_request_unbinds_before_confirmation(isolated_provider_runtime):
+    settings = isolated_provider_runtime
+    event_data = {
+        "id": "event-unbind",
+        "code": "delete_provider",
+        "payload": {},
+    }
+    call_order = []
+
+    with (
+        patch("wb.cloud_agent.handlers.events.do_curl", return_value=(event_data, status.OK)),
+        patch("wb.cloud_agent.handlers.provider.stop_metrics_health_monitor"),
+        patch("wb.cloud_agent.handlers.provider.try_stop_and_disable_service"),
+        patch(
+            "wb.cloud_agent.handlers.provider.write_activation_link",
+            side_effect=lambda *_: call_order.append("unbind"),
+        ),
+        patch(
+            "wb.cloud_agent.handlers.events.event_confirm",
+            side_effect=lambda *_: call_order.append("confirm"),
+        ),
+    ):
+        make_event_request(settings, MagicMock())
+
+    assert call_order == ["unbind", "confirm"]
+
+
+@pytest.mark.usefixtures("failing_systemctl")
+def test_make_event_request_confirms_unbind_after_systemctl_failure(isolated_provider_runtime):
+    settings = isolated_provider_runtime
+    event_data = {
+        "id": "event-unbind",
+        "code": "delete_provider",
+        "payload": {},
+    }
+
+    with (
+        patch("wb.cloud_agent.handlers.events.do_curl", return_value=(event_data, status.OK)),
+        patch("wb.cloud_agent.handlers.provider.stop_metrics_health_monitor"),
+        patch("wb.cloud_agent.handlers.events.event_confirm") as mock_confirm,
+    ):
+        make_event_request(settings, MagicMock())
+
+    mock_confirm.assert_called_once_with(settings, "event-unbind")
+
+
+@pytest.mark.usefixtures("failing_systemctl")
+def test_make_event_request_processes_next_event_after_unbind_systemctl_failure(isolated_provider_runtime):
+    settings = isolated_provider_runtime
+    unbind_event = {
+        "id": "event-unbind",
+        "code": "delete_provider",
+        "payload": {},
+    }
+    update_event = {
+        "id": "event-update",
+        "code": "update_activation_link",
+        "payload": {"activationLink": "https://example.com/activate"},
+    }
+
+    with (
+        patch(
+            "wb.cloud_agent.handlers.events.do_curl",
+            side_effect=[(unbind_event, status.OK), (update_event, status.OK)],
+        ),
+        patch("wb.cloud_agent.handlers.provider.stop_metrics_health_monitor"),
+        patch("wb.cloud_agent.handlers.events.event_confirm") as mock_confirm,
+    ):
+        make_event_request(settings, MagicMock())
+        make_event_request(settings, MagicMock())
+
+    assert mock_confirm.call_args_list == [call(settings, "event-unbind"), call(settings, "event-update")]
 
 
 def test_make_event_request_confirms_failed_metrics_config(settings):

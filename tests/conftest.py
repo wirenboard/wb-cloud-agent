@@ -1,4 +1,5 @@
 import sys
+from subprocess import CalledProcessError
 from unittest.mock import patch
 
 import pytest
@@ -10,6 +11,28 @@ from wb.cloud_agent.settings import AppSettings
 @pytest.fixture
 def settings():
     return AppSettings(provider_name="default")
+
+
+@pytest.fixture
+def isolated_provider_runtime(settings, tmp_path):  # pylint: disable=redefined-outer-name
+    runtime_dir = tmp_path / "providers" / settings.provider_name
+    runtime_dir.mkdir(parents=True)
+    settings.frp_config = runtime_dir / "frpc.conf"
+    settings.metrics_script = runtime_dir / "metrics_collector.py"
+    settings.metrics_vars_config = runtime_dir / "metrics_collector.conf"
+    settings.metrics_last_uid = runtime_dir / "metrics_last_uid"
+    settings.activation_link_config = runtime_dir / "activation_link.conf"
+    return settings
+
+
+@pytest.fixture
+def failing_systemctl():
+    error = CalledProcessError(1, ["systemctl"])
+    with (
+        patch("wb.cloud_agent.utils.stop_service", side_effect=error),
+        patch("wb.cloud_agent.utils.disable_service", side_effect=error),
+    ):
+        yield
 
 
 @pytest.fixture(autouse=True)
@@ -47,14 +70,11 @@ def metrics_template(tmp_path):
 
 
 @pytest.fixture
-def cloud_vars_settings(settings, tmp_path):  # pylint: disable=redefined-outer-name
-    settings.metrics_script = tmp_path / "metrics_collector.py"
-    settings.metrics_vars_config = tmp_path / "metrics_collector.conf"
-    settings.metrics_last_uid = tmp_path / "metrics_last_uid"
-    settings.metrics_service = "wb-cloud-agent-metrics@default.service"
-    settings.broker_url = "tcp://localhost:1883"
-    settings.client_cert_engine_key = "ATECCx08:00:02:C0:00"
-    return settings
+def cloud_vars_settings(isolated_provider_runtime):  # pylint: disable=redefined-outer-name
+    isolated_provider_runtime.metrics_service = "wb-cloud-agent-metrics@default.service"
+    isolated_provider_runtime.broker_url = "tcp://localhost:1883"
+    isolated_provider_runtime.client_cert_engine_key = "ATECCx08:00:02:C0:00"
+    return isolated_provider_runtime
 
 
 @pytest.fixture
