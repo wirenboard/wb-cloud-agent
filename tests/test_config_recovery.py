@@ -15,11 +15,17 @@ from wb.cloud_agent.constants import (
 )
 from wb.cloud_agent.handlers.ping import CloudUnreachableError
 from wb.cloud_agent.main import main
-from wb.cloud_agent.settings import AppSettings, configure_app, generate_provider_config
+from wb.cloud_agent.settings import (
+    AppSettings,
+    configure_app,
+    generate_provider_config,
+    load_providers_data,
+)
 from wb.cloud_agent.utils import (
     ConfigError,
     ConfigReadError,
     local_engine_key,
+    with_local_engine_key,
     write_to_file,
 )
 
@@ -163,17 +169,17 @@ def test_quarantine_failure_leaves_config_alone(cloud_dirs):
     assert config.read_text() == "{broken"
 
 
-def test_only_latest_broken_copy_is_kept(cloud_dirs):
+def test_oldest_and_newest_broken_copies_are_kept(cloud_dirs):
+    """The first copy holds the operator's own settings; the last one describes the latest failure."""
     providers, _default = cloud_dirs
-    config = write_config(providers, PRODUCTION_PROVIDER_NAME, "{first")
+    config = write_config(providers, PRODUCTION_PROVIDER_NAME, '{"CLOUD_BASE_URL": "https://mine.example"')
+    for damage in ("{second", "{third"):
+        AppSettings(provider_name=PRODUCTION_PROVIDER_NAME, recover_configs=True)
+        config.write_text(damage, encoding="utf-8")
     AppSettings(provider_name=PRODUCTION_PROVIDER_NAME, recover_configs=True)
-    config.write_text("{second", encoding="utf-8")
 
-    AppSettings(provider_name=PRODUCTION_PROVIDER_NAME, recover_configs=True)
-
-    copies = broken_copies(config)
-    assert len(copies) == 1
-    assert copies[0].read_text() == "{second"
+    kept = [copy.read_text() for copy in broken_copies(config)]
+    assert kept == ['{"CLOUD_BASE_URL": "https://mine.example"', "{third"]
 
 
 def test_network_failure_does_not_recover_config(cloud_dirs):
@@ -360,3 +366,46 @@ def test_info_logging_survives_a_recovery(cloud_dirs):
     configure_app(provider_name=PRODUCTION_PROVIDER_NAME, recover_configs=True)
 
     assert logging.getLogger().isEnabledFor(logging.INFO)
+
+
+def test_cli_repairs_a_damaged_production_config(cloud_dirs):
+    """CLOUD-592: the user met the broken config through `wb-cloud-agent`, not through the daemon."""
+    providers, _default = cloud_dirs
+    config = write_config(providers, PRODUCTION_PROVIDER_NAME, "")
+
+    providers_data = load_providers_data([PRODUCTION_PROVIDER_NAME])
+
+    assert providers_data[0].config["CLOUD_BASE_URL"] == "https://wirenboard.cloud/"
+    assert json.loads(config.read_text()) == PACKAGED_DEFAULT
+
+
+def test_recovery_falls_back_to_built_in_values(cloud_dirs):
+    """v.romanov on CLOUD-599: on fallback, land on our default production cloud."""
+    providers, default = cloud_dirs
+    default.write_text("", encoding="utf-8")
+    config = write_config(providers, PRODUCTION_PROVIDER_NAME, "{broken")
+
+    settings = AppSettings(provider_name=PRODUCTION_PROVIDER_NAME, recover_configs=True)
+
+    assert settings.cloud_base_url == "https://wirenboard.cloud"
+    assert json.loads(config.read_text())["CLOUD_BASE_URL"] == "https://wirenboard.cloud"
+    assert broken_copies(config)[0].read_text() == "{broken"
+
+
+def test_add_provider_survives_a_damaged_packaged_default(cloud_dirs):
+    providers, default = cloud_dirs
+    default.write_text("{broken", encoding="utf-8")
+
+    generate_provider_config("my.cloud", "https://my.cloud")
+
+    written = json.loads((providers / "my.cloud" / "wb-cloud-agent.conf").read_text())
+    assert written["CLOUD_BASE_URL"] == "https://my.cloud"
+
+
+def test_with_local_engine_key_does_not_touch_the_caller_dict():
+    original = {"CLIENT_CERT_ENGINE_KEY": "ATECCx08:00:09:C0:00", "LOG_LEVEL": "INFO"}
+    with patch("wb.cloud_agent.utils.local_engine_key_prefix", return_value="ATECCx08:00:02"):
+        updated = with_local_engine_key(original)
+
+    assert original["CLIENT_CERT_ENGINE_KEY"] == "ATECCx08:00:09:C0:00"
+    assert updated["CLIENT_CERT_ENGINE_KEY"] == "ATECCx08:00:02:C0:00"

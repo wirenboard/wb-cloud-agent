@@ -2,6 +2,9 @@ UNKNOWN_LINK = "unknown"
 NOCONNECT_LINK = "noconnect"
 
 DEFAULT_PROVIDER_CONF_FILE = "/etc/wb-cloud-agent.conf"
+
+# Config files are world-readable, as a plain write under the default umask would make them.
+DEFAULT_FILE_MODE = 0o644
 PRODUCTION_PROVIDER_NAME = "wirenboard.cloud"
 PROVIDERS_CONF_DIR = "/etc/wb-cloud-agent/providers"
 

@@ -1,7 +1,6 @@
 import json
 import logging
 import shutil
-import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional, Union
@@ -15,7 +14,6 @@ from wb.cloud_agent.constants import (
     CLOUD_AGENT_URL_POSTFIX,
     DEFAULT_PROVIDER_CONF_FILE,
     NOCONNECT_LINK,
-    NOTCONFIGURED_EXIT_CODE,
     PRODUCTION_PROVIDER_NAME,
     PROVIDERS_CONF_DIR,
 )
@@ -185,8 +183,25 @@ def generate_provider_config(provider: str, base_url: str) -> None:
     write_to_file(provider_config_path(provider), json.dumps(conf, indent=4))
 
 
+def _built_in_config() -> dict[str, Any]:
+    """Last-resort values compiled into the agent, used when even the packaged default is damaged."""
+    return {
+        "LOG_LEVEL": AppSettings.log_level,
+        "CLIENT_CERT_ENGINE_KEY": AppSettings.client_cert_engine_key,
+        "CLOUD_BASE_URL": AppSettings.cloud_base_url,
+    }
+
+
 def _packaged_default_config() -> dict[str, Any]:
-    return read_json_config(Path(DEFAULT_PROVIDER_CONF_FILE))
+    try:
+        return read_json_config(Path(DEFAULT_PROVIDER_CONF_FILE))
+    except ConfigError as exc:
+        logging.warning(
+            "Packaged default %s %s, falling back to built-in values",
+            DEFAULT_PROVIDER_CONF_FILE,
+            exc,
+        )
+        return _built_in_config()
 
 
 def recover_provider_config(provider_name: str, reason: str) -> dict[str, Any]:
@@ -284,14 +299,17 @@ def load_providers_data(provider_names: list[str]) -> list[Provider]:
 
     result = []
     for provider_name in provider_names:
-        config_path = Path(f"{PROVIDERS_CONF_DIR}/{provider_name}/wb-cloud-agent.conf")
+        config_path = provider_config_path(provider_name)
         activation_path = Path(f"{APP_DATA_PROVIDERS_DIR}/{provider_name}/activation_link.conf")
 
         try:
             provider_config = read_json_config(config_path)
+            _validate_provider_config(provider_config)
         except ConfigError as exc:
-            print(f"Config {config_path} {exc}")
-            sys.exit(NOTCONFIGURED_EXIT_CODE)
+            # the CLI is how users meet a damaged config (CLOUD-592), so repair it here too
+            if isinstance(exc, ConfigReadError) and not config_path.is_file():
+                raise
+            provider_config = recover_provider_config(provider_name, str(exc))
 
         if activation_path.exists():
             provider_activation_link = read_plaintext_config(activation_path)

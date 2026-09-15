@@ -269,14 +269,9 @@ def test_load_providers_data_no_activation_link(tmp_path):
 
 
 def test_load_providers_data_missing_config(tmp_path):
+    """A non-production provider has no packaged default to fall back on; main() maps this to status 6."""
     providers_conf_dir = tmp_path / "conf" / "providers"
 
-    with (
-        patch("wb.cloud_agent.settings.PROVIDERS_CONF_DIR", str(providers_conf_dir)),
-        patch("builtins.print") as mock_print,
-    ):
-        with pytest.raises(SystemExit) as exc_info:
+    with patch("wb.cloud_agent.settings.PROVIDERS_CONF_DIR", str(providers_conf_dir)):
+        with pytest.raises(ConfigError, match="recovery is limited to"):
             load_providers_data(["nonexistent"])
-
-        assert exc_info.value.code == 6
-        mock_print.assert_called_once()

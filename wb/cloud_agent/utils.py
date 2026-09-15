@@ -16,11 +16,16 @@ from tabulate import tabulate
 
 from wb.cloud_agent.constants import (
     DEFAULT_ENGINE_KEY_PREFIX,
+    DEFAULT_FILE_MODE,
     DEVICE_TREE_COMPATIBLE_PATH,
     ENGINE_KEY_PATTERN,
     WB6_DEVICE_TREE_COMPATIBLE,
     WB6_ENGINE_KEY_PREFIX,
 )
+
+if TYPE_CHECKING:
+    from wb.cloud_agent.mqtt import MQTTCloudAgent
+    from wb.cloud_agent.settings import Provider
 
 
 class ConfigError(Exception):
@@ -42,11 +47,6 @@ def config_recovery_lock(config_path: Path):
     finally:
         fcntl.flock(lock_fd, fcntl.LOCK_UN)
         os.close(lock_fd)
-
-
-if TYPE_CHECKING:
-    from wb.cloud_agent.mqtt import MQTTCloudAgent
-    from wb.cloud_agent.settings import Provider
 
 
 @cache
@@ -90,9 +90,6 @@ def read_json_config(config_path: Path) -> dict[str, Any]:
 def read_plaintext_config(config_path: Path) -> str:
     with config_path.open("r", encoding="utf-8") as f:
         return f.readline().strip()
-
-
-DEFAULT_FILE_MODE = 0o644
 
 
 def write_to_file(fpath: Path, contents: str, create_parent: bool = True) -> None:
@@ -148,8 +145,16 @@ def quarantine_broken_file(fpath: Path) -> Path:
 
 
 def _remove_stale_quarantine_copies(fpath: Path, keep: Path) -> None:
-    """Keep only the most recent broken copy so repeated corruption does not fill /etc."""
-    for stale in fpath.parent.glob(f"{fpath.name}.broken-*"):
+    """
+    Keep the oldest and the newest broken copy, drop what is in between.
+
+    The oldest one holds whatever the operator had configured before the first
+    corruption; the newest describes the failure that just happened. Keeping only
+    one of them would either lose the operator's settings or lose the fresh
+    evidence, and keeping all of them would slowly fill /etc.
+    """
+    copies = sorted(fpath.parent.glob(f"{fpath.name}.broken-*"))
+    for stale in copies[1:-1]:
         if stale == keep:
             continue
         try:
@@ -185,9 +190,10 @@ def local_engine_key(value: Any) -> Any:
 
 
 def with_local_engine_key(config: dict[str, Any]) -> dict[str, Any]:
-    if "CLIENT_CERT_ENGINE_KEY" in config:
-        config["CLIENT_CERT_ENGINE_KEY"] = local_engine_key(config["CLIENT_CERT_ENGINE_KEY"])
-    return config
+    """Return a copy of the config with the engine key pointed at this board's bus."""
+    if "CLIENT_CERT_ENGINE_KEY" not in config:
+        return config
+    return {**config, "CLIENT_CERT_ENGINE_KEY": local_engine_key(config["CLIENT_CERT_ENGINE_KEY"])}
 
 
 def start_and_enable_service(service: str, restart: bool = False, timeout: int = 120) -> None:
