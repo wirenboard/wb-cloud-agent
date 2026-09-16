@@ -21,7 +21,6 @@ from wb.cloud_agent.constants import (
 from wb.cloud_agent.utils import (
     ConfigError,
     commit_staged,
-    config_recovery_lock,
     drop_stale_files,
     get_controller_url,
     local_engine_key,
@@ -38,21 +37,6 @@ from wb.cloud_agent.utils import (
 
 def provider_config_path(provider_name: str) -> Path:
     return Path(PROVIDERS_CONF_DIR) / provider_name / "wb-cloud-agent.conf"
-
-
-def _validate_provider_config(config: dict[str, Any]) -> None:
-    """Only CLOUD_BASE_URL is checked, and only when present: configs before 1.6.0 have none."""
-    if "CLOUD_BASE_URL" not in config:
-        return
-    cloud_base_url = config["CLOUD_BASE_URL"]
-    if not isinstance(cloud_base_url, str) or not cloud_base_url.strip():
-        raise ConfigError("has an invalid CLOUD_BASE_URL")
-    try:
-        parsed = urlparse(cloud_base_url)
-    except ValueError as exc:
-        raise ConfigError("has an invalid CLOUD_BASE_URL") from exc
-    if parsed.scheme not in ("http", "https") or not parsed.netloc:
-        raise ConfigError("has an invalid CLOUD_BASE_URL")
 
 
 class AppSettings:  # pylint: disable=too-many-instance-attributes disable=too-few-public-methods
@@ -128,20 +112,13 @@ class AppSettings:  # pylint: disable=too-many-instance-attributes disable=too-f
         )
 
     def apply_conf_file(self) -> None:
-        if not self.recover_configs:
-            conf = read_json_config(self.config_file)
-            self._apply(conf)
-            return
-
         try:
             conf = read_json_config(self.config_file)
-            _validate_provider_config(conf)
         except ConfigError as exc:
+            if not self.recover_configs:
+                raise
             conf = recover_provider_config(self.provider_name, str(exc))
 
-        self._apply(conf)
-
-    def _apply(self, conf: dict[str, Any]) -> None:
         for key, val in conf.items():
             setattr(self, key.lower(), val)
 
@@ -176,7 +153,6 @@ def generate_provider_config(provider: str, base_url: str) -> None:
 
 
 def _built_in_config() -> dict[str, Any]:
-    """Last-resort values compiled into the agent, used when even the packaged default is damaged."""
     return {
         "LOG_LEVEL": AppSettings.log_level,
         "CLIENT_CERT_ENGINE_KEY": AppSettings.client_cert_engine_key,
@@ -186,9 +162,7 @@ def _built_in_config() -> dict[str, Any]:
 
 def _packaged_default_config() -> dict[str, Any]:
     try:
-        config = read_json_config(Path(DEFAULT_PROVIDER_CONF_FILE))
-        _validate_provider_config(config)
-        return config
+        return read_json_config(Path(DEFAULT_PROVIDER_CONF_FILE))
     except ConfigError as exc:
         logging.warning(
             "Packaged default %s %s, falling back to built-in values",
@@ -209,31 +183,22 @@ def recover_provider_config(provider_name: str, reason: str) -> dict[str, Any]:
         raise ConfigError(f"{config_path} is not a regular file")
 
     real = resolve_through_symlink(config_path)
-    with config_recovery_lock(config_path):
-        drop_stale_files(real)
+    drop_stale_files(real)
 
-        try:
-            current = read_json_config(config_path)
-            _validate_provider_config(current)
-            return current
-        except ConfigError:
-            pass
-
-        # the packaged default may predate 1.6.0 and carry no CLOUD_BASE_URL
-        recovered = with_local_engine_key({**_built_in_config(), **_packaged_default_config()})
-        staged = quarantined = None
-        try:
-            staged = stage_file(real, json.dumps(recovered, indent=4))
-            if real.is_file() and real.stat().st_size > 0:
-                quarantined = quarantine_broken_file(real)
-            commit_staged(staged, real)
-        except OSError as exc:
-            if staged:
-                staged.unlink(missing_ok=True)
-            raise ConfigError(f"cannot rewrite config {config_path}: {exc}") from exc
+    recovered = with_local_engine_key(_built_in_config())
+    staged = quarantined = None
+    try:
+        staged = stage_file(real, json.dumps(recovered, indent=4))
+        if real.is_file() and real.stat().st_size > 0:
+            quarantined = quarantine_broken_file(real)
+        commit_staged(staged, real)
+    except OSError as exc:
+        if staged:
+            staged.unlink(missing_ok=True)
+        raise ConfigError(f"cannot rewrite config {config_path}: {exc}") from exc
 
     logging.warning(
-        "Config %s %s, restored from packaged defaults%s",
+        "Config %s %s, restored to built-in defaults%s",
         config_path,
         reason,
         f", broken file kept as {quarantined.name}" if quarantined else "",

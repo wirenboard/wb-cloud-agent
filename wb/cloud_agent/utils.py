@@ -1,11 +1,9 @@
-import fcntl
 import json
 import logging
 import os
 import re
 import subprocess
 import tempfile
-from contextlib import contextmanager
 from functools import cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -31,23 +29,6 @@ if TYPE_CHECKING:
 
 class ConfigError(Exception):
     """A config file is missing or locally unusable."""
-
-
-@contextmanager
-def config_recovery_lock(config_path: Path):
-    lock_path = config_path.with_name(f".{config_path.name}.lock")
-    try:
-        lock_fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
-    except OSError as exc:
-        raise ConfigError(f"cannot be locked for recovery ({exc})") from exc
-    try:
-        fcntl.flock(lock_fd, fcntl.LOCK_EX)
-        yield
-    except OSError as exc:
-        raise ConfigError(f"cannot be locked for recovery ({exc})") from exc
-    finally:
-        fcntl.flock(lock_fd, fcntl.LOCK_UN)
-        os.close(lock_fd)
 
 
 @cache

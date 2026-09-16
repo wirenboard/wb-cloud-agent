@@ -269,7 +269,7 @@ def test_load_providers_data_no_activation_link(tmp_path):
 
 
 def test_load_providers_data_missing_config(tmp_path):
-    """A non-production provider has no packaged default to fall back on; main() maps this to status 6."""
+    """A non-production provider is never repaired; main() maps this to status 6."""
     providers_conf_dir = tmp_path / "conf" / "providers"
 
     with patch("wb.cloud_agent.settings.PROVIDERS_CONF_DIR", str(providers_conf_dir)):
