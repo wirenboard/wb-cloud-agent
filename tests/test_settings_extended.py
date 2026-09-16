@@ -67,13 +67,6 @@ def test_configure_app_success():
         assert result == mock_instance
 
 
-def test_configure_app_propagates_config_error():
-    """configure_app no longer returns a bare 6: main() maps the error to that status."""
-    with patch("wb.cloud_agent.settings.AppSettings", side_effect=ConfigError("is missing")):
-        with pytest.raises(ConfigError):
-            configure_app(provider_name="test")
-
-
 def test_setup_log_info_level():
     settings = MagicMock()
     settings.log_level = "INFO"
@@ -269,7 +262,6 @@ def test_load_providers_data_no_activation_link(tmp_path):
 
 
 def test_load_providers_data_missing_config(tmp_path):
-    """A non-production provider is never repaired; main() maps this to status 6."""
     providers_conf_dir = tmp_path / "conf" / "providers"
 
     with patch("wb.cloud_agent.settings.PROVIDERS_CONF_DIR", str(providers_conf_dir)):

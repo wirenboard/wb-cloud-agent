@@ -91,9 +91,7 @@ class AppSettings:  # pylint: disable=too-many-instance-attributes disable=too-f
         self.mqtt_prefix: str = f"/devices/system__wb-cloud-agent__{self.provider_name}"
         self.diag_archive: Path = Path("/tmp")
 
-        if not self.skip_conf_file and (
-            self.config_file.exists() or (self.recover_configs and self.config_file.parent.is_dir())
-        ):
+        if not self.skip_conf_file and (self.config_file.exists() or self.recover_configs):
             self.apply_conf_file()
 
         self.client_cert_engine_key = local_engine_key(self.client_cert_engine_key)
@@ -177,8 +175,6 @@ def recover_provider_config(provider_name: str, reason: str) -> dict[str, Any]:
         raise ConfigError(f"{reason}; recovery is limited to {PRODUCTION_PROVIDER_NAME}")
 
     config_path = provider_config_path(provider_name)
-    if not config_path.parent.is_dir():
-        raise ConfigError(f"{config_path} provider directory is missing")
     if config_path.exists() and not config_path.is_file():
         raise ConfigError(f"{config_path} is not a regular file")
 

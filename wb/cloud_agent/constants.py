@@ -3,10 +3,6 @@ NOCONNECT_LINK = "noconnect"
 
 DEFAULT_PROVIDER_CONF_FILE = "/etc/wb-cloud-agent.conf"
 
-DEFAULT_FILE_MODE = 0o644
-
-BROKEN_FIRST_SUFFIX = ".broken-first"
-BROKEN_LAST_SUFFIX = ".broken-last"
 PRODUCTION_PROVIDER_NAME = "wirenboard.cloud"
 PRODUCTION_CLOUD_URL = f"https://{PRODUCTION_PROVIDER_NAME}"
 PROVIDERS_CONF_DIR = "/etc/wb-cloud-agent/providers"

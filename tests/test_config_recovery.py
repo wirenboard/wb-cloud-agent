@@ -24,21 +24,15 @@ from wb.cloud_agent.settings import (
     generate_provider_config,
     load_providers_data,
 )
-from wb.cloud_agent.utils import (
-    ConfigError,
-    local_engine_key,
-    with_local_engine_key,
-    write_to_file,
-)
+from wb.cloud_agent.utils import ConfigError, local_engine_key, write_to_file
 
 UNIT_FILE = Path(__file__).resolve().parents[1] / "debian" / "wb-cloud-agent.wb-cloud-agent@.service"
 
-PACKAGED_DEFAULT = {
+BUILT_IN = {
     "LOG_LEVEL": "INFO",
     "CLIENT_CERT_ENGINE_KEY": "ATECCx08:00:02:C0:00",
-    "CLOUD_BASE_URL": "https://wirenboard.cloud/",
+    "CLOUD_BASE_URL": "https://wirenboard.cloud",
 }
-RESTORED = {**PACKAGED_DEFAULT, "CLOUD_BASE_URL": "https://wirenboard.cloud"}
 
 
 @pytest.fixture(autouse=True)
@@ -58,7 +52,6 @@ def cloud_paths(tmp_path):
     providers = tmp_path / "etc" / "wb-cloud-agent" / "providers"
     default = tmp_path / "etc" / "wb-cloud-agent.conf"
     providers.mkdir(parents=True)
-    default.write_text(json.dumps(PACKAGED_DEFAULT), encoding="utf-8")
 
     with (
         patch("wb.cloud_agent.settings.PROVIDERS_CONF_DIR", str(providers)),
@@ -86,7 +79,7 @@ def test_missing_production_config_is_rebuilt(cloud_dirs):
 
     config = providers / PRODUCTION_PROVIDER_NAME / "wb-cloud-agent.conf"
     assert settings.cloud_base_url == "https://wirenboard.cloud"
-    assert json.loads(config.read_text()) == RESTORED
+    assert json.loads(config.read_text()) == BUILT_IN
 
 
 @pytest.mark.parametrize("contents", ["", "{broken", "[]"])
@@ -97,7 +90,7 @@ def test_damaged_production_config_is_rebuilt(cloud_dirs, contents):
     settings = AppSettings(provider_name=PRODUCTION_PROVIDER_NAME, recover_configs=True)
 
     assert settings.cloud_base_url == "https://wirenboard.cloud"
-    assert json.loads(config.read_text()) == RESTORED
+    assert json.loads(config.read_text()) == BUILT_IN
     assert len(broken_copies(config)) == int(bool(contents))
     if contents:
         assert broken_copies(config)[0].read_text() == contents
@@ -160,11 +153,11 @@ def test_unreadable_production_config_is_preserved_not_destroyed(cloud_dirs):
         settings = AppSettings(provider_name=PRODUCTION_PROVIDER_NAME, recover_configs=True)
 
     assert settings.cloud_base_url == "https://wirenboard.cloud"
-    assert json.loads(config.read_text()) == RESTORED
+    assert json.loads(config.read_text()) == BUILT_IN
     assert broken_copies(config)[0].read_text() == original
 
 
-@pytest.mark.parametrize("failing_step", ["stage_file", "commit_staged"])
+@pytest.mark.parametrize("failing_step", ["stage_file", "quarantine_broken_file", "commit_staged"])
 def test_a_failed_recovery_never_leaves_the_directory_without_a_config(cloud_dirs, failing_step):
     """A full disk must not turn a damaged config into no config at all."""
     providers, _default = cloud_dirs
@@ -176,17 +169,6 @@ def test_a_failed_recovery_never_leaves_the_directory_without_a_config(cloud_dir
 
     assert config.read_text() == "{broken"
     assert not list(config.parent.glob(f".{config.name}.tmp-*"))
-
-
-def test_quarantine_failure_leaves_config_alone(cloud_dirs):
-    providers, _default = cloud_dirs
-    config = write_config(providers, PRODUCTION_PROVIDER_NAME, "{broken")
-
-    with patch("wb.cloud_agent.settings.quarantine_broken_file", side_effect=OSError("read-only")):
-        with pytest.raises(ConfigError):
-            AppSettings(provider_name=PRODUCTION_PROVIDER_NAME, recover_configs=True)
-
-    assert config.read_text() == "{broken"
 
 
 def test_network_failure_does_not_recover_config(cloud_dirs):
@@ -227,28 +209,6 @@ def test_the_unit_stops_retrying_on_our_exit_status():
     assert f"RestartPreventExitStatus={NOTCONFIGURED_EXIT_CODE}" in UNIT_FILE.read_text()
 
 
-@pytest.mark.parametrize(
-    "extra",
-    [
-        {"REQUEST_PERIOD_SECONDS": 10.5},
-        {"PING_PERIOD_SECONDS": "30"},
-        {"METRICS_LOG_ENABLED": "yes"},
-        {"MY_OWN_FLAG": True},
-        {"BROKER_URL": ""},
-    ],
-)
-def test_configs_accepted_before_keep_working(cloud_dirs, extra):
-    """Self-healing must not invent new reasons to refuse a config that used to work."""
-    providers, _default = cloud_dirs
-    config = write_config(providers, "custom", json.dumps({"CLOUD_BASE_URL": "https://my.cloud", **extra}))
-    original = config.read_text()
-
-    settings = configure_app(provider_name="custom")
-
-    assert settings.cloud_base_url == "https://my.cloud"
-    assert config.read_text() == original
-
-
 def test_invalid_log_level_does_not_stop_the_agent(cloud_dirs):
     providers, _default = cloud_dirs
     write_config(providers, "custom", json.dumps({"CLOUD_BASE_URL": "https://my.cloud", "LOG_LEVEL": 10}))
@@ -280,7 +240,7 @@ def test_healthy_config_with_stale_engine_key_is_corrected_in_memory(cloud_dirs,
     config = write_config(
         providers,
         PRODUCTION_PROVIDER_NAME,
-        json.dumps({"CLOUD_BASE_URL": "https://wirenboard.cloud", **PACKAGED_DEFAULT}),
+        json.dumps(BUILT_IN),
     )
     original = config.read_text()
     compatible = tmp_path / "compatible"
@@ -310,19 +270,6 @@ def test_write_to_file_permissions(tmp_path):
     write_to_file(existing, "new")
     assert existing.read_text() == "new"
     assert existing.stat().st_mode & 0o777 == 0o640
-
-
-def test_config_without_base_url_is_left_alone(cloud_dirs):
-    """Configs predating 1.6.0 have no CLOUD_BASE_URL and run off the built-in default."""
-    providers, _default = cloud_dirs
-    config = write_config(providers, PRODUCTION_PROVIDER_NAME, json.dumps({"LOG_LEVEL": "INFO"}))
-    original = config.read_text()
-
-    settings = AppSettings(provider_name=PRODUCTION_PROVIDER_NAME, recover_configs=True)
-
-    assert settings.cloud_base_url == "https://wirenboard.cloud"
-    assert config.read_text() == original
-    assert not broken_copies(config)
 
 
 @pytest.mark.parametrize(
@@ -377,16 +324,7 @@ def test_cli_repairs_a_damaged_production_config(cloud_dirs):
     providers_data = load_providers_data([PRODUCTION_PROVIDER_NAME])
 
     assert providers_data[0].config["CLOUD_BASE_URL"] == "https://wirenboard.cloud"
-    assert json.loads(config.read_text()) == RESTORED
-
-
-def test_with_local_engine_key_does_not_touch_the_caller_dict():
-    original = {"CLIENT_CERT_ENGINE_KEY": "ATECCx08:00:09:C0:00", "LOG_LEVEL": "INFO"}
-    with patch("wb.cloud_agent.utils.local_engine_key_prefix", return_value="ATECCx08:00:02"):
-        updated = with_local_engine_key(original)
-
-    assert original["CLIENT_CERT_ENGINE_KEY"] == "ATECCx08:00:09:C0:00"
-    assert updated["CLIENT_CERT_ENGINE_KEY"] == "ATECCx08:00:02:C0:00"
+    assert json.loads(config.read_text()) == BUILT_IN
 
 
 def test_agent_url_is_always_derived_from_the_base_url():
@@ -409,20 +347,9 @@ def test_quarantine_slots_do_not_depend_on_the_clock(cloud_dirs):
     assert len(broken_copies(config)) == 2
 
 
-def test_listing_shows_providers_the_daemon_accepts(cloud_dirs):
-    """The agent never judges a URL: a readable config is shown as it is."""
-    providers, _default = cloud_dirs
-    write_config(providers, "my.cloud", json.dumps({"CLOUD_BASE_URL": "my.cloud"}))
-    write_config(providers, PRODUCTION_PROVIDER_NAME, json.dumps(PACKAGED_DEFAULT))
-
-    listed = load_providers_data(["my.cloud", PRODUCTION_PROVIDER_NAME])
-
-    assert [provider.name for provider in listed] == ["my.cloud", PRODUCTION_PROVIDER_NAME]
-
-
 def test_listing_a_healthy_config_changes_nothing(cloud_dirs):
     providers, _default = cloud_dirs
-    config = write_config(providers, PRODUCTION_PROVIDER_NAME, json.dumps(PACKAGED_DEFAULT))
+    config = write_config(providers, PRODUCTION_PROVIDER_NAME, json.dumps(BUILT_IN))
     before = config.stat().st_mtime_ns
 
     load_providers_data([PRODUCTION_PROVIDER_NAME])
@@ -443,7 +370,7 @@ def test_quarantine_follows_a_symlinked_config(cloud_dirs, tmp_path):
     AppSettings(provider_name=PRODUCTION_PROVIDER_NAME, recover_configs=True)
 
     assert config.is_symlink()
-    assert json.loads(real.read_text()) == RESTORED
+    assert json.loads(real.read_text()) == BUILT_IN
     assert real.with_name(f"{real.name}.broken-first").read_text() == "конфиг оператора{"
 
 

@@ -88,7 +88,6 @@ def test_read_json_config_invalid_json(tmp_path):
     config_file = tmp_path / "config.json"
     config_file.write_text("{invalid json")
 
-    # the caller decides what to do about it; main() turns this into systemd status 6
     with pytest.raises(ConfigError, match="is not valid JSON"):
         read_json_config(config_file)
 

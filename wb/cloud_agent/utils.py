@@ -12,10 +12,7 @@ from urllib.parse import urljoin
 from tabulate import tabulate
 
 from wb.cloud_agent.constants import (
-    BROKEN_FIRST_SUFFIX,
-    BROKEN_LAST_SUFFIX,
     DEFAULT_ENGINE_KEY_PREFIX,
-    DEFAULT_FILE_MODE,
     DEVICE_TREE_COMPATIBLE_PATH,
     ENGINE_KEY_PATTERN,
     WB6_DEVICE_TREE_COMPATIBLE,
@@ -82,7 +79,7 @@ def stage_file(target: Path, contents: str) -> Path:
     try:
         mode = target.stat().st_mode & 0o7777
     except FileNotFoundError:
-        mode = DEFAULT_FILE_MODE  # mkstemp would otherwise leave the new file at 0600
+        mode = 0o644  # mkstemp would otherwise leave the new file at 0600
 
     fd, tmp_name = tempfile.mkstemp(prefix=f".{target.name}.tmp-", dir=target.parent)
     tmp_path = Path(tmp_name)
@@ -114,9 +111,9 @@ def write_to_file(fpath: Path, contents: str) -> None:
 
 
 def quarantine_broken_file(target: Path) -> Path:
-    first = target.with_name(f"{target.name}{BROKEN_FIRST_SUFFIX}")
+    first = target.with_name(f"{target.name}.broken-first")
     # fixed slots, not timestamps: controllers boot with a wrong clock until NTP catches up
-    quarantined = first if not first.exists() else target.with_name(f"{target.name}{BROKEN_LAST_SUFFIX}")
+    quarantined = first if not first.exists() else target.with_name(f"{target.name}.broken-last")
 
     quarantined.unlink(missing_ok=True)
     os.link(target, quarantined)
