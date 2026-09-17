@@ -46,6 +46,7 @@ class MQTTCloudAgent:  # pylint: disable=too-many-instance-attributes  # connect
         self.authentication_failed = False
         # Set by the first CONNACK: either the broker accepted us or it rejected the login.
         self._connack = threading.Event()
+        self._message_handler = None
 
     def start(self, daemon=False):
         """
@@ -95,7 +96,19 @@ class MQTTCloudAgent:  # pylint: disable=too-many-instance-attributes  # connect
         self.client.unsubscribe("/devices/system/controls/HW Revision")
 
         if self.on_message:
+            # The handler sends the value to the cloud with curl. Paho's network thread must not
+            # wait for that: a slow cloud would stall keepalives and an error would kill the loop.
+            self._message_handler = threading.Thread(
+                target=self._run_message_handler, args=(userdata, message), daemon=True
+            )
+            self._message_handler.start()
+
+    def _run_message_handler(self, userdata, message):
+        try:
             self.on_message(userdata, message)
+        except Exception as exc:  # pylint:disable=broad-exception-caught
+            # Nothing to retry here: the value is sent again on the next connection.
+            logging.error("Cannot handle MQTT message %s: %s", message.topic, exc)
 
     def _on_disconnect(self, _, __, ___):
         self.was_disconnected = True

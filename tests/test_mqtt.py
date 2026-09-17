@@ -135,9 +135,24 @@ def test_on_message(mqtt_cloud_agent):
     mqtt_cloud_agent.on_message = on_message_handler
 
     mqtt_cloud_agent._on_message(None, userdata, message)
+    mqtt_cloud_agent._message_handler.join(1)
 
     mqtt_cloud_agent.client.unsubscribe.assert_called_once_with("/devices/system/controls/HW Revision")
     on_message_handler.assert_called_once_with(userdata, message)
+
+
+def test_on_message_handler_error_is_logged(mqtt_cloud_agent, caplog):
+    """
+    A failing handler must not take paho's network thread down with it.
+    """
+    message = MagicMock(topic="/devices/system/controls/HW Revision")
+    mqtt_cloud_agent.on_message = MagicMock(side_effect=ConnectionError("cloud is down"))
+
+    with caplog.at_level(logging.ERROR):
+        mqtt_cloud_agent._on_message(None, {"settings": MagicMock()}, message)
+        mqtt_cloud_agent._message_handler.join(1)
+
+    assert "Cannot handle MQTT message /devices/system/controls/HW Revision: cloud is down" in caplog.text
 
 
 def test_on_message_without_handler(mqtt_cloud_agent):
