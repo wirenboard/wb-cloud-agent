@@ -1,6 +1,5 @@
 import logging
 import threading
-import time
 from urllib.parse import urlparse
 
 from wb_common.mqtt_client import MQTTClient
@@ -9,7 +8,6 @@ from wb.cloud_agent.settings import AppSettings, get_provider_names
 
 # CONNACK codes for a rejected login: bad user name or password, not authorized
 MQTT_AUTH_ERRORS = (4, 5)
-REMOVE_VDEV_TIMEOUT_S = 5
 
 
 def check_broker_url(broker_url: str) -> None:
@@ -151,16 +149,8 @@ class MQTTCloudAgent:  # pylint: disable=too-many-instance-attributes  # connect
                 f"{self.mqtt_prefix}/controls/{control}/meta",
                 f"{self.mqtt_prefix}/controls/{control}",
             ]
-        try:
-            messages = [self.client.publish(topic, "", retain=True, qos=2) for topic in topics]
-            deadline = time.monotonic() + REMOVE_VDEV_TIMEOUT_S
-            for message in messages:
-                message.wait_for_publish(max(0, deadline - time.monotonic()))
-            if not all(message.is_published() for message in messages):
-                logging.error("MQTT topics were not removed: the broker did not confirm in time")
-        except (RuntimeError, ValueError) as exc:
-            # Paho raises these when the connection is lost while the messages are queued.
-            logging.error("Cannot remove MQTT topics: %s", exc)
+        for topic in topics:
+            self.client.publish(topic, "", retain=True, qos=2)
 
     def publish_ctrl(self, ctrl, value):
         self.client.publish(f"{self.mqtt_prefix}/controls/{ctrl}", value, retain=True, qos=2)
