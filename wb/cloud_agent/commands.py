@@ -43,9 +43,10 @@ def show_providers(_options) -> int:
 
 def settings_for_removal(provider_name: str) -> tuple[AppSettings, bool]:
     try:
-        return configure_app(provider_name=provider_name), True
+        settings = configure_app(provider_name=provider_name)
     except ConfigError:
         return configure_app(provider_name=provider_name, skip_conf_file=True), False
+    return settings, settings.config_file.is_file()
 
 
 def add_provider(options) -> int:

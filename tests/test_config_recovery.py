@@ -118,7 +118,7 @@ def test_custom_provider_is_not_rewritten(cloud_dirs):
     providers, _default = cloud_dirs
     config = write_config(providers, "custom", "{broken")
 
-    with pytest.raises(ConfigError):
+    with pytest.raises(ConfigError, match=r"custom/wb-cloud-agent\.conf is not valid JSON"):
         AppSettings(provider_name="custom", recover_configs=True)
 
     assert config.read_text() == "{broken"
@@ -274,12 +274,15 @@ def test_write_to_file_permissions(tmp_path):
 
 @pytest.mark.parametrize(
     ("contents", "unbound"),
-    [(json.dumps({"LOG_LEVEL": "INFO"}), True), ("{broken", False), ("", False)],
+    [(json.dumps({"LOG_LEVEL": "INFO"}), True), ("{broken", False), ("", False), (None, False)],
 )
 def test_a_provider_can_be_deleted_whatever_its_config(cloud_dirs, contents, unbound):
-    """A damaged config hides the provider's cloud, so the unbind must not go to the built-in one."""
+    """A damaged or missing config hides the provider's cloud, so the unbind must not go to the built-in one."""
     providers, _default = cloud_dirs
-    write_config(providers, "doomed", contents)
+    if contents is None:
+        (providers / "doomed").mkdir()
+    else:
+        write_config(providers, "doomed", contents)
 
     with (
         patch("wb.cloud_agent.commands.MQTTCloudAgent"),
@@ -331,6 +334,33 @@ def test_agent_url_is_always_derived_from_the_base_url():
     settings = AppSettings(provider_name="", skip_conf_file=True, cloud_base_url="https://on-premise.example")
 
     assert settings.cloud_agent_url == "https://agent.on-premise.example/api-agent/v1/"
+
+
+def test_unwritable_directory_reports_not_configured(cloud_dirs):
+    """Injected rather than chmod'ed: the suite also runs as root, who ignores directory modes."""
+    providers, _default = cloud_dirs
+    write_config(providers, PRODUCTION_PROVIDER_NAME, "{broken")
+
+    with patch("wb.cloud_agent.utils.os.open", side_effect=PermissionError(13, "Permission denied")):
+        with pytest.raises(ConfigError, match="cannot be locked"):
+            AppSettings(provider_name=PRODUCTION_PROVIDER_NAME, recover_configs=True)
+
+
+def test_a_repair_finished_by_another_process_is_reused(cloud_dirs):
+    """Whoever wins the lock repairs; the loser must reuse that file, not quarantine a good one."""
+    providers, _default = cloud_dirs
+    config = write_config(providers, PRODUCTION_PROVIDER_NAME, "{broken")
+    repaired = json.dumps({"CLOUD_BASE_URL": "https://repaired.example"})
+
+    def other_process_fixed_it(path):
+        config.write_text(repaired, encoding="utf-8")
+
+    with patch("wb.cloud_agent.settings.drop_stale_files", side_effect=other_process_fixed_it):
+        settings = AppSettings(provider_name=PRODUCTION_PROVIDER_NAME, recover_configs=True)
+
+    assert settings.cloud_base_url == "https://repaired.example"
+    assert config.read_text() == repaired
+    assert not broken_copies(config)
 
 
 def test_quarantine_slots_do_not_depend_on_the_clock(cloud_dirs):

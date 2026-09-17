@@ -195,6 +195,7 @@ def test_del_provider_success(mock_mqtt_cloud_agent):
         patch("wb.cloud_agent.commands.stop_services_and_del_configs") as mock_stop,
     ):
         mock_settings = MagicMock()
+        mock_settings.config_file.is_file.return_value = True
         mock_config.return_value = mock_settings
 
         result = del_provider(options)

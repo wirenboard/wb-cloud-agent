@@ -21,6 +21,7 @@ from wb.cloud_agent.constants import (
 from wb.cloud_agent.utils import (
     ConfigError,
     commit_staged,
+    config_recovery_lock,
     drop_stale_files,
     get_controller_url,
     local_engine_key,
@@ -171,27 +172,33 @@ def _packaged_default_config() -> dict[str, Any]:
 
 
 def recover_provider_config(provider_name: str, reason: str) -> dict[str, Any]:
-    if provider_name != PRODUCTION_PROVIDER_NAME:
-        raise ConfigError(f"{reason}; recovery is limited to {PRODUCTION_PROVIDER_NAME}")
-
     config_path = provider_config_path(provider_name)
+    if provider_name != PRODUCTION_PROVIDER_NAME:
+        raise ConfigError(f"{config_path} {reason}; recovery is limited to {PRODUCTION_PROVIDER_NAME}")
     if config_path.exists() and not config_path.is_file():
         raise ConfigError(f"{config_path} is not a regular file")
 
     real = resolve_through_symlink(config_path)
-    drop_stale_files(real)
+    # the daemon and the CLI both repair; the sweep below must not hit the other one's .tmp
+    with config_recovery_lock(config_path):
+        drop_stale_files(real)
 
-    recovered = with_local_engine_key(_built_in_config())
-    staged = quarantined = None
-    try:
-        staged = stage_file(real, json.dumps(recovered, indent=4))
-        if real.is_file() and real.stat().st_size > 0:
-            quarantined = quarantine_broken_file(real)
-        commit_staged(staged, real)
-    except OSError as exc:
-        if staged:
-            staged.unlink(missing_ok=True)
-        raise ConfigError(f"cannot rewrite config {config_path}: {exc}") from exc
+        try:
+            return read_json_config(config_path)  # repaired while we waited for the lock
+        except ConfigError:
+            pass
+
+        recovered = with_local_engine_key(_built_in_config())
+        staged = quarantined = None
+        try:
+            staged = stage_file(real, json.dumps(recovered, indent=4))
+            if real.is_file() and real.stat().st_size > 0:
+                quarantined = quarantine_broken_file(real)
+            commit_staged(staged, real)
+        except OSError as exc:
+            if staged:
+                staged.unlink(missing_ok=True)
+            raise ConfigError(f"cannot rewrite config {config_path}: {exc}") from exc
 
     logging.warning(
         "Config %s %s, restored to built-in defaults%s",
