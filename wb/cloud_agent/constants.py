@@ -2,7 +2,20 @@ UNKNOWN_LINK = "unknown"
 NOCONNECT_LINK = "noconnect"
 
 DEFAULT_PROVIDER_CONF_FILE = "/etc/wb-cloud-agent.conf"
+
+PRODUCTION_PROVIDER_NAME = "wirenboard.cloud"
+PRODUCTION_CLOUD_URL = f"https://{PRODUCTION_PROVIDER_NAME}"
 PROVIDERS_CONF_DIR = "/etc/wb-cloud-agent/providers"
+
+# systemd status=6/NOTCONFIGURED
+NOTCONFIGURED_EXIT_CODE = 6
+
+# the ATECC chip sits on another I2C bus on WB6 than on WB7/WB8
+DEVICE_TREE_COMPATIBLE_PATH = "/proc/device-tree/compatible"
+WB6_DEVICE_TREE_COMPATIBLE = "contactless,imx6ul-wirenboard60"
+ENGINE_KEY_PATTERN = r"ATECCx08:00:.."
+WB6_ENGINE_KEY_PREFIX = "ATECCx08:00:04"
+DEFAULT_ENGINE_KEY_PREFIX = "ATECCx08:00:02"
 
 APP_DATA_DIR = "/var/lib/wb-cloud-agent"
 APP_DATA_PROVIDERS_DIR = f"{APP_DATA_DIR}/providers"

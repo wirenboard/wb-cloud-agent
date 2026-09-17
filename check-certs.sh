@@ -2,8 +2,6 @@
 
 set -e
 
-AGENT_CONFIG="${1:-/etc/wb-cloud-agent.conf}"
-
 print_bundle_part() {
     awk -v "req_part=$1" '/BEGIN CERT/{c++} c == req_part { print }'
 }
@@ -33,15 +31,4 @@ if [ ! -f "$TARGET_CERT" ] || ! cert_is_valid "$TARGET_CERT"; then
         print_bundle_part 2 < "$ORIGINAL_CERT" > "$TARGET_CERT"
         print_bundle_part 1 < "$ORIGINAL_CERT" >> "$TARGET_CERT"
     fi
-fi
-
-# fix agent config (ATECC path according to device version)
-. /usr/lib/wb-utils/wb_env.sh
-wb_source of
-
-if of_machine_match "contactless,imx6ul-wirenboard60"; then
-    sed -i --follow-symlinks 's/ATECCx08:00:../ATECCx08:00:04/g' "$AGENT_CONFIG"
-else
-    # Both WB7, WB8 have atecc on i2c2
-    sed -i --follow-symlinks 's/ATECCx08:00:../ATECCx08:00:02/g' "$AGENT_CONFIG"
 fi
