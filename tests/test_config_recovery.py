@@ -277,7 +277,7 @@ def test_write_to_file_permissions(tmp_path):
     [(json.dumps({"LOG_LEVEL": "INFO"}), True), ("{broken", False), ("", False), (None, False)],
 )
 def test_a_provider_can_be_deleted_whatever_its_config(cloud_dirs, contents, unbound):
-    """A damaged or missing config hides the provider's cloud, so the unbind must not go to the built-in one."""
+    """A damaged or missing config hides the provider's cloud, so no unbind may be sent."""
     providers, _default = cloud_dirs
     if contents is None:
         (providers / "doomed").mkdir()
@@ -352,7 +352,7 @@ def test_a_repair_finished_by_another_process_is_reused(cloud_dirs):
     config = write_config(providers, PRODUCTION_PROVIDER_NAME, "{broken")
     repaired = json.dumps({"CLOUD_BASE_URL": "https://repaired.example"})
 
-    def other_process_fixed_it(path):
+    def other_process_fixed_it(_path):
         config.write_text(repaired, encoding="utf-8")
 
     with patch("wb.cloud_agent.settings.drop_stale_files", side_effect=other_process_fixed_it):
