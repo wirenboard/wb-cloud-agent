@@ -1,5 +1,7 @@
 # pylint: disable=redefined-outer-name, protected-access
 
+import logging
+import threading
 from unittest.mock import MagicMock, call, patch
 
 import pytest
@@ -27,6 +29,7 @@ def test_mqtt_cloud_agent_init(settings, mock_mqtt_client):
     assert agent.provider_name == settings.provider_name
     assert not agent.controls
     assert agent.was_disconnected is False
+    assert agent.authentication_failed is False
 
     mock_mqtt_client.assert_called_once()
 
@@ -39,35 +42,61 @@ def test_mqtt_cloud_agent_init_with_on_message(settings):
     assert agent.on_message == on_message_handler
 
 
-def test_start_without_update_status(mqtt_cloud_agent):
-    mqtt_cloud_agent.start(update_status=False)
+def test_start_as_tool_connects_once(mqtt_cloud_agent):
+    mqtt_cloud_agent.start()
 
-    mqtt_cloud_agent.client.start.assert_called_once()
+    mqtt_cloud_agent.client.start.assert_called_once_with(retry_first_connection=False)
     mqtt_cloud_agent.client.will_set.assert_not_called()
 
 
-def test_start_with_update_status(mqtt_cloud_agent, settings):
-    mqtt_cloud_agent.start(update_status=True)
+def test_start_as_daemon_sets_will_and_waits_for_broker(mqtt_cloud_agent, settings):
+    mqtt_cloud_agent.start(daemon=True)
 
     mqtt_cloud_agent.client.will_set.assert_called_once_with(
         f"{settings.mqtt_prefix}/controls/status", "stopped", retain=True, qos=2
     )
-    mqtt_cloud_agent.client.start.assert_called_once()
-    mqtt_cloud_agent.client.publish.assert_called_with(
-        f"{settings.mqtt_prefix}/controls/status", "starting", retain=True, qos=2
-    )
+    mqtt_cloud_agent.client.start.assert_called_once_with(retry_first_connection=True)
+    mqtt_cloud_agent.client.publish.assert_not_called()
 
 
 def test_on_connect_successful(mqtt_cloud_agent):
     mqtt_cloud_agent._on_connect(None, None, None, 0)
 
     mqtt_cloud_agent.client.subscribe.assert_called_once_with("/devices/system/controls/HW Revision", qos=2)
+    assert mqtt_cloud_agent.wait_for_connection(threading.Event()) is True
 
 
-def test_on_connect_failure(mqtt_cloud_agent):
+def test_on_connect_failure_keeps_waiting(mqtt_cloud_agent):
+    stop_requested = threading.Event()
+    stop_requested.set()
+
     mqtt_cloud_agent._on_connect(None, None, None, 1)
 
     mqtt_cloud_agent.client.subscribe.assert_not_called()
+    assert mqtt_cloud_agent.authentication_failed is False
+    assert mqtt_cloud_agent.wait_for_connection(stop_requested) is False
+
+
+@pytest.mark.parametrize("reason_code", [4, 5])
+def test_on_connect_rejected_login_at_startup(mqtt_cloud_agent, reason_code):
+    mqtt_cloud_agent._on_connect(None, None, None, reason_code)
+
+    assert mqtt_cloud_agent.authentication_failed is True
+    assert mqtt_cloud_agent.wait_for_connection(threading.Event()) is False
+
+
+def test_on_connect_rejected_login_after_connection_is_retried(mqtt_cloud_agent):
+    mqtt_cloud_agent._on_connect(None, None, None, 0)
+    mqtt_cloud_agent._on_connect(None, None, None, 5)
+
+    assert mqtt_cloud_agent.authentication_failed is False
+    assert mqtt_cloud_agent.wait_for_connection(threading.Event()) is True
+
+
+def test_stop(mqtt_cloud_agent):
+    mqtt_cloud_agent.stop()
+
+    mqtt_cloud_agent.client.stop.assert_called_once_with()
 
 
 def test_on_connect_after_disconnect(mqtt_cloud_agent, settings):
@@ -190,6 +219,16 @@ def test_remove_vdev(mqtt_cloud_agent, settings):
 
     for expected_call in expected_calls:
         assert expected_call in mqtt_cloud_agent.client.publish.call_args_list
+
+
+def test_remove_vdev_without_connection_logs_error(mqtt_cloud_agent, caplog):
+    mqtt_cloud_agent.client.is_connected.return_value = False
+
+    with caplog.at_level(logging.ERROR):
+        mqtt_cloud_agent.remove_vdev()
+
+    mqtt_cloud_agent.client.publish.assert_not_called()
+    assert "Cannot remove MQTT topics: not connected to the broker" in caplog.text
 
 
 def test_publish_ctrl(mqtt_cloud_agent, settings):

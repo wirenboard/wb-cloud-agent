@@ -65,21 +65,30 @@ def test_configure_app_success():
         assert result == mock_instance
 
 
-def test_configure_app_file_not_found():
-    with patch("wb.cloud_agent.settings.AppSettings", side_effect=FileNotFoundError):
-        result = configure_app(provider_name="test")
+@pytest.mark.parametrize(
+    "error", [FileNotFoundError("missing"), PermissionError("denied"), json.JSONDecodeError("msg", "doc", 0)]
+)
+def test_configure_app_unreadable_config_exits_not_configured(error):
+    with patch("wb.cloud_agent.settings.AppSettings", side_effect=error):
+        with pytest.raises(SystemExit) as exit_info:
+            configure_app(provider_name="test")
 
-        assert result == 6
+    assert exit_info.value.code == 6
 
 
-def test_configure_app_json_decode_error():
-    with patch(
-        "wb.cloud_agent.settings.AppSettings",
-        side_effect=json.decoder.JSONDecodeError("msg", "doc", 0),
-    ):
-        result = configure_app(provider_name="test")
+def test_app_settings_config_file_option(tmp_path):
+    config_file = tmp_path / "custom.conf"
+    config_file.write_text(json.dumps({"CLOUD_BASE_URL": "https://custom.cloud.com/"}))
 
-        assert result == 6
+    settings = AppSettings(provider_name="test", config_file=str(config_file))
+
+    assert settings.config_file == config_file
+    assert settings.cloud_base_url == "https://custom.cloud.com"
+
+
+def test_app_settings_required_config_file_missing(tmp_path):
+    with pytest.raises(FileNotFoundError):
+        AppSettings(provider_name="test", config_file=str(tmp_path / "missing.conf"), require_conf_file=True)
 
 
 def test_setup_log_info_level():

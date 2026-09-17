@@ -1,3 +1,14 @@
+wb-cloud-agent (1.9.0) stable; urgency=medium
+
+  * run-daemon: wait for an unavailable MQTT broker, exit 2 on a rejected login or an invalid --broker URL
+  * run-daemon: retry the cloud handshake without limit, stop on SIGTERM/SIGINT with code 0 and clear the MQTT topics
+  * run-daemon: add -c for the provider config, exit 6 when it is missing or malformed
+  * metrics collector: restore MQTT-RPC subscriptions after a broker reconnect, exit 2 on a rejected login,
+    stop on SIGTERM/SIGINT with code 0
+  * systemd: Restart=on-failure and RestartPreventExitStatus=2 6 for the agent and the metrics collector
+
+ -- Ekaterina Volkova <ekaterina.volkova@wirenboard.com>  Thu, 17 Sep 2026 10:51:29 +0000
+
 wb-cloud-agent (1.8.3) stable; urgency=medium
 
   * Keep provider configuration when the controller is deleted in the cloud

@@ -1,11 +1,33 @@
 import logging
+import threading
+import time
+from urllib.parse import urlparse
 
 from wb_common.mqtt_client import MQTTClient
 
 from wb.cloud_agent.settings import AppSettings, get_provider_names
 
+# CONNACK codes for a rejected login: bad user name or password, not authorized
+MQTT_AUTH_ERRORS = (4, 5)
+REMOVE_VDEV_TIMEOUT_S = 5
 
-class MQTTCloudAgent:
+
+def check_broker_url(broker_url: str) -> None:
+    """
+    Raise ValueError for a URL MQTTClient cannot connect to.
+    """
+    url = urlparse(broker_url)
+    if url.scheme == "unix":
+        if not url.path:
+            raise ValueError(f"MQTT broker URL has no socket path: {broker_url}")
+    elif url.scheme in ("tcp", "mqtt-tcp", "ws"):
+        if not url.hostname or not url.port:
+            raise ValueError(f"MQTT broker URL must have a host and a port: {broker_url}")
+    else:
+        raise ValueError(f"Unsupported MQTT broker URL scheme: {broker_url}")
+
+
+class MQTTCloudAgent:  # pylint: disable=too-many-instance-attributes  # connection state is tracked here
     def __init__(self, settings: AppSettings, on_message=None):
         self.mqtt_prefix = settings.mqtt_prefix
         self.on_message = on_message
@@ -21,31 +43,52 @@ class MQTTCloudAgent:
         self.client.on_disconnect = self._on_disconnect
 
         self.was_disconnected = False
+        self.authentication_failed = False
+        # Set by the first CONNACK: either the broker accepted us or it rejected the login.
+        self._connack = threading.Event()
 
-    def start(self, update_status=False):
-        if update_status:
+    def start(self, daemon=False):
+        """
+        Connect to the broker. A daemon gets a Last Will and waits for an unavailable broker.
+        """
+        if daemon:
             self.client.will_set(f"{self.mqtt_prefix}/controls/status", "stopped", retain=True, qos=2)
 
-        self.client.start()
+        self.client.start(retry_first_connection=daemon)
 
-        if update_status:
-            self.publish_ctrl("status", "starting")
+    def wait_for_connection(self, stop_requested: threading.Event) -> bool:
+        """
+        Block until the broker accepts the connection; False if the login was rejected or stop was requested.
+        """
+        while not self._connack.wait(0.1):
+            if stop_requested.is_set():
+                return False
+        return not self.authentication_failed
+
+    def stop(self):
+        self.client.stop()
 
     def _on_connect(self, _client, _userdata, _flags, reason_code, *_):
         # 0: Connection successful
         if reason_code != 0:
             logging.error("Failed to connect: %d. loop_forever() will retry connection", reason_code)
-        else:
-            if self.was_disconnected:
-                self.was_disconnected = False
-                self.publish_vdev()
+            if reason_code in MQTT_AUTH_ERRORS and not self._connack.is_set():
+                # A rejected login at startup is a configuration problem, retrying will not help.
+                self.authentication_failed = True
+                self._connack.set()
+            return
 
-                for control, value in self.controls.items():
-                    self.publish_ctrl(control, value)
+        if self.was_disconnected:
+            self.was_disconnected = False
+            self.publish_vdev()
 
-                self.publish_providers(self.providers)
+            for control, value in self.controls.items():
+                self.publish_ctrl(control, value)
 
-            self.client.subscribe("/devices/system/controls/HW Revision", qos=2)
+            self.publish_providers(self.providers)
+
+        self.client.subscribe("/devices/system/controls/HW Revision", qos=2)
+        self._connack.set()
 
     def _on_message(self, _client, userdata, message):
         assert "settings" in userdata, "No settings in userdata"
@@ -82,14 +125,29 @@ class MQTTCloudAgent:
         )
 
     def remove_vdev(self):
-        self.client.publish(f"{self.mqtt_prefix}/meta/name", "", retain=True, qos=2)
-        self.client.publish(f"{self.mqtt_prefix}/meta/driver", "", retain=True, qos=2)
-        self.client.publish(f"{self.mqtt_prefix}/controls/status/meta", "", retain=True, qos=2)
-        self.client.publish(f"{self.mqtt_prefix}/controls/activation_link/meta", "", retain=True, qos=2)
-        self.client.publish(f"{self.mqtt_prefix}/controls/cloud_base_url/meta", "", retain=True, qos=2)
-        self.client.publish(f"{self.mqtt_prefix}/controls/status", "", retain=True, qos=2)
-        self.client.publish(f"{self.mqtt_prefix}/controls/activation_link", "", retain=True, qos=2)
-        self.client.publish(f"{self.mqtt_prefix}/controls/cloud_base_url", "", retain=True, qos=2)
+        """
+        Clear the retained topics of the virtual device. Must run before stop().
+        """
+        if not self.client.is_connected():
+            logging.error("Cannot remove MQTT topics: not connected to the broker")
+            return
+
+        topics = [f"{self.mqtt_prefix}/meta/name", f"{self.mqtt_prefix}/meta/driver"]
+        for control in ("status", "activation_link", "cloud_base_url"):
+            topics += [
+                f"{self.mqtt_prefix}/controls/{control}/meta",
+                f"{self.mqtt_prefix}/controls/{control}",
+            ]
+        try:
+            messages = [self.client.publish(topic, "", retain=True, qos=2) for topic in topics]
+            deadline = time.monotonic() + REMOVE_VDEV_TIMEOUT_S
+            for message in messages:
+                message.wait_for_publish(max(0, deadline - time.monotonic()))
+            if not all(message.is_published() for message in messages):
+                logging.error("MQTT topics were not removed: the broker did not confirm in time")
+        except (RuntimeError, ValueError) as exc:
+            # Paho raises these when the connection is lost while the messages are queued.
+            logging.error("Cannot remove MQTT topics: %s", exc)
 
     def publish_ctrl(self, ctrl, value):
         self.client.publish(f"{self.mqtt_prefix}/controls/{ctrl}", value, retain=True, qos=2)
