@@ -207,9 +207,9 @@ def run_daemon(options) -> int:
     for signum in (signal.SIGTERM, signal.SIGINT):
         signal.signal(signum, lambda *_: stop_requested.set())
 
-    mqtt = MQTTCloudAgent(settings, on_message)
+    mqtt = MQTTCloudAgent(settings, on_message, stop_requested)
     mqtt.start(daemon=True)
-    if mqtt.wait_for_connection(stop_requested):
+    if mqtt.wait_for_connection():
         _serve_cloud(settings, mqtt, stop_requested)
     if mqtt.authentication_failed:
         mqtt.stop()

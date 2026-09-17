@@ -75,6 +75,16 @@ def test_rejected_login_stops_startup(collector):
     connection.client.start.assert_called_once_with(retry_first_connection=True)
 
 
+def test_rejected_login_after_reconnect_stops_the_loop(collector):
+    connection = collector.MQTTConnection()
+    connection.client.on_connect(connection.client, None, {}, 0)
+
+    connection.client.on_connect(connection.client, None, {}, 5)
+
+    assert connection.login_rejected is True
+    assert collector.STOP_REQUESTED.is_set()
+
+
 def test_stop_request_ends_waiting_for_broker(collector):
     connection = collector.MQTTConnection()
     collector.STOP_REQUESTED.set()

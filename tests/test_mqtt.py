@@ -63,34 +63,37 @@ def test_on_connect_successful(mqtt_cloud_agent):
     mqtt_cloud_agent._on_connect(None, None, None, 0)
 
     mqtt_cloud_agent.client.subscribe.assert_called_once_with("/devices/system/controls/HW Revision", qos=2)
-    assert mqtt_cloud_agent.wait_for_connection(threading.Event()) is True
+    assert mqtt_cloud_agent.wait_for_connection() is True
 
 
-def test_on_connect_failure_keeps_waiting(mqtt_cloud_agent):
+@pytest.mark.usefixtures("mock_mqtt_client")
+def test_on_connect_failure_keeps_waiting_until_stop(settings):
     stop_requested = threading.Event()
+    agent = MQTTCloudAgent(settings, stop_requested=stop_requested)
+
+    agent._on_connect(None, None, None, 1)
     stop_requested.set()
 
-    mqtt_cloud_agent._on_connect(None, None, None, 1)
-
-    mqtt_cloud_agent.client.subscribe.assert_not_called()
-    assert mqtt_cloud_agent.authentication_failed is False
-    assert mqtt_cloud_agent.wait_for_connection(stop_requested) is False
+    agent.client.subscribe.assert_not_called()
+    assert agent.authentication_failed is False
+    assert agent.wait_for_connection() is False
 
 
 @pytest.mark.parametrize("reason_code", [4, 5])
-def test_on_connect_rejected_login_at_startup(mqtt_cloud_agent, reason_code):
-    mqtt_cloud_agent._on_connect(None, None, None, reason_code)
+@pytest.mark.usefixtures("mock_mqtt_client")
+def test_on_connect_rejected_login_stops_the_daemon(settings, reason_code):
+    """
+    At startup and after a reconnect alike: the login is a configuration problem, code 2.
+    """
+    stop_requested = threading.Event()
+    agent = MQTTCloudAgent(settings, stop_requested=stop_requested)
+    agent._on_connect(None, None, None, 0)
 
-    assert mqtt_cloud_agent.authentication_failed is True
-    assert mqtt_cloud_agent.wait_for_connection(threading.Event()) is False
+    agent._on_connect(None, None, None, reason_code)
 
-
-def test_on_connect_rejected_login_after_connection_is_retried(mqtt_cloud_agent):
-    mqtt_cloud_agent._on_connect(None, None, None, 0)
-    mqtt_cloud_agent._on_connect(None, None, None, 5)
-
-    assert mqtt_cloud_agent.authentication_failed is False
-    assert mqtt_cloud_agent.wait_for_connection(threading.Event()) is True
+    assert agent.authentication_failed is True
+    assert stop_requested.is_set()
+    assert agent.wait_for_connection() is False
 
 
 def test_stop(mqtt_cloud_agent):

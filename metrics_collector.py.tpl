@@ -332,9 +332,11 @@ class MQTTConnection:
             # A new broker session has no subscriptions. Drop the RPC client's cache so its next
             # call subscribes to the reply topic again instead of timing out forever.
             self.rpc.subscribes.clear()
-        elif rc in MQTT_AUTH_ERRORS and not self._connack.is_set():
-            logger.error("MQTT broker rejected the login (CONNACK %s)", rc)
+        elif rc in MQTT_AUTH_ERRORS:
+            # a configuration problem, at startup or after a broker restart: exit with code 2
+            logger.error("MQTT broker rejected the login (CONNACK %s), stopping", rc)
             self.login_rejected = True
+            STOP_REQUESTED.set()
         else:
             logger.error("MQTT connection failed (CONNACK %s), retrying", rc)
             return
@@ -864,7 +866,7 @@ def run_forever() -> int:
             STOP_REQUESTED.wait(sleep_seconds)
     finally:
         connection.stop()
-    return EXIT_SUCCESS
+    return EXIT_INVALIDARGUMENT if connection.login_rejected else EXIT_SUCCESS
 
 
 def _request_stop(signum: int, _frame: Any) -> None:

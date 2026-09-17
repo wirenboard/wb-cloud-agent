@@ -26,7 +26,7 @@ def check_broker_url(broker_url: str) -> None:
 
 
 class MQTTCloudAgent:  # pylint: disable=too-many-instance-attributes  # connection state is tracked here
-    def __init__(self, settings: AppSettings, on_message=None):
+    def __init__(self, settings: AppSettings, on_message=None, stop_requested: threading.Event = None):
         self.mqtt_prefix = settings.mqtt_prefix
         self.on_message = on_message
         self.controls = {}
@@ -44,6 +44,8 @@ class MQTTCloudAgent:  # pylint: disable=too-many-instance-attributes  # connect
         self.authentication_failed = False
         # Set by the first CONNACK: either the broker accepted us or it rejected the login.
         self._connack = threading.Event()
+        # The daemon's stop event: a rejected login ends the daemon through it, at any time.
+        self._stop_requested = stop_requested or threading.Event()
         self._message_handler = None
 
     def start(self, daemon=False):
@@ -55,12 +57,12 @@ class MQTTCloudAgent:  # pylint: disable=too-many-instance-attributes  # connect
 
         self.client.start(retry_first_connection=daemon)
 
-    def wait_for_connection(self, stop_requested: threading.Event) -> bool:
+    def wait_for_connection(self) -> bool:
         """
         Block until the broker accepts the connection; False if the login was rejected or stop was requested.
         """
         while not self._connack.wait(0.1):
-            if stop_requested.is_set():
+            if self._stop_requested.is_set():
                 return False
         return not self.authentication_failed
 
@@ -71,10 +73,11 @@ class MQTTCloudAgent:  # pylint: disable=too-many-instance-attributes  # connect
         # 0: Connection successful
         if reason_code != 0:
             logging.error("Failed to connect: %d. loop_forever() will retry connection", reason_code)
-            if reason_code in MQTT_AUTH_ERRORS and not self._connack.is_set():
-                # A rejected login at startup is a configuration problem, retrying will not help.
+            if reason_code in MQTT_AUTH_ERRORS:
+                # A rejected login is a configuration problem, retrying will not help: exit with code 2.
                 self.authentication_failed = True
                 self._connack.set()
+                self._stop_requested.set()
             return
 
         if self.was_disconnected:
