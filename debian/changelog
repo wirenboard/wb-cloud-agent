@@ -1,3 +1,12 @@
+wb-cloud-agent (1.8.4) stable; urgency=medium
+
+  * Self-heal a damaged wirenboard.cloud provider config from built-in values, keeping the
+    broken file aside
+  * Write configs atomically so an interrupted write cannot truncate them
+  * Pick the ATECC bus in the agent itself; check-certs.sh no longer rewrites configs
+
+ -- Denis Smagin <denis.smagin@wirenboard.com>  Tue, 15 Sep 2026 21:00:00 +0300
+
 wb-cloud-agent (1.8.3) stable; urgency=medium
 
   * Keep provider configuration when the controller is deleted in the cloud
