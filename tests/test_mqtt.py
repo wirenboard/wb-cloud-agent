@@ -63,20 +63,35 @@ def test_on_connect_successful(mqtt_cloud_agent):
     mqtt_cloud_agent._on_connect(None, None, None, 0)
 
     mqtt_cloud_agent.client.subscribe.assert_called_once_with("/devices/system/controls/HW Revision", qos=2)
-    assert mqtt_cloud_agent.wait_for_connection() is True
 
 
 @pytest.mark.usefixtures("mock_mqtt_client")
-def test_on_connect_failure_keeps_waiting_until_stop(settings):
+def test_wait_for_connection_is_the_clients_wait_on_the_daemon_stop_event(settings):
+    """
+    The wait itself lives in wb-common; the agent only hands over the daemon's stop event, so a
+    rejected login (which sets it in _on_connect) or a signal ends the wait.
+    """
+    stop_requested = threading.Event()
+    agent = MQTTCloudAgent(settings, stop_requested=stop_requested)
+    agent.client.wait_for_connection.return_value = False
+
+    assert agent.wait_for_connection() is False
+    agent.client.wait_for_connection.assert_called_once_with(stop_requested)
+
+
+@pytest.mark.usefixtures("mock_mqtt_client")
+def test_on_connect_failure_does_not_stop_the_daemon(settings):
+    """
+    A broker that is not ready yet is retried by paho; only a rejected login is final.
+    """
     stop_requested = threading.Event()
     agent = MQTTCloudAgent(settings, stop_requested=stop_requested)
 
     agent._on_connect(None, None, None, 1)
-    stop_requested.set()
 
     agent.client.subscribe.assert_not_called()
     assert agent.authentication_failed is False
-    assert agent.wait_for_connection() is False
+    assert not stop_requested.is_set()
 
 
 @pytest.mark.parametrize("reason_code", [4, 5])
@@ -93,7 +108,6 @@ def test_on_connect_rejected_login_stops_the_daemon(settings, reason_code):
 
     assert agent.authentication_failed is True
     assert stop_requested.is_set()
-    assert agent.wait_for_connection() is False
 
 
 def test_stop(mqtt_cloud_agent):

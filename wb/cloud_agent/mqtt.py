@@ -42,8 +42,6 @@ class MQTTCloudAgent:  # pylint: disable=too-many-instance-attributes  # connect
 
         self.was_disconnected = False
         self.authentication_failed = False
-        # Set by the first CONNACK: either the broker accepted us or it rejected the login.
-        self._connack = threading.Event()
         # The daemon's stop event: a rejected login ends the daemon through it, at any time.
         self._stop_requested = stop_requested or threading.Event()
         self._message_handler = None
@@ -61,10 +59,7 @@ class MQTTCloudAgent:  # pylint: disable=too-many-instance-attributes  # connect
         """
         Block until the broker accepts the connection; False if the login was rejected or stop was requested.
         """
-        while not self._connack.wait(0.1):
-            if self._stop_requested.is_set():
-                return False
-        return not self.authentication_failed
+        return self.client.wait_for_connection(self._stop_requested)
 
     def stop(self):
         self.client.stop()
@@ -76,7 +71,6 @@ class MQTTCloudAgent:  # pylint: disable=too-many-instance-attributes  # connect
             if reason_code in MQTT_AUTH_ERRORS:
                 # A rejected login is a configuration problem, retrying will not help: exit with code 2.
                 self.authentication_failed = True
-                self._connack.set()
                 self._stop_requested.set()
             return
 
@@ -90,7 +84,6 @@ class MQTTCloudAgent:  # pylint: disable=too-many-instance-attributes  # connect
             self.publish_providers(self.providers)
 
         self.client.subscribe("/devices/system/controls/HW Revision", qos=2)
-        self._connack.set()
 
     def _on_message(self, _client, userdata, message):
         assert "settings" in userdata, "No settings in userdata"
