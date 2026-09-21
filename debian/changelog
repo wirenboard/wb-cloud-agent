@@ -1,3 +1,9 @@
+wb-cloud-agent (1.8.6) stable; urgency=medium
+
+  * Add shell completions
+
+ -- Nikolay Korotkiy <nikolay.korotkiy@wirenboard.com>  Wed, 30 Sep 2026 18:20:00 +0400
+
 wb-cloud-agent (1.8.5) stable; urgency=medium
 
   * Apply tunnel config changes with `frpc reload` instead of restarting frpc, so open

@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 
+import os
+
 from setuptools import setup
 
 
 def get_version():
-    with open("debian/changelog", "r", encoding="utf-8") as f:
-        return f.readline().split()[1][1:-1].split("~")[0]
+    return os.environ.get("DEB_VERSION", "0.0.0").split("~")[0].replace("-", "+")
 
 
 setup(
@@ -21,4 +22,5 @@ setup(
         "wb.cloud_agent.handlers",
         "wb.cloud_agent.services",
     ],
+    scripts=["wb-cloud-agent"],
 )

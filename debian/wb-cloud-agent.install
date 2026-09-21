@@ -1,5 +1,7 @@
-wb-cloud-agent /usr/bin/
-wb-cloud-agent.conf /etc/
-19wb-cloud-agent /etc/wb-configs.d/
-check-certs.sh /usr/lib/wb-cloud-agent/
-metrics_collector.py.tpl /usr/lib/wb-cloud-agent/
+wb-cloud-agent.conf etc
+19wb-cloud-agent etc/wb-configs.d
+check-certs.sh usr/lib/wb-cloud-agent
+metrics_collector.py.tpl usr/lib/wb-cloud-agent
+completions/*.bash usr/share/bash-completion/completions
+completions/*.fish usr/share/fish/completions
+completions/_* usr/share/zsh/vendor-completions
