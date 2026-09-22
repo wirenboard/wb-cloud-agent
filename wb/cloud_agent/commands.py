@@ -19,12 +19,14 @@ from wb.cloud_agent.services.activation import read_activation_link
 from wb.cloud_agent.services.lifecycle import stop_services_and_del_configs
 from wb.cloud_agent.services.metrics import reconcile_metrics_script
 from wb.cloud_agent.settings import (
+    AppSettings,
     configure_app,
     generate_provider_config,
     get_provider_names,
     load_providers_data,
 )
 from wb.cloud_agent.utils import (
+    ConfigError,
     handle_connection_state,
     normalize_base_url,
     show_providers_table,
@@ -37,6 +39,14 @@ def show_providers(_options) -> int:
     providers = load_providers_data(provider_names)
     show_providers_table(providers)
     return 0
+
+
+def settings_for_removal(provider_name: str) -> tuple[AppSettings, bool]:
+    try:
+        settings = configure_app(provider_name=provider_name)
+    except ConfigError:
+        return configure_app(provider_name=provider_name, skip_conf_file=True), False
+    return settings, settings.config_file.is_file()
 
 
 def add_provider(options) -> int:
@@ -81,7 +91,7 @@ def add_on_premise_provider(options) -> int:
 
 def del_provider(options) -> int:
     provider_name = urlparse(options.provider_name).netloc or options.provider_name
-    settings = configure_app(provider_name=provider_name)
+    settings, cloud_known = settings_for_removal(provider_name)
 
     mqtt = MQTTCloudAgent(settings, on_message)
     mqtt.start()
@@ -91,7 +101,7 @@ def del_provider(options) -> int:
         print(f"Provider {provider_name} does not exists")
         return 1
 
-    stop_services_and_del_configs(settings, provider_name)
+    stop_services_and_del_configs(settings, provider_name, unbind=cloud_known)
     mqtt.update_providers_list()
     return 0
 
@@ -104,12 +114,12 @@ def del_all_providers(_options, show_msg: bool = True) -> int:
         return 1
 
     for provider_name in providers:
-        settings = configure_app(provider_name=provider_name)
+        settings, cloud_known = settings_for_removal(provider_name)
 
         mqtt = MQTTCloudAgent(settings, on_message)
         mqtt.start()
 
-        stop_services_and_del_configs(settings, provider_name)
+        stop_services_and_del_configs(settings, provider_name, unbind=cloud_known)
         mqtt.update_providers_list()
     return 0
 
@@ -120,7 +130,7 @@ def del_controller_from_cloud(options) -> int:
 
 
 def run_daemon(options) -> Optional[int]:
-    settings = configure_app(provider_name=options.provider_name)
+    settings = configure_app(provider_name=options.provider_name, recover_configs=True)
     settings.broker_url = options.broker or settings.broker_url
     logging.info(
         "====== Cloud Agent started (version: %s, provider: %s) ======",

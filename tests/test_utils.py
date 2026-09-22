@@ -1,10 +1,12 @@
 import json
+from subprocess import CalledProcessError
 from unittest.mock import MagicMock
 
 import pytest
 
 from wb.cloud_agent.settings import AppSettings
 from wb.cloud_agent.utils import (
+    ConfigError,
     get_controller_url,
     normalize_base_url,
     parse_headers,
@@ -13,6 +15,7 @@ from wb.cloud_agent.utils import (
     show_providers_table,
     start_and_enable_service,
     stop_and_disable_service,
+    try_stop_and_disable_service,
     write_to_file,
 )
 
@@ -85,10 +88,13 @@ def test_read_json_config_invalid_json(tmp_path):
     config_file = tmp_path / "config.json"
     config_file.write_text("{invalid json")
 
-    with pytest.raises(SystemExit) as exc_info:
+    with pytest.raises(ConfigError, match="is not valid JSON"):
         read_json_config(config_file)
 
-    assert exc_info.value.code == 6
+
+def test_read_json_config_missing(tmp_path):
+    with pytest.raises(ConfigError, match="is missing"):
+        read_json_config(tmp_path / "absent.json")
 
 
 def test_read_plaintext_config(tmp_path):
@@ -163,12 +169,28 @@ def test_stop_and_disable_service(mock_subprocess_run):
     stop_and_disable_service("test.service")
 
     assert mock_subprocess_run.call_count == 2
-    # First call: disable (changed order to prevent process killing itself)
-    disable_call = mock_subprocess_run.call_args_list[0]
-    assert disable_call[0][0] == ["systemctl", "disable", "test.service"]
-    # Second call: stop
-    stop_call = mock_subprocess_run.call_args_list[1]
-    assert stop_call[0][0] == ["systemctl", "stop", "test.service"]
+    assert mock_subprocess_run.call_args_list[0][0][0] == ["systemctl", "stop", "test.service"]
+    assert mock_subprocess_run.call_args_list[1][0][0] == ["systemctl", "disable", "test.service"]
+
+
+def test_try_stop_and_disable_service_disables_after_stop_failure(mock_subprocess_run):
+    mock_subprocess_run.side_effect = [CalledProcessError(1, ["systemctl", "stop"]), MagicMock(returncode=0)]
+
+    try_stop_and_disable_service("test.service")
+
+    assert mock_subprocess_run.call_args_list[1][0][0] == ["systemctl", "disable", "test.service"]
+
+
+def test_try_stop_and_disable_service_swallows_disable_failure(mock_subprocess_run):
+    mock_subprocess_run.side_effect = [
+        MagicMock(returncode=0),
+        CalledProcessError(1, ["systemctl", "disable"]),
+    ]
+
+    try_stop_and_disable_service("test.service")
+
+    assert mock_subprocess_run.call_args_list[0][0][0] == ["systemctl", "stop", "test.service"]
+    assert mock_subprocess_run.call_count == 2
 
 
 def test_show_providers_table_empty(mock_print):
