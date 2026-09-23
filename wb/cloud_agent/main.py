@@ -12,6 +12,7 @@ from wb.cloud_agent.commands import (
     run_daemon,
     show_providers,
 )
+from wb.cloud_agent.mqtt import check_broker_url
 
 
 def parse_args() -> Namespace:
@@ -76,7 +77,18 @@ def parse_args() -> Namespace:
         "provider_name",
         help="Cloud Provider name to run",
     )
-    run_daemon_parser.add_argument("--broker", help="MQTT broker url", required=False)
+    run_daemon_parser.add_argument(
+        "-c",
+        "--config",
+        help=(
+            "Provider config file "
+            "(default: /etc/wb-cloud-agent/providers/<provider_name>/wb-cloud-agent.conf)"
+        ),
+        required=False,
+    )
+    run_daemon_parser.add_argument(
+        "--broker", help="MQTT broker url", required=False, type=validate_broker_url
+    )
     run_daemon_parser.set_defaults(func=run_daemon)
 
     return main_parser.parse_args()
@@ -94,6 +106,14 @@ def validate_provider_name(value: str) -> str:
         raise ArgumentTypeError(
             "Provider name may contain only Latin letters, digits, and ':', '.', '_', '-' characters."
         )
+    return value
+
+
+def validate_broker_url(value: str) -> str:
+    try:
+        check_broker_url(value)
+    except ValueError as exc:
+        raise ArgumentTypeError(str(exc)) from exc
     return value
 
 

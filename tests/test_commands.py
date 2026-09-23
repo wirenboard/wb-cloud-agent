@@ -1,7 +1,10 @@
 # pylint: disable=redefined-outer-name
 
+import logging
+import signal
 import subprocess
 from argparse import Namespace
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -15,7 +18,7 @@ from wb.cloud_agent.commands import (
     run_daemon,
     show_providers,
 )
-from wb.cloud_agent.handlers.curl import CloudNetworkError
+from wb.cloud_agent.handlers.curl import CloudNetworkError, CurlInterrupted
 
 
 @pytest.fixture
@@ -304,130 +307,211 @@ def test_del_controller_from_cloud_success():
         mock_delete.assert_called_once_with(mock_settings)
 
 
-@pytest.mark.usefixtures("mock_mqtt_cloud_agent")
-def test_run_daemon_startup_failure():
-    options = Namespace(provider_name="test", broker=None)
+@pytest.fixture
+def daemon_mqtt(mock_mqtt_cloud_agent):
+    mock_mqtt_cloud_agent.wait_for_connection.return_value = True
+    mock_mqtt_cloud_agent.authentication_failed = False
+    return mock_mqtt_cloud_agent
 
+
+@pytest.fixture
+def daemon_settings():
+    settings = MagicMock()
+    settings.cloud_base_url = "https://example.com"
+    settings.broker_url = "tcp://localhost:1883"
+    settings.request_period_seconds = 0
+    settings.ping_period_seconds = 7
+    with patch("wb.cloud_agent.commands.configure_app", return_value=settings):
+        yield settings
+
+
+@pytest.fixture
+def send_stop():
+    """
+    Capture the daemon's signal handlers; the returned callable delivers SIGTERM to the daemon.
+    """
+    handlers = {}
+    with patch("wb.cloud_agent.commands.signal.signal", side_effect=handlers.__setitem__):
+        yield lambda: handlers[signal.SIGTERM](signal.SIGTERM, None)
+
+
+@pytest.fixture
+def cloud_requests(send_stop):
+    """
+    Cloud handshake succeeds; the first event request asks the daemon to stop.
+    """
     with (
-        patch("wb.cloud_agent.commands.configure_app") as mock_config,
-        patch("wb.cloud_agent.commands.wait_for_cloud_reachable") as mock_wait,
-        patch(
-            "wb.cloud_agent.commands.make_start_up_request",
-            side_effect=CloudNetworkError("Startup failed"),
-        ),
-        patch("wb.cloud_agent.commands.send_packages_version"),
-    ):
-        mock_settings = MagicMock()
-        mock_settings.cloud_base_url = "https://example.com"
-        mock_settings.broker_url = "tcp://localhost:1883"
-        mock_settings.request_period_seconds = 10
-        mock_settings.ping_period_seconds = 7
-        mock_config.return_value = mock_settings
-
-        result = run_daemon(options)
-
-        assert result == 1
-
-        mock_wait.assert_called_once_with(mock_settings.cloud_base_url, mock_settings.ping_period_seconds)
-
-        mock_config.assert_called_once()
-
-
-@pytest.mark.usefixtures("mock_mqtt_cloud_agent")
-def test_run_daemon_with_custom_broker():
-    options = Namespace(provider_name="test", broker="tcp://192.168.1.1:1883")
-
-    with (
-        patch("wb.cloud_agent.commands.configure_app") as mock_config,
-        patch("wb.cloud_agent.commands.wait_for_cloud_reachable"),
-        patch("wb.cloud_agent.commands.make_start_up_request"),
-        patch("wb.cloud_agent.commands.send_packages_version"),
-        patch("wb.cloud_agent.commands.read_activation_link", return_value="http://link"),
-        patch("wb.cloud_agent.commands.make_event_request"),
-        patch("time.sleep", side_effect=KeyboardInterrupt),
-    ):  # Stop the loop
-        mock_settings = MagicMock()
-        mock_settings.cloud_base_url = "https://example.com"
-        mock_settings.broker_url = "tcp://localhost:1883"
-        mock_settings.request_period_seconds = 10
-        mock_config.return_value = mock_settings
-
-        try:
-            run_daemon(options)
-        except KeyboardInterrupt:
-            # Expected interruption to stop the daemon loop during testing.
-            pass
-
-        assert mock_settings.broker_url == "tcp://192.168.1.1:1883"
-
-
-@pytest.mark.usefixtures("mock_mqtt_cloud_agent")
-def test_run_daemon_event_loop_with_timeout():
-    options = Namespace(provider_name="test", broker=None)
-
-    with (
-        patch("wb.cloud_agent.commands.configure_app") as mock_config,
-        patch("wb.cloud_agent.commands.wait_for_cloud_reachable"),
-        patch("wb.cloud_agent.commands.make_start_up_request"),
+        patch("wb.cloud_agent.commands.wait_for_cloud_reachable", return_value=True),
+        patch("wb.cloud_agent.commands.make_start_up_request") as startup,
         patch("wb.cloud_agent.commands.send_packages_version"),
         patch("wb.cloud_agent.commands.read_activation_link", return_value="http://link"),
-        patch("wb.cloud_agent.commands.make_event_request") as mock_event,
-        patch("time.sleep"),
+        patch("wb.cloud_agent.commands.reconcile_metrics_script") as metrics,
+        patch("wb.cloud_agent.commands.make_event_request", side_effect=lambda *_: send_stop()) as events,
     ):
-        mock_settings = MagicMock()
-        mock_settings.cloud_base_url = "https://example.com"
-        mock_settings.broker_url = "tcp://localhost:1883"
-        mock_settings.request_period_seconds = 10
-        mock_config.return_value = mock_settings
+        yield SimpleNamespace(startup=startup, events=events, metrics=metrics)
 
-        mock_event.side_effect = [
+
+DAEMON_OPTIONS = Namespace(provider_name="test", broker=None, config=None)
+
+
+@pytest.mark.usefixtures("daemon_settings")
+def test_run_daemon_stops_on_signal_with_success(daemon_mqtt, cloud_requests):
+    """
+    SIGTERM ends the event loop: the topics are removed, MQTT is stopped and the exit code is 0.
+    """
+    assert run_daemon(DAEMON_OPTIONS) == 0
+
+    daemon_mqtt.start.assert_called_once_with(daemon=True)
+    cloud_requests.events.assert_called_once()
+    daemon_mqtt.remove_vdev.assert_called_once()
+    daemon_mqtt.stop.assert_called_once()
+    statuses = [c.args[1] for c in daemon_mqtt.publish_ctrl.call_args_list if c.args[0] == "status"]
+    assert statuses == ["starting", "connecting", "ok"]
+
+
+@pytest.mark.usefixtures("daemon_settings", "send_stop")
+def test_run_daemon_exits_2_on_rejected_mqtt_login(daemon_mqtt):
+    daemon_mqtt.wait_for_connection.return_value = False
+    daemon_mqtt.authentication_failed = True
+
+    assert run_daemon(DAEMON_OPTIONS) == 2
+
+    daemon_mqtt.remove_vdev.assert_not_called()
+    daemon_mqtt.stop.assert_called_once()
+
+
+@pytest.mark.usefixtures("daemon_settings", "send_stop")
+def test_run_daemon_stop_before_connection_is_success(daemon_mqtt):
+    daemon_mqtt.wait_for_connection.return_value = False
+
+    assert run_daemon(DAEMON_OPTIONS) == 0
+
+    daemon_mqtt.remove_vdev.assert_called_once()
+    daemon_mqtt.stop.assert_called_once()
+
+
+@pytest.mark.usefixtures("send_stop")
+def test_run_daemon_invalid_broker_in_config_is_not_configured(daemon_mqtt, daemon_settings):
+    daemon_settings.broker_url = "mqtt://no-port"
+
+    assert run_daemon(DAEMON_OPTIONS) == 6
+
+    daemon_mqtt.start.assert_not_called()
+
+
+@pytest.mark.usefixtures("daemon_mqtt", "cloud_requests")
+def test_run_daemon_custom_broker_overrides_config(daemon_settings):
+    options = Namespace(provider_name="test", broker="tcp://192.168.1.1:1883", config=None)
+
+    assert run_daemon(options) == 0
+
+    assert daemon_settings.broker_url == "tcp://192.168.1.1:1883"
+
+
+@pytest.mark.usefixtures("daemon_settings")
+@pytest.mark.parametrize(
+    "network_error",
+    [
+        CloudNetworkError("Startup failed"),
+        CurlInterrupted("curl terminated by signal 15"),
+        subprocess.TimeoutExpired("curl", 360),
+    ],
+    ids=["unreachable", "interrupted", "timeout"],
+)
+def test_run_daemon_retries_startup_request_on_network_error(daemon_mqtt, cloud_requests, network_error):
+    """
+    A handshake the cloud did not answer is repeated instead of ending the daemon; the status shows it.
+    """
+    cloud_requests.startup.side_effect = [network_error, None]
+
+    assert run_daemon(DAEMON_OPTIONS) == 0
+
+    assert cloud_requests.startup.call_count == 2
+    daemon_mqtt.publish_ctrl.assert_any_call("status", "Network or Cloud is unreachable! Retrying...")
+
+
+@pytest.mark.usefixtures("daemon_settings")
+@pytest.mark.parametrize(
+    "error",
+    [
+        RuntimeError("Cert /etc/device-bundle.pem and key ATECCx08:00:02:C0:00 seem to be inconsistent"),
+        ValueError("Not a 200 status while making start up request: 403"),
+    ],
+    ids=["curl-58", "bad-response"],
+)
+def test_run_daemon_exits_1_on_rejected_startup_request(daemon_mqtt, cloud_requests, caplog, error):
+    """
+    A handshake the cloud rejected is not retried in process: exit 1 makes systemd restart the unit
+    and run check-certs.sh again. One error line without a traceback, no event loop, no metrics.
+    """
+    cloud_requests.startup.side_effect = error
+
+    with caplog.at_level(logging.ERROR):
+        assert run_daemon(DAEMON_OPTIONS) == 1
+
+    cloud_requests.startup.assert_called_once()
+    cloud_requests.events.assert_not_called()
+    cloud_requests.metrics.assert_not_called()
+    daemon_mqtt.remove_vdev.assert_not_called()
+    daemon_mqtt.stop.assert_called_once()
+    statuses = [c.args[1] for c in daemon_mqtt.publish_ctrl.call_args_list if c.args[0] == "status"]
+    assert statuses == ["starting"]
+    errors = [r for r in caplog.records if r.levelno == logging.ERROR]
+    assert [r.getMessage() for r in errors] == [f"Startup request failed: {error}"]
+    assert errors[0].exc_info is None
+
+
+@pytest.mark.usefixtures("daemon_settings")
+def test_run_daemon_event_loop_reports_errors_then_ok(daemon_mqtt, cloud_requests, send_stop):
+    """
+    Event request errors are published as the status and the loop goes on until it is stopped.
+    """
+    outcomes = iter(
+        [
             subprocess.TimeoutExpired("curl", 360),
-            KeyboardInterrupt(),
-        ]
-
-        try:
-            run_daemon(options)
-        except KeyboardInterrupt:
-            # Expected interruption to stop the daemon loop during testing.
-            pass
-
-        # Should have been called twice
-        assert mock_event.call_count == 2
-
-
-def test_run_daemon_event_loop_with_exception(mock_mqtt_cloud_agent):
-    options = Namespace(provider_name="test", broker=None)
-
-    with (
-        patch("wb.cloud_agent.commands.configure_app") as mock_config,
-        patch("wb.cloud_agent.commands.wait_for_cloud_reachable"),
-        patch("wb.cloud_agent.commands.make_start_up_request"),
-        patch("wb.cloud_agent.commands.send_packages_version"),
-        patch("wb.cloud_agent.commands.read_activation_link", return_value="http://link"),
-        patch("wb.cloud_agent.commands.make_event_request") as mock_event,
-        patch("time.sleep"),
-    ):
-        mock_settings = MagicMock()
-        mock_settings.cloud_base_url = "https://example.com"
-        mock_settings.broker_url = "tcp://localhost:1883"
-        mock_settings.request_period_seconds = 10
-        mock_config.return_value = mock_settings
-
-        # First call: Exception, second call: success and status ok, third: KeyboardInterrupt
-        mock_event.side_effect = [
             CloudNetworkError("Network error"),
+            CurlInterrupted("curl terminated by signal 15"),
             None,
-            KeyboardInterrupt(),
         ]
+    )
 
-        try:
-            run_daemon(options)
-        except KeyboardInterrupt:
-            # Expected interruption to stop the daemon loop during testing.
-            pass
+    def next_event(*_):
+        outcome = next(outcomes)
+        if outcome is None:
+            send_stop()
+            return
+        raise outcome
 
-        # Should publish error status first, then ok status
-        status_calls = [
-            call for call in mock_mqtt_cloud_agent.publish_ctrl.call_args_list if call[0][0] == "status"
-        ]
-        assert len(status_calls) >= 2
+    cloud_requests.events.side_effect = next_event
+
+    assert run_daemon(DAEMON_OPTIONS) == 0
+
+    assert cloud_requests.events.call_count == 4
+    statuses = [c.args[1] for c in daemon_mqtt.publish_ctrl.call_args_list if c.args[0] == "status"]
+    assert statuses[-4:] == [
+        "Request timeout. Retrying...",
+        "Network or Cloud is unreachable! Retrying...",
+        "Request interrupted",
+        "ok",
+    ]
+
+
+@pytest.mark.usefixtures("daemon_settings")
+def test_run_daemon_stop_during_event_request_is_not_an_error(daemon_mqtt, cloud_requests, send_stop, caplog):
+    """
+    systemctl stop delivers SIGTERM to curl as well: the interrupted event request is no exception.
+    """
+
+    def interrupted_by_the_stop(*_):
+        send_stop()
+        raise CurlInterrupted("curl terminated by signal 15")
+
+    cloud_requests.events.side_effect = interrupted_by_the_stop
+
+    with caplog.at_level(logging.INFO):
+        assert run_daemon(DAEMON_OPTIONS) == 0
+
+    assert "Cloud connection exception" not in caplog.text
+    statuses = [c.args[1] for c in daemon_mqtt.publish_ctrl.call_args_list if c.args[0] == "status"]
+    assert "Error making request to cloud! Retrying..." not in statuses
+    assert statuses[-1] == "Request interrupted"

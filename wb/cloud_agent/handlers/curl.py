@@ -16,6 +16,10 @@ class CloudNetworkError(OSError):
     """Network-level error while communicating with the cloud."""
 
 
+class CurlInterrupted(Exception):
+    """curl was terminated by a signal before it answered; on a stop it gets the SIGTERM with the daemon."""
+
+
 def do_curl(  # pylint: disable=too-many-arguments,too-many-positional-arguments
     settings: AppSettings,
     method: str = "get",
@@ -75,6 +79,8 @@ def do_curl(  # pylint: disable=too-many-arguments,too-many-positional-arguments
     try:
         result = subprocess.run(command, input=request_body, timeout=360, check=True, capture_output=True)
     except subprocess.CalledProcessError as e:
+        if e.returncode < 0:
+            raise CurlInterrupted(f"curl terminated by signal {-e.returncode}") from e
         if e.returncode == 58:
             raise RuntimeError(
                 CLIENT_CERT_ERROR_MSG.format(

@@ -1,12 +1,36 @@
 import logging
+import threading
+from urllib.parse import urlparse
 
-from wb_common.mqtt_client import MQTTClient
+from wb_common.mqtt_client import MQTTClient, without_credentials
 
 from wb.cloud_agent.settings import AppSettings, get_provider_names
 
+# CONNACK codes for a rejected login: bad user name or password, not authorized
+MQTT_AUTH_ERRORS = (4, 5)
+REMOVE_VDEV_TIMEOUT_S = 5  # the broker is local: its acknowledgements take milliseconds
 
-class MQTTCloudAgent:
-    def __init__(self, settings: AppSettings, on_message=None):
+
+def check_broker_url(broker_url: str) -> None:
+    """
+    Raise ValueError for a URL MQTTClient cannot connect to.
+
+    The message names the URL without its credentials: it is logged and shown to the user.
+    """
+    url = urlparse(broker_url)
+    shown_url = without_credentials(url)
+    if url.scheme == "unix":
+        if not url.path:
+            raise ValueError(f"MQTT broker URL has no socket path: {shown_url}")
+    elif url.scheme in ("tcp", "mqtt-tcp", "ws"):
+        if not url.hostname or not url.port:
+            raise ValueError(f"MQTT broker URL must have a host and a port: {shown_url}")
+    else:
+        raise ValueError(f"Unsupported MQTT broker URL scheme: {shown_url}")
+
+
+class MQTTCloudAgent:  # pylint: disable=too-many-instance-attributes  # connection state is tracked here
+    def __init__(self, settings: AppSettings, on_message=None, stop_requested: threading.Event = None):
         self.mqtt_prefix = settings.mqtt_prefix
         self.on_message = on_message
         self.controls = {}
@@ -21,38 +45,68 @@ class MQTTCloudAgent:
         self.client.on_disconnect = self._on_disconnect
 
         self.was_disconnected = False
+        self.authentication_failed = False
+        # The daemon's stop event: a rejected login ends the daemon through it, at any time.
+        self._stop_requested = stop_requested or threading.Event()
+        self._message_handler = None
 
-    def start(self, update_status=False):
-        if update_status:
+    def start(self, daemon=False):
+        """
+        Connect to the broker. A daemon gets a Last Will and waits for an unavailable broker.
+        """
+        if daemon:
             self.client.will_set(f"{self.mqtt_prefix}/controls/status", "stopped", retain=True, qos=2)
 
-        self.client.start()
+        self.client.start(retry_first_connection=daemon)
 
-        if update_status:
-            self.publish_ctrl("status", "starting")
+    def wait_for_connection(self) -> bool:
+        """
+        Block until the broker accepts the connection; False if the login was rejected or stop was requested.
+        """
+        return self.client.wait_for_connection(self._stop_requested)
+
+    def stop(self):
+        self.client.stop()
 
     def _on_connect(self, _client, _userdata, _flags, reason_code, *_):
         # 0: Connection successful
         if reason_code != 0:
             logging.error("Failed to connect: %d. loop_forever() will retry connection", reason_code)
-        else:
-            if self.was_disconnected:
-                self.was_disconnected = False
-                self.publish_vdev()
+            if reason_code in MQTT_AUTH_ERRORS:
+                # A rejected login is a configuration problem, retrying will not help: exit with code 2.
+                self.authentication_failed = True
+                self._stop_requested.set()
+            return
 
-                for control, value in self.controls.items():
-                    self.publish_ctrl(control, value)
+        if self.was_disconnected:
+            self.was_disconnected = False
+            self.publish_vdev()
 
-                self.publish_providers(self.providers)
+            for control, value in self.controls.items():
+                self.publish_ctrl(control, value)
 
-            self.client.subscribe("/devices/system/controls/HW Revision", qos=2)
+            self.publish_providers(self.providers)
+
+        self.client.subscribe("/devices/system/controls/HW Revision", qos=2)
 
     def _on_message(self, _client, userdata, message):
         assert "settings" in userdata, "No settings in userdata"
         self.client.unsubscribe("/devices/system/controls/HW Revision")
 
         if self.on_message:
+            # The handler sends the value to the cloud with curl. Paho's network thread must not
+            # wait for that: a slow cloud would stall keepalives and an error would kill the loop.
+            self._message_handler = threading.Thread(
+                target=self._run_message_handler, args=(userdata, message), daemon=True
+            )
+            self._message_handler.start()
+
+    def _run_message_handler(self, userdata, message):
+        try:
             self.on_message(userdata, message)
+        except Exception as exc:  # pylint:disable=broad-exception-caught
+            # Nothing to retry here: the value is sent again on the next connection.
+            logging.error("Cannot handle MQTT message %s: %s", message.topic, exc)
 
     def _on_disconnect(self, _, __, ___):
         self.was_disconnected = True
@@ -82,14 +136,23 @@ class MQTTCloudAgent:
         )
 
     def remove_vdev(self):
-        self.client.publish(f"{self.mqtt_prefix}/meta/name", "", retain=True, qos=2)
-        self.client.publish(f"{self.mqtt_prefix}/meta/driver", "", retain=True, qos=2)
-        self.client.publish(f"{self.mqtt_prefix}/controls/status/meta", "", retain=True, qos=2)
-        self.client.publish(f"{self.mqtt_prefix}/controls/activation_link/meta", "", retain=True, qos=2)
-        self.client.publish(f"{self.mqtt_prefix}/controls/cloud_base_url/meta", "", retain=True, qos=2)
-        self.client.publish(f"{self.mqtt_prefix}/controls/status", "", retain=True, qos=2)
-        self.client.publish(f"{self.mqtt_prefix}/controls/activation_link", "", retain=True, qos=2)
-        self.client.publish(f"{self.mqtt_prefix}/controls/cloud_base_url", "", retain=True, qos=2)
+        """
+        Clear the retained topics of the virtual device. Must run before stop().
+        """
+        if not self.client.is_connected():
+            logging.error("Cannot remove MQTT topics: not connected to the broker")
+            return
+
+        topics = [f"{self.mqtt_prefix}/meta/name", f"{self.mqtt_prefix}/meta/driver"]
+        for control in ("status", "activation_link", "cloud_base_url"):
+            topics += [
+                f"{self.mqtt_prefix}/controls/{control}/meta",
+                f"{self.mqtt_prefix}/controls/{control}",
+            ]
+        for topic in topics:
+            info = self.client.publish(topic, "", retain=True, qos=2)
+        # the broker applies QoS 2 only after the full handshake: wait for the last one before stop()
+        info.wait_for_publish(timeout=REMOVE_VDEV_TIMEOUT_S)
 
     def publish_ctrl(self, ctrl, value):
         self.client.publish(f"{self.mqtt_prefix}/controls/{ctrl}", value, retain=True, qos=2)
