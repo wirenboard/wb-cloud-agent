@@ -1,10 +1,11 @@
 import json
 import logging
+import re
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from wb.cloud_agent.constants import NOCONNECT_LINK
+from wb.cloud_agent.constants import NOCONNECT_LINK, PRODUCTION_PROVIDER_NAME
 from wb.cloud_agent.settings import (
     AppSettings,
     Provider,
@@ -65,6 +66,43 @@ def test_configure_app_success():
         result = configure_app(provider_name="test")
 
         assert result == mock_instance
+
+
+def test_app_settings_config_file_option(tmp_path):
+    config_file = tmp_path / "custom.conf"
+    config_file.write_text(json.dumps({"CLOUD_BASE_URL": "https://custom.cloud.com/"}))
+
+    settings = AppSettings(provider_name="test", config_file=str(config_file))
+
+    assert settings.config_file == config_file
+    assert settings.cloud_base_url == "https://custom.cloud.com"
+
+
+def test_app_settings_required_config_file_missing(tmp_path):
+    missing = tmp_path / "missing.conf"
+
+    with pytest.raises(ConfigError, match=re.escape(f"{missing} is missing")):
+        AppSettings(provider_name="test", config_file=str(missing), require_conf_file=True)
+
+
+@pytest.mark.parametrize("contents", [None, "{broken"], ids=["missing", "damaged"])
+def test_app_settings_explicit_config_file_is_never_recovered(tmp_path, contents):
+    """-c names the operator's own file: recovery only ever rewrites the per-provider path."""
+    config_file = tmp_path / "custom.conf"
+    if contents is not None:
+        config_file.write_text(contents)
+
+    with patch("wb.cloud_agent.settings.recover_provider_config") as recover:
+        with pytest.raises(ConfigError, match=re.escape(str(config_file))):
+            AppSettings(
+                provider_name=PRODUCTION_PROVIDER_NAME,
+                config_file=str(config_file),
+                require_conf_file=True,
+                recover_configs=True,
+            )
+
+    recover.assert_not_called()
+    assert (config_file.read_text() if contents is not None else None) == contents
 
 
 def test_setup_log_info_level():

@@ -1,3 +1,22 @@
+wb-cloud-agent (1.9.0) stable; urgency=medium
+
+  * run-daemon: wait for an unavailable MQTT broker, exit 2 on a rejected login or an invalid --broker URL
+  * run-daemon: retry the cloud handshake without limit while the cloud is unreachable, stop on SIGTERM/SIGINT
+    with code 0 and clear the MQTT topics
+  * run-daemon: add -c for the provider config, exit 6 when it is missing or malformed; a wirenboard.cloud
+    config at the default path is restored instead, a file given with -c never is
+  * metrics collector: restore MQTT-RPC subscriptions after a broker reconnect, exit 2 on a rejected login,
+    stop on SIGTERM/SIGINT with code 0
+  * systemd: Restart=on-failure and RestartPreventExitStatus=2 6 for the agent and the metrics collector
+  * run-daemon: an event request cut short by a signal is retried like a network error instead of
+    being logged with a traceback
+  * Keep the broker credentials out of the config error message
+  * run-daemon: retry only network errors while registering in the cloud; any other start-up failure
+    exits 1 so systemd restarts the agent and check-certs.sh runs again
+  * Require python3-wb-common >= 2.4.0: the daemon waits for an unavailable broker through the shared client
+
+ -- Ekaterina Volkova <ekaterina.volkova@wirenboard.com>  Wed, 23 Sep 2026 07:41:10 +0000
+
 wb-cloud-agent (1.8.4) stable; urgency=medium
 
   * Self-heal a damaged wirenboard.cloud provider config from built-in values, keeping the

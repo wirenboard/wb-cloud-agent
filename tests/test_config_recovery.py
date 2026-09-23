@@ -1,6 +1,7 @@
 import json
 import logging
 from argparse import Namespace
+from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import patch
 
@@ -8,14 +9,15 @@ import pytest
 
 from wb.cloud_agent.commands import del_provider, run_daemon
 from wb.cloud_agent.constants import (
+    EXIT_INVALIDARGUMENT,
+    EXIT_NOTCONFIGURED,
     NOCONNECT_LINK,
-    NOTCONFIGURED_EXIT_CODE,
     PRODUCTION_PROVIDER_NAME,
     UNKNOWN_LINK,
     WB6_DEVICE_TREE_COMPATIBLE,
     WB6_ENGINE_KEY_PREFIX,
 )
-from wb.cloud_agent.handlers.ping import CloudUnreachableError
+from wb.cloud_agent.handlers.curl import CloudNetworkError
 from wb.cloud_agent.main import main
 from wb.cloud_agent.settings import (
     AppSettings,
@@ -58,6 +60,28 @@ def cloud_paths(tmp_path):
         patch("wb.cloud_agent.settings.DEFAULT_PROVIDER_CONF_FILE", str(default)),
     ):
         yield providers, default
+
+
+DAEMON_OPTIONS = Namespace(provider_name=PRODUCTION_PROVIDER_NAME, broker=None, config=None)
+
+
+@contextmanager
+def mocked_mqtt(connected: bool = False):
+    """run_daemon against a mocked MQTT client; unless connected, it reports a stop while connecting."""
+    with (
+        patch("wb.cloud_agent.commands.signal.signal"),
+        patch("wb.cloud_agent.commands.read_activation_link", return_value=UNKNOWN_LINK),
+        patch("wb.cloud_agent.commands.MQTTCloudAgent") as mqtt_class,
+    ):
+        mqtt = mqtt_class.return_value
+        mqtt.wait_for_connection.return_value = connected
+        mqtt.authentication_failed = False
+        yield mqtt
+
+
+def main_with(options: Namespace) -> int:
+    with patch("wb.cloud_agent.main.parse_args", return_value=Namespace(**vars(options), func=run_daemon)):
+        return main()
 
 
 def write_config(providers: Path, provider: str, contents: str) -> Path:
@@ -176,19 +200,39 @@ def test_network_failure_does_not_recover_config(cloud_dirs):
     config = write_config(
         providers,
         PRODUCTION_PROVIDER_NAME,
-        json.dumps({"CLOUD_BASE_URL": "https://custom.example", "PING_PERIOD_SECONDS": 1}),
+        json.dumps({"CLOUD_BASE_URL": "https://custom.example", "REQUEST_PERIOD_SECONDS": 0}),
     )
     original = config.read_text()
-    options = Namespace(provider_name=PRODUCTION_PROVIDER_NAME, broker=None)
 
-    with patch(
-        "wb.cloud_agent.commands.wait_for_cloud_reachable",
-        side_effect=CloudUnreachableError("offline"),
+    with (
+        mocked_mqtt(connected=True),
+        # reachable once, then a stop is requested while the handshake is being retried
+        patch("wb.cloud_agent.commands.wait_for_cloud_reachable", side_effect=[True, False]),
+        patch("wb.cloud_agent.commands.make_start_up_request", side_effect=CloudNetworkError("offline")),
     ):
-        assert run_daemon(options) == 1
+        assert run_daemon(DAEMON_OPTIONS) == 0
 
     assert config.read_text() == original
     assert not broken_copies(config)
+
+
+def test_daemon_restores_a_missing_production_config_instead_of_exiting_6(cloud_dirs):
+    """The unit starts on the provider directory alone; exit 6 would stop systemd before any repair."""
+    providers, _default = cloud_dirs
+    (providers / PRODUCTION_PROVIDER_NAME).mkdir()
+
+    with mocked_mqtt():
+        assert main_with(DAEMON_OPTIONS) == 0
+
+    assert json.loads((providers / PRODUCTION_PROVIDER_NAME / "wb-cloud-agent.conf").read_text()) == BUILT_IN
+
+
+def test_daemon_exits_6_on_a_missing_custom_config(cloud_dirs):
+    providers, _default = cloud_dirs
+    (providers / "custom").mkdir()
+
+    assert main_with(Namespace(provider_name="custom", broker=None, config=None)) == EXIT_NOTCONFIGURED
+    assert not (providers / "custom" / "wb-cloud-agent.conf").exists()
 
 
 def test_main_turns_unusable_config_into_systemd_status(cloud_dirs):
@@ -196,17 +240,18 @@ def test_main_turns_unusable_config_into_systemd_status(cloud_dirs):
     providers, _default = cloud_dirs
     write_config(providers, "custom", "{broken")
 
-    with patch(
-        "wb.cloud_agent.main.parse_args",
-        return_value=Namespace(func=run_daemon, provider_name="custom", broker=None),
-    ):
-        assert main() == 6
+    assert main_with(Namespace(provider_name="custom", broker=None, config=None)) == 6
 
 
 @pytest.mark.skipif(not UNIT_FILE.is_file(), reason="the packaging tree is not part of the built package")
 def test_the_unit_stops_retrying_on_our_exit_status():
     """The literal above only means anything if the unit keys on the same one."""
-    assert f"RestartPreventExitStatus={NOTCONFIGURED_EXIT_CODE}" in UNIT_FILE.read_text()
+    prevent = [
+        line for line in UNIT_FILE.read_text().splitlines() if line.startswith("RestartPreventExitStatus=")
+    ]
+    assert len(prevent) == 1
+    statuses = prevent[0].split("=", 1)[1].split()
+    assert {str(EXIT_INVALIDARGUMENT), str(EXIT_NOTCONFIGURED)} <= set(statuses)
 
 
 def test_invalid_log_level_does_not_stop_the_agent(cloud_dirs):

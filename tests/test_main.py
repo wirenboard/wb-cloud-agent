@@ -69,6 +69,31 @@ def test_main_with_run_daemon(monkeypatch):
 
         assert result == 0
         mock_run.assert_called_once()
+        options = mock_run.call_args.args[0]
+        assert (options.provider_name, options.config, options.broker) == ("test_provider", None, None)
+
+
+def test_main_with_run_daemon_config_and_broker(monkeypatch):
+    monkeypatch.setattr(
+        "sys.argv",
+        ["wb-cloud-agent", "run-daemon", "-c", "/tmp/custom.conf", "--broker", "tcp://host:1883", "test"],
+    )
+
+    with patch("wb.cloud_agent.main.run_daemon", return_value=0) as mock_run:
+        main()
+
+    options = mock_run.call_args.args[0]
+    assert (options.config, options.broker) == ("/tmp/custom.conf", "tcp://host:1883")
+
+
+@pytest.mark.parametrize("broker", ["mqtt://host:1883", "tcp://host", "unix://", "localhost:1883"])
+def test_main_rejects_invalid_broker_url(monkeypatch, broker):
+    monkeypatch.setattr("sys.argv", ["wb-cloud-agent", "run-daemon", "--broker", broker, "test"])
+
+    with pytest.raises(SystemExit) as exit_info:
+        main()
+
+    assert exit_info.value.code == 2
 
 
 def test_main_with_cloud_unbind(monkeypatch):

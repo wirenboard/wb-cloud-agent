@@ -9,9 +9,9 @@ ConditionPathIsDirectory=/etc/wb-cloud-agent/providers/%i
 [Service]
 ExecStartPre=/usr/lib/wb-cloud-agent/check-certs.sh
 ExecStart=/usr/bin/wb-cloud-agent run-daemon %i
-Restart=always
+Restart=on-failure
 RestartSec=10
-RestartPreventExitStatus=6
+RestartPreventExitStatus=2 6
 Environment=PYTHONUNBUFFERED=1
 
 [Install]

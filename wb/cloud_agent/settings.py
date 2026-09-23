@@ -71,11 +71,25 @@ class AppSettings:  # pylint: disable=too-many-instance-attributes disable=too-f
     ping_period_seconds: int = 10
     metrics_log_enabled: bool = True
 
-    def __init__(self, /, **kwargs: dict[str, Any]) -> None:
+    def __init__(
+        self, /, config_file: Optional[str] = None, require_conf_file: bool = False, **kwargs: dict[str, Any]
+    ) -> None:
+        """
+        Settings of one provider: the class defaults, then the provider config on top.
+
+        kwargs set the attributes first, provider_name among them. config_file overrides the
+        per-provider path PROVIDERS_CONF_DIR/<provider_name>/wb-cloud-agent.conf. When the file is
+        missing, require_conf_file=True raises ConfigError instead of falling back to the
+        defaults; skip_conf_file=True leaves the file unread either way. recover_configs=True
+        restores a missing or damaged wirenboard.cloud config at the per-provider path, never
+        a file given as config_file.
+        """
         for key, val in kwargs.items():
             setattr(self, key, val)
 
-        self.config_file: Path = provider_config_path(self.provider_name)
+        self.config_file: Path = (
+            Path(config_file) if config_file else provider_config_path(self.provider_name)
+        )
         self.frp_service: str = f"wb-cloud-agent-frpc@{self.provider_name}.service"
         self.metrics_service: str = f"wb-cloud-agent-metrics@{self.provider_name}.service"
         self.frp_config: Path = Path(f"{APP_DATA_PROVIDERS_DIR}/{self.provider_name}/frpc.conf")
@@ -92,7 +106,9 @@ class AppSettings:  # pylint: disable=too-many-instance-attributes disable=too-f
         self.mqtt_prefix: str = f"/devices/system__wb-cloud-agent__{self.provider_name}"
         self.diag_archive: Path = Path("/tmp")
 
-        if not self.skip_conf_file and (self.config_file.exists() or self.recover_configs):
+        if not self.skip_conf_file and (
+            self.config_file.exists() or require_conf_file or self.recover_configs
+        ):
             self.apply_conf_file()
 
         self.client_cert_engine_key = local_engine_key(self.client_cert_engine_key)
@@ -114,8 +130,8 @@ class AppSettings:  # pylint: disable=too-many-instance-attributes disable=too-f
         try:
             conf = read_json_config(self.config_file)
         except ConfigError as exc:
-            if not self.recover_configs:
-                raise
+            if not self.recover_configs or self.config_file != provider_config_path(self.provider_name):
+                raise ConfigError(f"{self.config_file} {exc}") from exc
             conf = recover_provider_config(self.provider_name, str(exc))
 
         for key, val in conf.items():

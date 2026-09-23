@@ -1,14 +1,17 @@
 UNKNOWN_LINK = "unknown"
 NOCONNECT_LINK = "noconnect"
 
+# Exit codes from the WB service guideline; 2 and 6 are RestartPreventExitStatus in the units.
+EXIT_SUCCESS = 0
+EXIT_FAILURE = 1
+EXIT_INVALIDARGUMENT = 2
+EXIT_NOTCONFIGURED = 6
+
 DEFAULT_PROVIDER_CONF_FILE = "/etc/wb-cloud-agent.conf"
 
 PRODUCTION_PROVIDER_NAME = "wirenboard.cloud"
 PRODUCTION_CLOUD_URL = f"https://{PRODUCTION_PROVIDER_NAME}"
 PROVIDERS_CONF_DIR = "/etc/wb-cloud-agent/providers"
-
-# systemd status=6/NOTCONFIGURED
-NOTCONFIGURED_EXIT_CODE = 6
 
 # the ATECC chip sits on another I2C bus on WB6 than on WB7/WB8
 DEVICE_TREE_COMPATIBLE_PATH = "/proc/device-tree/compatible"
