@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import logging
 import re
 from argparse import ArgumentParser, ArgumentTypeError, Namespace
 from urllib.parse import urlparse
@@ -12,7 +13,9 @@ from wb.cloud_agent.commands import (
     run_daemon,
     show_providers,
 )
+from wb.cloud_agent.constants import EXIT_NOTCONFIGURED
 from wb.cloud_agent.mqtt import check_broker_url
+from wb.cloud_agent.utils import ConfigError
 
 
 def parse_args() -> Namespace:
@@ -119,4 +122,8 @@ def validate_broker_url(value: str) -> str:
 
 def main() -> int:
     options = parse_args()
-    return options.func(options)
+    try:
+        return options.func(options)
+    except ConfigError as exc:
+        logging.error("Cannot use the provider config: %s", exc)
+        return EXIT_NOTCONFIGURED

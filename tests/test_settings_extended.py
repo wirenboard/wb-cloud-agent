@@ -1,10 +1,11 @@
 import json
 import logging
+import re
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from wb.cloud_agent.constants import NOCONNECT_LINK
+from wb.cloud_agent.constants import NOCONNECT_LINK, PRODUCTION_PROVIDER_NAME
 from wb.cloud_agent.settings import (
     AppSettings,
     Provider,
@@ -15,6 +16,7 @@ from wb.cloud_agent.settings import (
     load_providers_data,
     setup_log,
 )
+from wb.cloud_agent.utils import ConfigError
 
 
 def test_app_settings_with_config_file(tmp_path):
@@ -33,7 +35,8 @@ def test_app_settings_with_config_file(tmp_path):
         "wb.cloud_agent.settings.PROVIDERS_CONF_DIR",
         str(tmp_path / "etc" / "wb-cloud-agent" / "providers"),
     ):
-        settings = AppSettings(provider_name="test")
+        with patch("wb.cloud_agent.utils.local_engine_key_prefix", return_value="ATECCx08:00:04"):
+            settings = AppSettings(provider_name="test")
 
         assert settings.client_cert_engine_key == "ATECCx08:00:04:C0:00"
         assert settings.cloud_base_url == "https://custom.cloud.com"
@@ -65,17 +68,6 @@ def test_configure_app_success():
         assert result == mock_instance
 
 
-@pytest.mark.parametrize(
-    "error", [FileNotFoundError("missing"), PermissionError("denied"), json.JSONDecodeError("msg", "doc", 0)]
-)
-def test_configure_app_unreadable_config_exits_not_configured(error):
-    with patch("wb.cloud_agent.settings.AppSettings", side_effect=error):
-        with pytest.raises(SystemExit) as exit_info:
-            configure_app(provider_name="test")
-
-    assert exit_info.value.code == 6
-
-
 def test_app_settings_config_file_option(tmp_path):
     config_file = tmp_path / "custom.conf"
     config_file.write_text(json.dumps({"CLOUD_BASE_URL": "https://custom.cloud.com/"}))
@@ -87,8 +79,30 @@ def test_app_settings_config_file_option(tmp_path):
 
 
 def test_app_settings_required_config_file_missing(tmp_path):
-    with pytest.raises(FileNotFoundError):
-        AppSettings(provider_name="test", config_file=str(tmp_path / "missing.conf"), require_conf_file=True)
+    missing = tmp_path / "missing.conf"
+
+    with pytest.raises(ConfigError, match=re.escape(f"{missing} is missing")):
+        AppSettings(provider_name="test", config_file=str(missing), require_conf_file=True)
+
+
+@pytest.mark.parametrize("contents", [None, "{broken"], ids=["missing", "damaged"])
+def test_app_settings_explicit_config_file_is_never_recovered(tmp_path, contents):
+    """-c names the operator's own file: recovery only ever rewrites the per-provider path."""
+    config_file = tmp_path / "custom.conf"
+    if contents is not None:
+        config_file.write_text(contents)
+
+    with patch("wb.cloud_agent.settings.recover_provider_config") as recover:
+        with pytest.raises(ConfigError, match=re.escape(str(config_file))):
+            AppSettings(
+                provider_name=PRODUCTION_PROVIDER_NAME,
+                config_file=str(config_file),
+                require_conf_file=True,
+                recover_configs=True,
+            )
+
+    recover.assert_not_called()
+    assert (config_file.read_text() if contents is not None else None) == contents
 
 
 def test_setup_log_info_level():
@@ -288,12 +302,6 @@ def test_load_providers_data_no_activation_link(tmp_path):
 def test_load_providers_data_missing_config(tmp_path):
     providers_conf_dir = tmp_path / "conf" / "providers"
 
-    with (
-        patch("wb.cloud_agent.settings.PROVIDERS_CONF_DIR", str(providers_conf_dir)),
-        patch("builtins.print") as mock_print,
-    ):
-        with pytest.raises(SystemExit) as exc_info:
+    with patch("wb.cloud_agent.settings.PROVIDERS_CONF_DIR", str(providers_conf_dir)):
+        with pytest.raises(ConfigError, match="recovery is limited to"):
             load_providers_data(["nonexistent"])
-
-        assert exc_info.value.code == 6
-        mock_print.assert_called_once()
