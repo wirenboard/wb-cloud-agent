@@ -2,7 +2,7 @@ import logging
 import threading
 from urllib.parse import urlparse
 
-from wb_common.mqtt_client import MQTTClient, without_credentials
+from wb_common.mqtt_client import MQTTClient
 
 from wb.cloud_agent.settings import AppSettings, get_provider_names
 
@@ -15,18 +15,18 @@ def check_broker_url(broker_url: str) -> None:
     """
     Raise ValueError for a URL MQTTClient cannot connect to.
 
-    The message names the URL without its credentials: it is logged and shown to the user.
+    The message does not repeat the URL: it may carry a password, and the message is logged
+    and shown to the user.
     """
     url = urlparse(broker_url)
-    shown_url = without_credentials(url)
     if url.scheme == "unix":
         if not url.path:
-            raise ValueError(f"MQTT broker URL has no socket path: {shown_url}")
+            raise ValueError("MQTT broker URL has no socket path")
     elif url.scheme in ("tcp", "mqtt-tcp", "ws"):
         if not url.hostname or not url.port:
-            raise ValueError(f"MQTT broker URL must have a host and a port: {shown_url}")
+            raise ValueError("MQTT broker URL must have a host and a port")
     else:
-        raise ValueError(f"Unsupported MQTT broker URL scheme: {shown_url}")
+        raise ValueError("Unsupported MQTT broker URL scheme, expected unix, tcp, mqtt-tcp or ws")
 
 
 class MQTTCloudAgent:  # pylint: disable=too-many-instance-attributes  # connection state is tracked here

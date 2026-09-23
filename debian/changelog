@@ -10,7 +10,7 @@ wb-cloud-agent (1.9.0) stable; urgency=medium
   * systemd: Restart=on-failure and RestartPreventExitStatus=2 6 for the agent and the metrics collector
   * run-daemon: an event request cut short by a signal is retried like a network error instead of
     being logged with a traceback
-  * Keep the broker credentials out of the config error message and the journal
+  * Keep the broker credentials out of the config error message
   * run-daemon: retry only network errors while registering in the cloud; any other start-up failure
     exits 1 so systemd restarts the agent and check-certs.sh runs again
   * Require python3-wb-common >= 2.4.0: the daemon waits for an unavailable broker through the shared client

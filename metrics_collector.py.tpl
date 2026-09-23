@@ -31,18 +31,16 @@ import threading
 import time
 from pathlib import Path
 from typing import Any, Callable
-from urllib.parse import urlparse
 
 try:
     from mqttrpc.client import (  # type: ignore[import-not-found]
         TimeoutError as MQTTRPCTimeoutError,
         TMQTTRPCClient,
     )
-    from wb_common.mqtt_client import MQTTClient, without_credentials  # type: ignore[import-not-found]
+    from wb_common.mqtt_client import MQTTClient  # type: ignore[import-not-found]
 except ImportError:  # pragma: no cover - dependencies are installed on controllers
     MQTTClient = None
     TMQTTRPCClient = None
-    without_credentials = None
     # Fallback so `except MQTTRPCTimeoutError` stays valid when the dependency is absent
     # (only happens in unit tests; on controllers the real mqttrpc TimeoutError is used).
     MQTTRPCTimeoutError = TimeoutError
@@ -346,11 +344,7 @@ class MQTTConnection:
 
     def start(self) -> bool:
         """Connect and wait for the broker's answer; False if the login was rejected or a stop was requested."""
-        logger.info(
-            "Connecting to MQTT broker %s (client_id_prefix=%s)",
-            without_credentials(urlparse(BROKER_URL)),
-            CLIENT_ID,
-        )
+        logger.info("Connecting to MQTT broker %s (client_id_prefix=%s)", BROKER_URL, CLIENT_ID)
         self.client.start(retry_first_connection=True)
         while not self._connack.wait(CONNACK_POLL_INTERVAL_SECONDS):
             if STOP_REQUESTED.is_set():

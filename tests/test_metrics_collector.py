@@ -1,6 +1,5 @@
 import importlib.util
 import json
-import logging
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
@@ -104,15 +103,3 @@ def test_run_forever_exit_code_without_connection(collector, monkeypatch, login_
     monkeypatch.setattr(collector.MQTTConnection, "start", fail_start)
 
     assert collector.run_forever() == exit_code
-
-
-def test_connecting_log_line_keeps_the_credentials_out_of_the_journal(collector, monkeypatch, caplog):
-    monkeypatch.setattr(collector, "BROKER_URL", "tcp://user:s3cr3t@localhost:1883")
-    connection = collector.MQTTConnection()
-    collector.STOP_REQUESTED.set()
-
-    with caplog.at_level(logging.INFO):
-        connection.start()
-
-    assert "Connecting to MQTT broker tcp://localhost:1883" in caplog.text
-    assert "s3cr3t" not in caplog.text

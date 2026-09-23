@@ -30,9 +30,8 @@ def test_check_broker_url_keeps_the_credentials_out_of_the_error():
         check_broker_url("tcp://user:s3cr3t@broker.example.com")
 
     message = str(error.value)
-    assert "broker.example.com" in message
     assert "s3cr3t" not in message
-    assert "user:" not in message
+    assert "user" not in message
 
 
 def test_mqtt_cloud_agent_init(settings, mock_mqtt_client):
