@@ -352,7 +352,7 @@ def cloud_requests(send_stop):
         yield SimpleNamespace(startup=startup, events=events, metrics=metrics)
 
 
-DAEMON_OPTIONS = Namespace(provider_name="test", broker=None, config=None)
+DAEMON_OPTIONS = Namespace(provider_name="test", broker=None)
 
 
 @pytest.mark.usefixtures("daemon_settings")
@@ -402,7 +402,7 @@ def test_run_daemon_invalid_broker_in_config_is_not_configured(daemon_mqtt, daem
 
 @pytest.mark.usefixtures("daemon_mqtt", "cloud_requests")
 def test_run_daemon_custom_broker_overrides_config(daemon_settings):
-    options = Namespace(provider_name="test", broker="tcp://192.168.1.1:1883", config=None)
+    options = Namespace(provider_name="test", broker="tcp://192.168.1.1:1883")
 
     assert run_daemon(options) == 0
 

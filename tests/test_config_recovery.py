@@ -62,7 +62,7 @@ def cloud_paths(tmp_path):
         yield providers, default
 
 
-DAEMON_OPTIONS = Namespace(provider_name=PRODUCTION_PROVIDER_NAME, broker=None, config=None)
+DAEMON_OPTIONS = Namespace(provider_name=PRODUCTION_PROVIDER_NAME, broker=None)
 
 
 @contextmanager
@@ -231,7 +231,7 @@ def test_daemon_exits_6_on_a_missing_custom_config(cloud_dirs):
     providers, _default = cloud_dirs
     (providers / "custom").mkdir()
 
-    assert main_with(Namespace(provider_name="custom", broker=None, config=None)) == EXIT_NOTCONFIGURED
+    assert main_with(Namespace(provider_name="custom", broker=None)) == EXIT_NOTCONFIGURED
     assert not (providers / "custom" / "wb-cloud-agent.conf").exists()
 
 
@@ -240,7 +240,7 @@ def test_main_turns_unusable_config_into_systemd_status(cloud_dirs):
     providers, _default = cloud_dirs
     write_config(providers, "custom", "{broken")
 
-    assert main_with(Namespace(provider_name="custom", broker=None, config=None)) == 6
+    assert main_with(Namespace(provider_name="custom", broker=None)) == 6
 
 
 @pytest.mark.skipif(not UNIT_FILE.is_file(), reason="the packaging tree is not part of the built package")

@@ -81,15 +81,6 @@ def parse_args() -> Namespace:
         help="Cloud Provider name to run",
     )
     run_daemon_parser.add_argument(
-        "-c",
-        "--config",
-        help=(
-            "Provider config file "
-            "(default: /etc/wb-cloud-agent/providers/<provider_name>/wb-cloud-agent.conf)"
-        ),
-        required=False,
-    )
-    run_daemon_parser.add_argument(
         "--broker", help="MQTT broker url", required=False, type=validate_broker_url
     )
     run_daemon_parser.set_defaults(func=run_daemon)

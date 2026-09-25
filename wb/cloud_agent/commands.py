@@ -214,12 +214,7 @@ def _serve_cloud(settings, mqtt: MQTTCloudAgent, stop_requested: threading.Event
 def run_daemon(options) -> int:
     # A missing or damaged wirenboard.cloud config at the default path is restored first;
     # any other unusable config raises ConfigError, which main() turns into exit code 6.
-    settings = configure_app(
-        provider_name=options.provider_name,
-        config_file=options.config,
-        require_conf_file=True,
-        recover_configs=True,
-    )
+    settings = configure_app(provider_name=options.provider_name, recover_configs=True)
     settings.broker_url = options.broker or settings.broker_url
     try:
         # --broker is checked by argparse, so an error here comes from the config file
