@@ -141,6 +141,18 @@ def test_update_tunnel_config_restarts_frpc_without_admin_api_yet(
     assert_frpc_restarted(settings, tunnel_mocks)
 
 
+def test_update_tunnel_config_treats_corrupt_config_as_no_admin_api(isolated_provider_runtime, tunnel_mocks):
+    """Битый файл на флеше не должен вечно ронять обработчик: считаем, что admin API нет, и перезаписываем."""
+    settings = isolated_provider_runtime
+    settings.frp_config.write_bytes(b"[common]\nadmin_port = 7110\n\xff\xfe\n")
+
+    update_tunnel_config(settings, {"config": CLOUD_CONFIG, "restart": False}, MagicMock())
+
+    tunnel_mocks["reload"].assert_not_called()
+    assert settings.frp_config.read_text() == with_admin_api(7106)
+    assert_frpc_restarted(settings, tunnel_mocks)
+
+
 def test_update_tunnel_config_takes_next_free_port_after_stopping_frpc(
     isolated_provider_runtime, tunnel_mocks
 ):

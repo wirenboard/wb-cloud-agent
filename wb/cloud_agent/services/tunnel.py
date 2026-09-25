@@ -47,7 +47,9 @@ def _restart_frpc(settings: AppSettings, config: str, previous_port: Optional[in
     reset_failed_service(settings.frp_service)
     port = _free_admin_port(previous_port)
     if port is None:
-        logging.warning("No free port in %s, frpc runs without admin API", FRPC_ADMIN_PORTS)
+        logging.warning(
+            "No free port in %s-%s, frpc runs without admin API", FRPC_ADMIN_PORTS.start, FRPC_ADMIN_PORTS[-1]
+        )
     else:
         config = _with_admin_api(config, port)
     write_to_file(settings.frp_config, config, FRPC_CONFIG_MODE)
@@ -55,10 +57,11 @@ def _restart_frpc(settings: AppSettings, config: str, previous_port: Optional[in
 
 
 def _admin_port(config_path: Path) -> Optional[int]:
-    """Порт admin API работающего frpc — из прошлого конфига, который писал этот же агент."""
+    """Порт admin API работающего frpc — из прошлого конфига, который писал этот же агент.
+    Нечитаемый или битый файл — нет admin API: restart перезапишет его целиком."""
     try:
         match = ADMIN_PORT.search(config_path.read_text(encoding="utf-8"))
-    except OSError:
+    except (OSError, UnicodeDecodeError):
         return None
     return int(match.group(1)) if match else None
 
