@@ -1,3 +1,12 @@
+wb-cloud-agent (1.8.5) stable; urgency=medium
+
+  * Apply tunnel config changes with `frpc reload` instead of restarting frpc, so open
+    cloud sessions survive adding or removing a service; restart stays for new connections
+  * Enable the frpc admin API on the first free localhost port from 7106-7115 (one per provider)
+    and keep frpc.conf root-only
+
+ -- Arseniy Astafev <arseniy.astafev@wirenboard.com>  Fri, 25 Sep 2026 20:34:26 +0300
+
 wb-cloud-agent (1.8.4) stable; urgency=medium
 
   * Self-heal a damaged wirenboard.cloud provider config from built-in values, keeping the

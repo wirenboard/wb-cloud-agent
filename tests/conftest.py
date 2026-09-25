@@ -26,6 +26,27 @@ def isolated_provider_runtime(settings, tmp_path):  # pylint: disable=redefined-
 
 
 @pytest.fixture
+def tunnel_mocks():
+    """Моки применения frpc-конфига: по умолчанию reload проходит, admin-порт свободен."""
+    with (
+        patch("wb.cloud_agent.services.tunnel.stop_service") as stop,
+        patch("wb.cloud_agent.services.tunnel.reset_failed_service") as reset_failed,
+        patch("wb.cloud_agent.services.tunnel.start_and_enable_service") as start,
+        patch("wb.cloud_agent.services.tunnel.reload_frpc", return_value=True) as reload,
+        patch("wb.cloud_agent.services.tunnel.is_port_taken", return_value=False) as port_taken,
+        patch("wb.cloud_agent.services.tunnel.write_activation_link") as write_link,
+    ):
+        yield {
+            "stop": stop,
+            "reset_failed": reset_failed,
+            "start": start,
+            "reload": reload,
+            "port_taken": port_taken,
+            "write_link": write_link,
+        }
+
+
+@pytest.fixture
 def failing_systemctl():
     error = CalledProcessError(1, ["systemctl"])
     with (
