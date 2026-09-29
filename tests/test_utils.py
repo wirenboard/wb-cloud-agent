@@ -1,4 +1,5 @@
 import json
+import socket
 from subprocess import CalledProcessError
 from unittest.mock import MagicMock
 
@@ -8,16 +9,61 @@ from wb.cloud_agent.settings import AppSettings
 from wb.cloud_agent.utils import (
     ConfigError,
     get_controller_url,
+    is_port_taken,
     normalize_base_url,
     parse_headers,
     read_json_config,
     read_plaintext_config,
+    reset_failed_service,
     show_providers_table,
     start_and_enable_service,
     stop_and_disable_service,
     try_stop_and_disable_service,
     write_to_file,
 )
+
+
+def test_is_port_taken():
+    with socket.socket() as listener:
+        listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        listener.bind(("127.0.0.1", 0))
+        listener.listen(1)
+        port = listener.getsockname()[1]
+        assert is_port_taken("127.0.0.1", port) is True
+    assert is_port_taken("127.0.0.1", port) is False
+
+
+def test_is_port_taken_ignores_time_wait():
+    """Сервер закрывает соединение первым и оставляет TIME_WAIT на своём порту — порт не занят."""
+    with socket.socket() as listener:
+        listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        listener.bind(("127.0.0.1", 0))
+        listener.listen(1)
+        port = listener.getsockname()[1]
+        with socket.create_connection(("127.0.0.1", port)) as client:
+            accepted, _ = listener.accept()
+            accepted.close()
+            client.recv(1)
+    assert is_port_taken("127.0.0.1", port) is False
+
+
+def test_reset_failed_service_ignores_failures(mock_subprocess_run):
+    mock_subprocess_run.return_value = MagicMock(returncode=1)
+
+    reset_failed_service("x.service")
+
+    assert mock_subprocess_run.call_args.args[0] == ["systemctl", "reset-failed", "x.service"]
+    assert mock_subprocess_run.call_args.kwargs["check"] is False
+
+
+def test_write_to_file_explicit_mode(tmp_path):
+    target = tmp_path / "secret.conf"
+    target.write_text("old")
+
+    write_to_file(target, "new", 0o600)
+
+    assert target.read_text() == "new"
+    assert target.stat().st_mode & 0o777 == 0o600
 
 
 def test_base_url_to_agent_url(settings: AppSettings):

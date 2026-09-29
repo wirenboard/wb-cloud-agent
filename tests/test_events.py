@@ -41,6 +41,9 @@ def test_make_event_request_update_tunnel_config(settings):
 
     with (
         patch("wb.cloud_agent.services.tunnel.write_to_file") as mock_write,
+        patch("wb.cloud_agent.services.tunnel.stop_service") as mock_stop,
+        patch("wb.cloud_agent.services.tunnel.reset_failed_service"),
+        patch("wb.cloud_agent.services.tunnel.is_port_taken", return_value=False),
         patch("wb.cloud_agent.services.tunnel.start_and_enable_service") as mock_service,
         patch("wb.cloud_agent.services.tunnel.write_activation_link") as mock_link,
         patch("wb.cloud_agent.handlers.events.do_curl") as mock_curl,
@@ -51,6 +54,7 @@ def test_make_event_request_update_tunnel_config(settings):
         make_event_request(settings, mqtt=MagicMock())
 
         mock_write.assert_called_once()
+        mock_stop.assert_called_once()
         mock_service.assert_called_once()
         mock_link.assert_called_once()
         mock_confirm.assert_called_once_with(settings, "event456")
