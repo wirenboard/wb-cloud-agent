@@ -378,7 +378,7 @@ def test_run_daemon_exits_2_on_rejected_mqtt_login(daemon_mqtt):
     assert run_daemon(DAEMON_OPTIONS) == 2
 
     daemon_mqtt.remove_vdev.assert_not_called()
-    daemon_mqtt.stop.assert_called_once()
+    assert [c[0] for c in daemon_mqtt.method_calls][-2:] == ["publish_stopped", "stop"]
 
 
 @pytest.mark.usefixtures("daemon_settings", "send_stop")
@@ -454,7 +454,8 @@ def test_run_daemon_exits_1_on_rejected_startup_request(daemon_mqtt, cloud_reque
     cloud_requests.events.assert_not_called()
     cloud_requests.metrics.assert_not_called()
     daemon_mqtt.remove_vdev.assert_not_called()
-    daemon_mqtt.stop.assert_called_once()
+    # stop() never triggers the Last Will, so the daemon reports the stop before disconnecting
+    assert [c[0] for c in daemon_mqtt.method_calls][-2:] == ["publish_stopped", "stop"]
     statuses = [c.args[1] for c in daemon_mqtt.publish_ctrl.call_args_list if c.args[0] == "status"]
     assert statuses == ["starting"]
     errors = [r for r in caplog.records if r.levelno == logging.ERROR]

@@ -8,7 +8,7 @@ from wb.cloud_agent.settings import AppSettings, get_provider_names
 
 # CONNACK codes for a rejected login: bad user name or password, not authorized
 MQTT_AUTH_ERRORS = (4, 5)
-REMOVE_VDEV_TIMEOUT_S = 5  # the broker is local: its acknowledgements take milliseconds
+ACK_TIMEOUT_S = 5  # the broker is local: its acknowledgements take milliseconds
 
 
 def check_broker_url(broker_url: str) -> None:
@@ -152,7 +152,19 @@ class MQTTCloudAgent:  # pylint: disable=too-many-instance-attributes  # connect
         for topic in topics:
             info = self.client.publish(topic, "", retain=True, qos=2)
         # the broker applies QoS 2 only after the full handshake: wait for the last one before stop()
-        info.wait_for_publish(timeout=REMOVE_VDEV_TIMEOUT_S)
+        info.wait_for_publish(timeout=ACK_TIMEOUT_S)
+
+    def publish_stopped(self):
+        """
+        Publish status "stopped" and wait for the broker to take it. Must run before stop().
+
+        stop() disconnects cleanly, so the broker never sends the Last Will: a daemon that exits
+        with an error has to report the stop itself.
+        """
+        if not self.client.is_connected():
+            return
+        info = self.client.publish(f"{self.mqtt_prefix}/controls/status", "stopped", retain=True, qos=2)
+        info.wait_for_publish(timeout=ACK_TIMEOUT_S)
 
     def publish_ctrl(self, ctrl, value):
         self.client.publish(f"{self.mqtt_prefix}/controls/{ctrl}", value, retain=True, qos=2)

@@ -275,6 +275,23 @@ def test_remove_vdev_without_connection_logs_error(mqtt_cloud_agent, caplog):
     assert "Cannot remove MQTT topics: not connected to the broker" in caplog.text
 
 
+def test_publish_stopped_waits_for_the_broker(mqtt_cloud_agent, settings):
+    mqtt_cloud_agent.publish_stopped()
+
+    mqtt_cloud_agent.client.publish.assert_called_once_with(
+        f"{settings.mqtt_prefix}/controls/status", "stopped", retain=True, qos=2
+    )
+    mqtt_cloud_agent.client.publish.return_value.wait_for_publish.assert_called_once_with(timeout=5)
+
+
+def test_publish_stopped_without_connection_publishes_nothing(mqtt_cloud_agent):
+    mqtt_cloud_agent.client.is_connected.return_value = False
+
+    mqtt_cloud_agent.publish_stopped()
+
+    mqtt_cloud_agent.client.publish.assert_not_called()
+
+
 def test_publish_ctrl(mqtt_cloud_agent, settings):
     mqtt_cloud_agent.publish_ctrl("status", "running")
 

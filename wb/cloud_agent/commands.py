@@ -240,11 +240,13 @@ def run_daemon(options) -> int:
     if mqtt.authentication_failed:
         exit_code = EXIT_INVALIDARGUMENT
     if exit_code != EXIT_SUCCESS:
+        mqtt.publish_stopped()
         mqtt.stop()
         return exit_code
 
     # Only the agent itself can clear its retained topics, so this runs on a requested stop only.
-    # After a crash the topics stay in place and the Last Will marks the status as stopped.
+    # The Last Will marks the status as stopped only when the connection breaks, i.e. after a crash;
+    # every other exit reports its stop itself.
     mqtt.remove_vdev()
     mqtt.stop()
     logging.info("Cloud Agent stopped")
