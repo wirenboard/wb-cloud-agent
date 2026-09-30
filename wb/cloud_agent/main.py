@@ -17,7 +17,7 @@ from wb.cloud_agent.constants import NOTCONFIGURED_EXIT_CODE
 from wb.cloud_agent.utils import ConfigError
 
 
-def parse_args() -> Namespace:
+def get_parser() -> ArgumentParser:
     main_parser = ArgumentParser()
     main_parser.set_defaults(func=show_providers)
 
@@ -82,7 +82,7 @@ def parse_args() -> Namespace:
     run_daemon_parser.add_argument("--broker", help="MQTT broker url", required=False)
     run_daemon_parser.set_defaults(func=run_daemon)
 
-    return main_parser.parse_args()
+    return main_parser
 
 
 def validate_url(value: str) -> str:
@@ -98,6 +98,10 @@ def validate_provider_name(value: str) -> str:
             "Provider name may contain only Latin letters, digits, and ':', '.', '_', '-' characters."
         )
     return value
+
+
+def parse_args() -> Namespace:
+    return get_parser().parse_args()
 
 
 def main() -> int:
