@@ -18,21 +18,15 @@ def check_broker_url(broker_url: str) -> None:
     The message does not repeat the URL: it may carry a password, and the message is logged
     and shown to the user.
     """
-    url = urlparse(broker_url)
-    if url.scheme == "unix":
-        if not url.path:
-            raise ValueError("MQTT broker URL has no socket path")
-    elif url.scheme in ("tcp", "mqtt-tcp", "ws"):
-        try:
-            port = url.port
-        except ValueError:
-            # an unescaped "#", "/" or "?" in the password makes urlparse take a piece of it for
-            # the port, and its own error message quotes that piece: never let it out
-            raise ValueError("MQTT broker URL has an invalid port") from None
-        if not url.hostname or not port:
-            raise ValueError("MQTT broker URL must have a host and a port")
-    else:
-        raise ValueError("Unsupported MQTT broker URL scheme, expected unix, tcp, mqtt-tcp or ws")
+    try:
+        url = urlparse(broker_url)
+        if url.scheme == "unix" and url.path:
+            return
+        if url.scheme in ("tcp", "mqtt-tcp", "ws") and url.hostname and url.port:
+            return
+    except ValueError:
+        pass
+    raise ValueError("MQTT broker URL must be unix:///path or tcp://host:port (also mqtt-tcp://, ws://)")
 
 
 class MQTTCloudAgent:  # pylint: disable=too-many-instance-attributes  # connection state is tracked here
