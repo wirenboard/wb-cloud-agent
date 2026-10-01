@@ -3,12 +3,13 @@ import json
 import logging
 import os
 import re
+import socket
 import subprocess
 import tempfile
 from contextlib import contextmanager
 from functools import cache
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Optional
 from urllib.parse import urljoin
 
 from tabulate import tabulate
@@ -94,11 +95,12 @@ def resolve_through_symlink(fpath: Path) -> Path:
     return fpath.resolve() if fpath.is_symlink() else fpath
 
 
-def stage_file(target: Path, contents: str) -> Path:
-    try:
-        mode = target.stat().st_mode & 0o7777
-    except FileNotFoundError:
-        mode = 0o644  # mkstemp would otherwise leave the new file at 0600
+def stage_file(target: Path, contents: str, mode: Optional[int] = None) -> Path:
+    if mode is None:
+        try:
+            mode = target.stat().st_mode & 0o7777
+        except FileNotFoundError:
+            mode = 0o644  # mkstemp would otherwise leave the new file at 0600
 
     fd, tmp_name = tempfile.mkstemp(prefix=f".{target.name}.tmp-", dir=target.parent)
     tmp_path = Path(tmp_name)
@@ -123,10 +125,10 @@ def commit_staged(staged: Path, target: Path) -> None:
     _fsync_directory(target.parent)
 
 
-def write_to_file(fpath: Path, contents: str) -> None:
+def write_to_file(fpath: Path, contents: str, mode: Optional[int] = None) -> None:
     target = resolve_through_symlink(fpath)
     target.parent.mkdir(parents=True, exist_ok=True)
-    commit_staged(stage_file(target, contents), target)
+    commit_staged(stage_file(target, contents, mode), target)
 
 
 def quarantine_broken_file(target: Path) -> Path:
@@ -213,6 +215,24 @@ def start_and_enable_service(service: str, restart: bool = False, timeout: int =
 def stop_service(service: str, timeout: int = 120) -> None:
     logging.debug("Stopping service %s", service)
     subprocess.run(["systemctl", "stop", service], check=True, timeout=timeout)
+
+
+def reset_failed_service(service: str, timeout: int = 10) -> None:
+    """Сбросить лимит стартов systemd: после StartLimitBurst неудачных запусков `start`
+    отказывает до конца часового окна, даже если причина падений уже устранена."""
+    subprocess.run(["systemctl", "reset-failed", service], check=False, timeout=timeout)
+
+
+def is_port_taken(addr: str, port: int) -> bool:
+    """Пробный bind с SO_REUSEADDR: слушающий сокет даёт EADDRINUSE, а TIME_WAIT от недавних
+    соединений — нет, иначе порт считался бы занятым сразу после `frpc reload`."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            sock.bind((addr, port))
+        except OSError:
+            return True
+    return False
 
 
 def disable_service(service: str, timeout: int = 120) -> None:
