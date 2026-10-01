@@ -232,11 +232,12 @@ def run_daemon(options) -> int:
     for signum in (signal.SIGTERM, signal.SIGINT):
         signal.signal(signum, lambda *_: stop_requested.set())
 
+    # The broker is not needed to serve the cloud: remote diagnostics and tunnels must work while
+    # mosquitto is down. paho keeps connecting in the background, and the state set meanwhile is
+    # published once the broker answers.
     mqtt = MQTTCloudAgent(settings, on_message, stop_requested)
     mqtt.start(daemon=True)
-    exit_code = EXIT_SUCCESS
-    if mqtt.wait_for_connection():
-        exit_code = _serve_cloud(settings, mqtt, stop_requested)
+    exit_code = _serve_cloud(settings, mqtt, stop_requested)
     if mqtt.authentication_failed:
         exit_code = EXIT_INVALIDARGUMENT
     if exit_code != EXIT_SUCCESS:

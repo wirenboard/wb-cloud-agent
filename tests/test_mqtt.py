@@ -22,16 +22,30 @@ def mqtt_cloud_agent(settings, mock_mqtt_client):
     return agent
 
 
-def test_check_broker_url_keeps_the_credentials_out_of_the_error():
+@pytest.mark.parametrize(
+    "broker_url",
+    [
+        "tcp://user:s3cr3t@broker.example.com",
+        "tcp://user:s3cr3t#x@broker.example.com:1883",
+        "tcp://user:s3cr3t/x@broker.example.com:1883",
+        "tcp://user:s3cr3t?x@broker.example.com:1883",
+    ],
+    ids=["no-port", "hash-in-password", "slash-in-password", "question-mark-in-password"],
+)
+def test_check_broker_url_keeps_the_credentials_out_of_the_error(broker_url):
     """
-    The message goes to the journal and to stderr, so a password from the provider config must not be in it.
+    The message goes to the journal and to stderr, so a password from the provider config must not be in
+    it. An unescaped "#", "/" or "?" in the password makes urlparse take a piece of the password for the
+    port and quote it in its own ValueError: that one must not leak through the exception chain either.
     """
     with pytest.raises(ValueError) as error:
-        check_broker_url("tcp://user:s3cr3t@broker.example.com")
+        check_broker_url(broker_url)
 
     message = str(error.value)
     assert "s3cr3t" not in message
     assert "user" not in message
+    assert error.value.__cause__ is None
+    assert error.value.__suppress_context__ or error.value.__context__ is None
 
 
 def test_mqtt_cloud_agent_init(settings, mock_mqtt_client):
@@ -40,7 +54,6 @@ def test_mqtt_cloud_agent_init(settings, mock_mqtt_client):
     assert agent.mqtt_prefix == settings.mqtt_prefix
     assert agent.provider_name == settings.provider_name
     assert not agent.controls
-    assert agent.was_disconnected is False
     assert agent.authentication_failed is False
 
     mock_mqtt_client.assert_called_once()
@@ -78,48 +91,40 @@ def test_on_connect_successful(mqtt_cloud_agent):
 
 
 @pytest.mark.usefixtures("mock_mqtt_client")
-def test_wait_for_connection_is_the_clients_wait_on_the_daemon_stop_event(settings):
-    """
-    The wait itself lives in wb-common; the agent only hands over the daemon's stop event, so a
-    rejected login (which sets it in _on_connect) or a signal ends the wait.
-    """
-    stop_requested = threading.Event()
-    agent = MQTTCloudAgent(settings, stop_requested=stop_requested)
-    agent.client.wait_for_connection.return_value = False
-
-    assert agent.wait_for_connection() is False
-    agent.client.wait_for_connection.assert_called_once_with(stop_requested)
-
-
-@pytest.mark.usefixtures("mock_mqtt_client")
-def test_on_connect_failure_does_not_stop_the_daemon(settings):
+def test_on_connect_failure_does_not_stop_the_daemon(settings, caplog):
     """
     A broker that is not ready yet is retried by paho; only a rejected login is final.
     """
     stop_requested = threading.Event()
     agent = MQTTCloudAgent(settings, stop_requested=stop_requested)
 
-    agent._on_connect(None, None, None, 1)
+    with caplog.at_level(logging.ERROR):
+        agent._on_connect(None, None, None, 1)
 
     agent.client.subscribe.assert_not_called()
     assert agent.authentication_failed is False
     assert not stop_requested.is_set()
+    assert "MQTT connection failed (CONNACK 1), retrying" in caplog.text
 
 
 @pytest.mark.parametrize("reason_code", [4, 5])
 @pytest.mark.usefixtures("mock_mqtt_client")
-def test_on_connect_rejected_login_stops_the_daemon(settings, reason_code):
+def test_on_connect_rejected_login_stops_the_daemon(settings, reason_code, caplog):
     """
     At startup and after a reconnect alike: the login is a configuration problem, code 2.
+    The journal says so; a "retrying" line would contradict the exit that follows.
     """
     stop_requested = threading.Event()
     agent = MQTTCloudAgent(settings, stop_requested=stop_requested)
     agent._on_connect(None, None, None, 0)
 
-    agent._on_connect(None, None, None, reason_code)
+    with caplog.at_level(logging.ERROR):
+        agent._on_connect(None, None, None, reason_code)
 
     assert agent.authentication_failed is True
     assert stop_requested.is_set()
+    assert f"MQTT broker rejected the login (CONNACK {reason_code}), stopping" in caplog.text
+    assert "retry" not in caplog.text
 
 
 def test_stop(mqtt_cloud_agent):
@@ -128,33 +133,60 @@ def test_stop(mqtt_cloud_agent):
     mqtt_cloud_agent.client.stop.assert_called_once_with()
 
 
-def test_on_connect_after_disconnect(mqtt_cloud_agent, settings):
-    mqtt_cloud_agent.was_disconnected = True
+def test_on_connect_publishes_the_current_state(mqtt_cloud_agent, settings):
+    """
+    The first connection and a reconnect alike: the device meta, every control and the providers
+    list go out, so a state set while the broker was down reaches it now.
+    """
     mqtt_cloud_agent.controls = {"status": "running", "activation_link": "http://test"}
     mqtt_cloud_agent.providers = "provider1,provider2"
 
-    with (
-        patch.object(mqtt_cloud_agent, "publish_vdev") as mock_publish_vdev,
-        patch.object(mqtt_cloud_agent, "publish_providers") as mock_publish_providers,
-    ):
-        mqtt_cloud_agent._on_connect(None, None, None, 0)
+    mqtt_cloud_agent._on_connect(None, None, None, 0)
 
-    assert mqtt_cloud_agent.was_disconnected is False
-    mock_publish_vdev.assert_called_once()
-    mock_publish_providers.assert_called_once_with("provider1,provider2")
+    published = mqtt_cloud_agent.client.publish.call_args_list
+    assert call(f"{settings.mqtt_prefix}/meta/driver", "wb-cloud-agent", retain=True, qos=2) in published
+    assert call(f"{settings.mqtt_prefix}/controls/status", "running", retain=True, qos=2) in published
+    assert (
+        call(f"{settings.mqtt_prefix}/controls/activation_link", "http://test", retain=True, qos=2)
+        in published
+    )
+    assert call("/wb-cloud-agent/providers", "provider1,provider2", retain=True, qos=2) in published
 
-    # Check that controls were republished
-    expected_calls = [
-        call(f"{settings.mqtt_prefix}/controls/status", "running", retain=True, qos=2),
-        call(
-            f"{settings.mqtt_prefix}/controls/activation_link",
-            "http://test",
-            retain=True,
-            qos=2,
-        ),
+
+def test_on_connect_without_a_providers_list_leaves_its_topic_alone(mqtt_cloud_agent):
+    """Publishing None would clear the retained list of every provider on the controller."""
+    mqtt_cloud_agent._on_connect(None, None, None, 0)
+
+    topics = [c.args[0] for c in mqtt_cloud_agent.client.publish.call_args_list]
+    assert "/wb-cloud-agent/providers" not in topics
+
+
+def test_state_set_without_a_connection_is_kept_for_the_next_connect(mqtt_cloud_agent, settings):
+    """
+    Nothing is handed to paho while the broker is away: it would queue every status update, some
+    8600 a day, until its message ids run out, and replay them all on connect. The values are
+    remembered instead and published by _on_connect.
+    """
+    mqtt_cloud_agent.client.is_connected.return_value = False
+
+    mqtt_cloud_agent.publish_vdev()
+    mqtt_cloud_agent.publish_ctrl("status", "Network or Cloud is unreachable! Retrying...")
+    mqtt_cloud_agent.publish_ctrl("status", "connecting")
+    mqtt_cloud_agent.publish_providers("provider1")
+
+    mqtt_cloud_agent.client.publish.assert_not_called()
+    assert mqtt_cloud_agent.controls == {"status": "connecting"}
+    assert mqtt_cloud_agent.providers == "provider1"
+
+    mqtt_cloud_agent.client.is_connected.return_value = True
+    mqtt_cloud_agent._on_connect(None, None, None, 0)
+
+    statuses = [
+        c.args[1]
+        for c in mqtt_cloud_agent.client.publish.call_args_list
+        if c.args[0] == f"{settings.mqtt_prefix}/controls/status"
     ]
-    for expected_call in expected_calls:
-        assert expected_call in mqtt_cloud_agent.client.publish.call_args_list
+    assert statuses == ["connecting"]
 
 
 def test_on_message(mqtt_cloud_agent):
@@ -192,14 +224,6 @@ def test_on_message_without_handler(mqtt_cloud_agent):
     mqtt_cloud_agent._on_message(None, userdata, message)
 
     mqtt_cloud_agent.client.unsubscribe.assert_called_once()
-
-
-def test_on_disconnect(mqtt_cloud_agent):
-    mqtt_cloud_agent.was_disconnected = False
-
-    mqtt_cloud_agent._on_disconnect(None, None, None)
-
-    assert mqtt_cloud_agent.was_disconnected is True
 
 
 def test_publish_vdev(mqtt_cloud_agent, settings):

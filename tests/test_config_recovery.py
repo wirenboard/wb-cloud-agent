@@ -28,7 +28,18 @@ from wb.cloud_agent.settings import (
 )
 from wb.cloud_agent.utils import ConfigError, local_engine_key, write_to_file
 
-UNIT_FILE = Path(__file__).resolve().parents[1] / "debian" / "wb-cloud-agent.wb-cloud-agent@.service"
+
+def packaged_file(name: str) -> Path:
+    """
+    A file of the packaging tree: pybuild runs the suite from its build tree inside the source
+    root, so the tree is found by walking up from this file, as test_metrics_collector.py does.
+    """
+    return next(
+        parent / "debian" / name
+        for parent in Path(__file__).resolve().parents
+        if (parent / "debian" / name).is_file()
+    )
+
 
 BUILT_IN = {
     "LOG_LEVEL": "INFO",
@@ -66,15 +77,18 @@ DAEMON_OPTIONS = Namespace(provider_name=PRODUCTION_PROVIDER_NAME, broker=None)
 
 
 @contextmanager
-def mocked_mqtt(connected: bool = False):
-    """run_daemon against a mocked MQTT client; unless connected, it reports a stop while connecting."""
+def mocked_mqtt():
+    """
+    run_daemon against a mocked MQTT client. Unless the test patches the cloud itself, a stop is
+    reported while the daemon waits for the cloud, so no request leaves the test.
+    """
     with (
         patch("wb.cloud_agent.commands.signal.signal"),
         patch("wb.cloud_agent.commands.read_activation_link", return_value=UNKNOWN_LINK),
+        patch("wb.cloud_agent.commands.wait_for_cloud_reachable", return_value=False),
         patch("wb.cloud_agent.commands.MQTTCloudAgent") as mqtt_class,
     ):
         mqtt = mqtt_class.return_value
-        mqtt.wait_for_connection.return_value = connected
         mqtt.authentication_failed = False
         yield mqtt
 
@@ -205,7 +219,7 @@ def test_network_failure_does_not_recover_config(cloud_dirs):
     original = config.read_text()
 
     with (
-        mocked_mqtt(connected=True),
+        mocked_mqtt(),
         # reachable once, then a stop is requested while the handshake is being retried
         patch("wb.cloud_agent.commands.wait_for_cloud_reachable", side_effect=[True, False]),
         patch("wb.cloud_agent.commands.make_start_up_request", side_effect=CloudNetworkError("offline")),
@@ -243,11 +257,19 @@ def test_main_turns_unusable_config_into_systemd_status(cloud_dirs):
     assert main_with(Namespace(provider_name="custom", broker=None)) == 6
 
 
-@pytest.mark.skipif(not UNIT_FILE.is_file(), reason="the packaging tree is not part of the built package")
-def test_the_unit_stops_retrying_on_our_exit_status():
-    """The literal above only means anything if the unit keys on the same one."""
+@pytest.mark.parametrize(
+    "unit", ["wb-cloud-agent.wb-cloud-agent@.service", "wb-cloud-agent.wb-cloud-agent-metrics@.service"]
+)
+def test_the_unit_stops_retrying_on_our_exit_status(unit):
+    """
+    The exit codes only mean anything if the unit keys on the same numbers: a mismatch would put a
+    daemon with a wrong broker password into an endless restart loop. The metrics collector exits
+    with the same code 2 on a rejected login.
+    """
     prevent = [
-        line for line in UNIT_FILE.read_text().splitlines() if line.startswith("RestartPreventExitStatus=")
+        line
+        for line in packaged_file(unit).read_text().splitlines()
+        if line.startswith("RestartPreventExitStatus=")
     ]
     assert len(prevent) == 1
     statuses = prevent[0].split("=", 1)[1].split()

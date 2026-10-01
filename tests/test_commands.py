@@ -310,7 +310,6 @@ def test_del_controller_from_cloud_success():
 
 @pytest.fixture
 def daemon_mqtt(mock_mqtt_cloud_agent):
-    mock_mqtt_cloud_agent.wait_for_connection.return_value = True
     mock_mqtt_cloud_agent.authentication_failed = False
     return mock_mqtt_cloud_agent
 
@@ -370,10 +369,15 @@ def test_run_daemon_stops_on_signal_with_success(daemon_mqtt, cloud_requests):
     assert statuses == ["starting", "connecting", "ok"]
 
 
-@pytest.mark.usefixtures("daemon_settings", "send_stop")
-def test_run_daemon_exits_2_on_rejected_mqtt_login(daemon_mqtt):
-    daemon_mqtt.wait_for_connection.return_value = False
-    daemon_mqtt.authentication_failed = True
+@pytest.mark.usefixtures("daemon_settings")
+def test_run_daemon_exits_2_on_rejected_mqtt_login(daemon_mqtt, send_stop):
+    """A rejected login sets the stop event from paho's thread; the daemon ends with 2 wherever it is."""
+
+    def reject_login(**_):
+        daemon_mqtt.authentication_failed = True
+        send_stop()
+
+    daemon_mqtt.start.side_effect = reject_login
 
     assert run_daemon(DAEMON_OPTIONS) == 2
 
@@ -381,14 +385,20 @@ def test_run_daemon_exits_2_on_rejected_mqtt_login(daemon_mqtt):
     assert [c[0] for c in daemon_mqtt.method_calls][-2:] == ["publish_stopped", "stop"]
 
 
-@pytest.mark.usefixtures("daemon_settings", "send_stop")
-def test_run_daemon_stop_before_connection_is_success(daemon_mqtt):
-    daemon_mqtt.wait_for_connection.return_value = False
-
+@pytest.mark.usefixtures("daemon_settings")
+def test_run_daemon_serves_the_cloud_without_the_broker(daemon_mqtt, cloud_requests):
+    """
+    mosquitto being down must not keep remote diagnostics and tunnels from working: the cloud is
+    served right after start(), without waiting for the broker; what is published meanwhile is
+    queued by paho and delivered once the broker answers.
+    """
     assert run_daemon(DAEMON_OPTIONS) == 0
 
-    daemon_mqtt.remove_vdev.assert_called_once()
-    daemon_mqtt.stop.assert_called_once()
+    assert "wait_for_connection" not in [c[0] for c in daemon_mqtt.method_calls]
+    cloud_requests.startup.assert_called_once()
+    cloud_requests.events.assert_called_once()
+    statuses = [c.args[1] for c in daemon_mqtt.publish_ctrl.call_args_list if c.args[0] == "status"]
+    assert statuses == ["starting", "connecting", "ok"]
 
 
 @pytest.mark.usefixtures("send_stop")

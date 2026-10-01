@@ -23,7 +23,13 @@ def check_broker_url(broker_url: str) -> None:
         if not url.path:
             raise ValueError("MQTT broker URL has no socket path")
     elif url.scheme in ("tcp", "mqtt-tcp", "ws"):
-        if not url.hostname or not url.port:
+        try:
+            port = url.port
+        except ValueError:
+            # an unescaped "#", "/" or "?" in the password makes urlparse take a piece of it for
+            # the port, and its own error message quotes that piece: never let it out
+            raise ValueError("MQTT broker URL has an invalid port") from None
+        if not url.hostname or not port:
             raise ValueError("MQTT broker URL must have a host and a port")
     else:
         raise ValueError("Unsupported MQTT broker URL scheme, expected unix, tcp, mqtt-tcp or ws")
@@ -42,9 +48,11 @@ class MQTTCloudAgent:  # pylint: disable=too-many-instance-attributes  # connect
         )
         self.client.on_connect = self._on_connect
         self.client.on_message = self._on_message
-        self.client.on_disconnect = self._on_disconnect
 
-        self.was_disconnected = False
+        # The state is published only while the broker is connected; every connection republishes
+        # it in full. The lock keeps a value set on the daemon's thread and the republishing on
+        # paho's thread in order, so the newest value is the one the broker keeps.
+        self._state_lock = threading.Lock()
         self.authentication_failed = False
         # The daemon's stop event: a rejected login ends the daemon through it, at any time.
         self._stop_requested = stop_requested or threading.Event()
@@ -52,40 +60,40 @@ class MQTTCloudAgent:  # pylint: disable=too-many-instance-attributes  # connect
 
     def start(self, daemon=False):
         """
-        Connect to the broker. A daemon gets a Last Will and waits for an unavailable broker.
+        Connect to the broker. A daemon gets a Last Will, and an unavailable broker does not
+        hold it up: paho's thread keeps trying, and the state set meanwhile is published once
+        the broker answers. Nothing is queued for it: paho would keep every QoS 2 publish made
+        without a connection, some 8600 status updates a day, until its 65535 message ids run
+        out, and replay them all on connect.
         """
         if daemon:
             self.client.will_set(f"{self.mqtt_prefix}/controls/status", "stopped", retain=True, qos=2)
 
         self.client.start(retry_first_connection=daemon)
 
-    def wait_for_connection(self) -> bool:
-        """
-        Block until the broker accepts the connection; False if the login was rejected or stop was requested.
-        """
-        return self.client.wait_for_connection(self._stop_requested)
-
     def stop(self):
         self.client.stop()
 
     def _on_connect(self, _client, _userdata, _flags, reason_code, *_):
         # 0: Connection successful
+        if reason_code in MQTT_AUTH_ERRORS:
+            # A rejected login is a configuration problem, retrying will not help: exit with code 2.
+            logging.error("MQTT broker rejected the login (CONNACK %d), stopping", reason_code)
+            self.authentication_failed = True
+            self._stop_requested.set()
+            return
         if reason_code != 0:
-            logging.error("Failed to connect: %d. loop_forever() will retry connection", reason_code)
-            if reason_code in MQTT_AUTH_ERRORS:
-                # A rejected login is a configuration problem, retrying will not help: exit with code 2.
-                self.authentication_failed = True
-                self._stop_requested.set()
+            logging.error("MQTT connection failed (CONNACK %d), retrying", reason_code)
             return
 
-        if self.was_disconnected:
-            self.was_disconnected = False
-            self.publish_vdev()
-
+        # The broker starts every session from what it retained: publish the state in full, on the
+        # first connection and after a reconnect alike.
+        with self._state_lock:
+            self._publish_vdev()
             for control, value in self.controls.items():
-                self.publish_ctrl(control, value)
-
-            self.publish_providers(self.providers)
+                self._publish_ctrl(control, value)
+            if self.providers is not None:
+                self._publish_providers()
 
         self.client.subscribe("/devices/system/controls/HW Revision", qos=2)
 
@@ -108,10 +116,12 @@ class MQTTCloudAgent:  # pylint: disable=too-many-instance-attributes  # connect
             # Nothing to retry here: the value is sent again on the next connection.
             logging.error("Cannot handle MQTT message %s: %s", message.topic, exc)
 
-    def _on_disconnect(self, _, __, ___):
-        self.was_disconnected = True
-
     def publish_vdev(self):
+        with self._state_lock:
+            if self.client.is_connected():
+                self._publish_vdev()
+
+    def _publish_vdev(self):
         self.client.publish(
             f"{self.mqtt_prefix}/meta/name", f"Cloud status {self.provider_name}", retain=True, qos=2
         )
@@ -167,12 +177,22 @@ class MQTTCloudAgent:  # pylint: disable=too-many-instance-attributes  # connect
         info.wait_for_publish(timeout=ACK_TIMEOUT_S)
 
     def publish_ctrl(self, ctrl, value):
+        with self._state_lock:
+            self.controls[ctrl] = value
+            if self.client.is_connected():
+                self._publish_ctrl(ctrl, value)
+
+    def _publish_ctrl(self, ctrl, value):
         self.client.publish(f"{self.mqtt_prefix}/controls/{ctrl}", value, retain=True, qos=2)
-        self.controls.update({ctrl: value})
 
     def publish_providers(self, providers):
-        self.providers = providers
-        self.client.publish("/wb-cloud-agent/providers", providers, retain=True, qos=2)
+        with self._state_lock:
+            self.providers = providers
+            if self.client.is_connected():
+                self._publish_providers()
+
+    def _publish_providers(self):
+        self.client.publish("/wb-cloud-agent/providers", self.providers, retain=True, qos=2)
 
     def update_providers_list(self) -> None:
         #  Find a better way to update providers list (services enabled? services running?).

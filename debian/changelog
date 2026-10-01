@@ -1,6 +1,8 @@
 wb-cloud-agent (1.9.0) stable; urgency=medium
 
-  * run-daemon: wait for an unavailable MQTT broker, exit 2 on a rejected login or an invalid --broker URL
+  * run-daemon: serve the cloud without waiting for the MQTT broker, so remote diagnostics and tunnels
+    work while mosquitto is down; nothing is queued for the broker meanwhile, the current status is
+    published once it answers; exit 2 on a rejected login or an invalid --broker URL
   * run-daemon: retry the cloud handshake without limit while the cloud is unreachable, stop on SIGTERM/SIGINT
     with code 0 and clear the MQTT topics
   * metrics collector: restore MQTT-RPC subscriptions after a broker reconnect, exit 2 on a rejected login,

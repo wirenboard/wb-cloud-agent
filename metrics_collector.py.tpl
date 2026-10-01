@@ -113,6 +113,10 @@ MQTT_AUTH_ERRORS = (4, 5)  # CONNACK: bad user name or password, not authorized
 CONNACK_POLL_INTERVAL_SECONDS = 0.5
 STOP_REQUESTED = threading.Event()
 
+
+class StopRequested(Exception):
+    """A stop arrived in the middle of an iteration: nothing else of it is sent or saved."""
+
 _static_last_refresh: float = 0.0
 _channels_cache: list[dict[str, Any]] = []
 _channels_last_refresh: float = 0.0
@@ -472,8 +476,9 @@ def get_values(
     values: list[dict[str, Any]] = []
     has_more = False
     for i, channel_batch in enumerate(channel_batches, 1):
-        if i > 1 and inter_batch_sleep > 0:
-            time.sleep(inter_batch_sleep)
+        if i > 1 and inter_batch_sleep > 0 and STOP_REQUESTED.wait(inter_batch_sleep):
+            # a partial fetch must not be sent: last_uid would skip the channels left unread
+            raise StopRequested()
         logger.info(
             "wb-mqtt-db get_values RPC call %d/%d: channels=%d uid>%d limit=%d",
             i,
@@ -627,7 +632,8 @@ def send_lines(lines: list[str]) -> None:
                 attempt + 1,
                 SEND_MAX_RETRIES,
             )
-            time.sleep(SEND_RATE_LIMIT_RETRY_DELAY_SECONDS)
+            if STOP_REQUESTED.wait(SEND_RATE_LIMIT_RETRY_DELAY_SECONDS):
+                raise StopRequested()  # the batch is sent again next time, from the saved uid
             continue
         raise RuntimeError(f"HTTP {http_code} error while sending metrics to {METRICS_URL}")
 
@@ -854,6 +860,9 @@ def run_forever() -> int:
 
             try:
                 catch_up = collect_once(connection.rpc, connection.client, catch_up)
+            except StopRequested:
+                logger.info("Stop requested, the iteration is cut short")
+                break
             except MQTTRPCTimeoutError:
                 catch_up = False
                 skip_until_active = _handle_rpc_timeout(connection.client)
