@@ -11,12 +11,11 @@ from tests.test_services import CLOUD_VARS
 from wb.cloud_agent.services import metrics
 
 
-@pytest.fixture(name="collector")
-def collector_module(tmp_path, cloud_vars_settings, monkeypatch):
+@pytest.fixture(name="collector_script", scope="session")
+def rendered_collector_script(tmp_path_factory):
     """
-    The packaged collector template, rendered like on a controller and imported as a module.
-
-    MQTT transport is replaced by a mock, the MQTT-RPC client is real.
+    The packaged collector template rendered like on a controller, once per session: coverage
+    counts the file by path, a copy per test would be measured as a separate file each.
     """
     # pybuild runs the suite from its build tree, the template stays in the source root above it
     template = next(
@@ -24,13 +23,30 @@ def collector_module(tmp_path, cloud_vars_settings, monkeypatch):
         for parent in Path(__file__).resolve().parents
         if (parent / "metrics_collector.py.tpl").is_file()
     )
-    monkeypatch.setattr(metrics, "METRICS_COLLECTOR_TEMPLATE_PATH", str(template))
-    source = metrics.render_metrics_script(
-        cloud_vars_settings, {"vars": CLOUD_VARS, "mqtt_client_id": "collector-test", "created_at": "test"}
+    state_dir = tmp_path_factory.mktemp("collector")
+    settings = SimpleNamespace(
+        broker_url="tcp://localhost:1883",
+        client_cert_engine_key="ATECCx08:00:02:C0:00",
+        metrics_last_uid=state_dir / "metrics_last_uid",
     )
-    path = tmp_path / "metrics_collector.py"
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(metrics, "METRICS_COLLECTOR_TEMPLATE_PATH", str(template))
+        source = metrics.render_metrics_script(
+            settings, {"vars": CLOUD_VARS, "mqtt_client_id": "collector-test", "created_at": "test"}
+        )
+    path = state_dir / "metrics_collector.py"
     path.write_text(source, encoding="utf-8")
-    spec = importlib.util.spec_from_file_location("metrics_collector_under_test", path)
+    return path
+
+
+@pytest.fixture(name="collector")
+def collector_module(collector_script, monkeypatch):
+    """
+    The rendered collector imported as a fresh module for the test.
+
+    MQTT transport is replaced by a mock, the MQTT-RPC client is real.
+    """
+    spec = importlib.util.spec_from_file_location("metrics_collector_under_test", collector_script)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
 
