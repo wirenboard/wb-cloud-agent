@@ -6,7 +6,12 @@ from subprocess import CalledProcessError
 import pytest
 
 from wb.cloud_agent.constants import CLIENT_CERT_ERROR_MSG
-from wb.cloud_agent.handlers.curl import CloudNetworkError, do_curl, handle_curl_output
+from wb.cloud_agent.handlers.curl import (
+    CloudNetworkError,
+    CurlInterrupted,
+    do_curl,
+    handle_curl_output,
+)
 
 
 def test_do_curl_success_response(settings, mock_subprocess):
@@ -93,6 +98,14 @@ def test_handle_curl_output_malformed_split_raises(settings):
 
     with pytest.raises(ValueError, match="Invalid data in response"):
         handle_curl_output(settings, bad_output)
+
+
+def test_do_curl_killed_by_signal_is_interrupted(mock_subprocess_run, settings):
+    """subprocess reports a signal death as a negative code: -15 is the SIGTERM of a systemctl stop"""
+    mock_subprocess_run.side_effect = CalledProcessError(returncode=-15, cmd=["curl"], output=b"", stderr=b"")
+
+    with pytest.raises(CurlInterrupted, match="signal 15"):
+        do_curl(settings=settings, endpoint="events/")
 
 
 @pytest.mark.parametrize("return_code", [6, 7, 28])

@@ -115,7 +115,7 @@ class AppSettings:  # pylint: disable=too-many-instance-attributes disable=too-f
             conf = read_json_config(self.config_file)
         except ConfigError as exc:
             if not self.recover_configs:
-                raise
+                raise ConfigError(f"{self.config_file} {exc}") from exc
             conf = recover_provider_config(self.provider_name, str(exc))
 
         for key, val in conf.items():
