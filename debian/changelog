@@ -16,6 +16,8 @@ wb-cloud-agent (1.9.0) stable; urgency=medium
   * run-daemon: retry only network errors while registering in the cloud; any other start-up failure
     exits 1 so systemd restarts the agent and check-certs.sh runs again
   * Require python3-wb-common >= 2.4.0: the daemon waits for an unavailable broker through the shared client
+  * Recommend wb-mqtt-homeui >= 2.265.0: an older web UI shows an empty activation link instead of
+    "service is not running" once the agent clears its topics on a clean stop
   * add-provider, del-provider, del-all-providers: the commands no longer publish the provider's device
     on connect; with the daemon down its retained topics would stay behind as an empty "Cloud status" device
 

@@ -29,6 +29,6 @@ Depends: ${misc:Depends},
          python3-wb-common (>= 2.4.0~~),
          python3-tabulate,
          wb-utils
-Recommends: wb-mqtt-homeui (>= 2.82.5~~)
+Recommends: wb-mqtt-homeui (>= 2.265.0~~)
 Description: Wiren Board Cloud agent
  This package provides Wiren Board Cloud agent service.
