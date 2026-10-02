@@ -138,6 +138,7 @@ def test_on_connect_publishes_the_current_state(mqtt_cloud_agent, settings):
     The first connection and a reconnect alike: the device meta, every control and the providers
     list go out, so a state set while the broker was down reaches it now.
     """
+    mqtt_cloud_agent.start(daemon=True)
     mqtt_cloud_agent.controls = {"status": "running", "activation_link": "http://test"}
     mqtt_cloud_agent.providers = "provider1,provider2"
 
@@ -153,8 +154,21 @@ def test_on_connect_publishes_the_current_state(mqtt_cloud_agent, settings):
     assert call("/wb-cloud-agent/providers", "provider1,provider2", retain=True, qos=2) in published
 
 
+def test_on_connect_as_a_tool_publishes_nothing(mqtt_cloud_agent):
+    """del-provider with the provider's daemon down must not leave the device's retained topics behind."""
+    mqtt_cloud_agent.start()
+    mqtt_cloud_agent.controls = {"status": "running"}
+    mqtt_cloud_agent.providers = "provider1"
+
+    mqtt_cloud_agent._on_connect(None, None, None, 0)
+
+    mqtt_cloud_agent.client.publish.assert_not_called()
+    mqtt_cloud_agent.client.subscribe.assert_called_once_with("/devices/system/controls/HW Revision", qos=2)
+
+
 def test_on_connect_without_a_providers_list_leaves_its_topic_alone(mqtt_cloud_agent):
     """Publishing None would clear the retained list of every provider on the controller."""
+    mqtt_cloud_agent.start(daemon=True)
     mqtt_cloud_agent._on_connect(None, None, None, 0)
 
     topics = [c.args[0] for c in mqtt_cloud_agent.client.publish.call_args_list]
@@ -167,6 +181,7 @@ def test_state_set_without_a_connection_is_kept_for_the_next_connect(mqtt_cloud_
     8600 a day, until its message ids run out, and replay them all on connect. The values are
     remembered instead and published by _on_connect.
     """
+    mqtt_cloud_agent.start(daemon=True)
     mqtt_cloud_agent.client.is_connected.return_value = False
 
     mqtt_cloud_agent.publish_vdev()

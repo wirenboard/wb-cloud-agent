@@ -47,6 +47,7 @@ class MQTTCloudAgent:  # pylint: disable=too-many-instance-attributes  # connect
         # it in full. The lock keeps a value set on the daemon's thread and the republishing on
         # paho's thread in order, so the newest value is the one the broker keeps.
         self._state_lock = threading.Lock()
+        self._daemon = False  # set by start(): only the daemon publishes the device on connect
         self.authentication_failed = False
         # The daemon's stop event: a rejected login ends the daemon through it, at any time.
         self._stop_requested = stop_requested or threading.Event()
@@ -60,6 +61,7 @@ class MQTTCloudAgent:  # pylint: disable=too-many-instance-attributes  # connect
         without a connection, some 8600 status updates a day, until its 65535 message ids run
         out, and replay them all on connect.
         """
+        self._daemon = daemon
         if daemon:
             self.client.will_set(f"{self.mqtt_prefix}/controls/status", "stopped", retain=True, qos=2)
 
@@ -80,14 +82,15 @@ class MQTTCloudAgent:  # pylint: disable=too-many-instance-attributes  # connect
             logging.error("MQTT connection failed (CONNACK %d), retrying", reason_code)
             return
 
-        # The broker starts every session from what it retained: publish the state in full, on the
-        # first connection and after a reconnect alike.
-        with self._state_lock:
-            self._publish_vdev()
-            for control, value in self.controls.items():
-                self._publish_ctrl(control, value)
-            if self.providers is not None:
-                self._publish_providers()
+        # The broker starts every session from what it retained: the daemon republishes its state in
+        # full. The provider commands connect through this class too and must not create the device.
+        if self._daemon:
+            with self._state_lock:
+                self._publish_vdev()
+                for control, value in self.controls.items():
+                    self._publish_ctrl(control, value)
+                if self.providers is not None:
+                    self._publish_providers()
 
         self.client.subscribe("/devices/system/controls/HW Revision", qos=2)
 
