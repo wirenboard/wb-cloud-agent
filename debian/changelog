@@ -1,3 +1,11 @@
+wb-cloud-agent (1.9.1) stable; urgency=medium
+
+  * Add LICENSE: The WB License (MIT-WB), Automation Technologies, LLC (Wiren Board) as the copyright holder,
+    2023 as the first publication year, use restricted to Wiren Board equipment
+  * Fill debian/copyright in the DEP-5 format, set license="MIT-WB" in setup.py
+
+ -- Ekaterina Volkova <ekaterina.volkova@wirenboard.com>  Thu, 12 Nov 2026 16:28:58 +0300
+
 wb-cloud-agent (1.9.0) stable; urgency=medium
 
   * run-daemon: serve the cloud without waiting for the MQTT broker, so remote diagnostics and tunnels
