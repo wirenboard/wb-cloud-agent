@@ -276,6 +276,14 @@ def test_the_unit_stops_retrying_on_our_exit_status(unit):
     assert {str(EXIT_INVALIDARGUMENT), str(EXIT_NOTCONFIGURED)} <= set(statuses)
 
 
+def test_the_agent_unit_keeps_restarting_with_a_growing_delay():
+    """Агент не должен ни застревать после долгого сбоя облака, ни перезапускаться раз в 10 с бесконечно."""
+    lines = packaged_file("wb-cloud-agent.wb-cloud-agent@.service").read_text().splitlines()
+
+    expected = {"StartLimitIntervalSec=0", "RestartSec=10", "RestartSteps=5", "RestartMaxDelaySec=300"}
+    assert expected <= set(lines)
+
+
 def test_invalid_log_level_does_not_stop_the_agent(cloud_dirs):
     providers, _default = cloud_dirs
     write_config(providers, "custom", json.dumps({"CLOUD_BASE_URL": "https://my.cloud", "LOG_LEVEL": 10}))
