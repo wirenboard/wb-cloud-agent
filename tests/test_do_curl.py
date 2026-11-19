@@ -108,7 +108,7 @@ def test_do_curl_killed_by_signal_is_interrupted(mock_subprocess_run, settings):
         do_curl(settings=settings, endpoint="events/")
 
 
-@pytest.mark.parametrize("return_code", [6, 7, 28])
+@pytest.mark.parametrize("return_code", [6, 7, 28, 35, 56, 60])
 def test_do_curl_network_errors(mock_subprocess_run, settings, return_code):
     mock_subprocess_run.side_effect = CalledProcessError(
         returncode=return_code, cmd=["curl"], output=b"", stderr=b"Could not resolve host"
@@ -119,6 +119,30 @@ def test_do_curl_network_errors(mock_subprocess_run, settings, return_code):
 
     assert "Network error while accessing" in str(exc_info.value)
     assert settings.cloud_base_url in str(exc_info.value)
+
+
+@pytest.mark.parametrize(
+    "stderr, error_text",
+    [
+        (
+            b"  % Total    % Received % Xferd\r  0     0    0     0\r\n"
+            b"Warning: Problem : timeout. Will retry in 1 seconds. 8 retries left.\n"
+            b"curl: (60) SSL certificate problem: certificate is not yet valid\n",
+            "curl: (60) SSL certificate problem: certificate is not yet valid",
+        ),
+        (b"", "curl exit code 60"),
+    ],
+    ids=["last-line", "empty-stderr"],
+)
+def test_do_curl_network_error_tells_the_curl_error(mock_subprocess_run, settings, stderr, error_text):
+    mock_subprocess_run.side_effect = CalledProcessError(
+        returncode=60, cmd=["curl"], output=b"", stderr=stderr
+    )
+
+    with pytest.raises(CloudNetworkError) as exc_info:
+        do_curl(settings=settings, endpoint="agent-start-up/")
+
+    assert str(exc_info.value).endswith(f": {error_text}")
 
 
 def test_do_curl_multipart_post_method(mock_subprocess_run, settings, mock_subprocess, tmp_path):

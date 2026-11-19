@@ -15,6 +15,10 @@ from wb.cloud_agent.utils import get_apt_package_version
 VersionFieldGetter = Callable[[AppSettings], str]
 
 
+class CloudUnavailableError(Exception):
+    """Облако ответило ошибкой, которая проходит сама: 5xx, 429 или 404 от прокси, пока бэкенд недоступен."""
+
+
 def get_agent_package_version(_settings: AppSettings) -> str:
     return agent_package_version
 
@@ -50,10 +54,19 @@ PACKAGE_VERSION_FIELDS: dict[str, VersionFieldGetter] = {
 
 
 def make_start_up_request(settings: AppSettings, mqtt: MQTTCloudAgent):
-    status_data, http_status = do_curl(settings=settings, method="get", endpoint="agent-start-up/")
+    """Без повторов curl: они склеивают ответы в stdout, а запрос и так повторяет демон."""
+    status_data, http_status = do_curl(
+        settings=settings, method="get", endpoint="agent-start-up/", retry_opts=["--connect-timeout", "45"]
+    )
     if http_status != status.OK:
         logging.debug("http_status=%s status_data=%s", http_status, status_data)
-        raise ValueError(f"Not a {status.OK} status while making start up request: {http_status}")
+        error = f"Not a {status.OK} status while making start up request: {http_status}"
+        if (
+            http_status in (status.NOT_FOUND, status.TOO_MANY_REQUESTS)
+            or http_status >= status.INTERNAL_SERVER_ERROR
+        ):
+            raise CloudUnavailableError(error)
+        raise ValueError(error)
 
     if "activated" not in status_data or "activationLink" not in status_data:
         raise ValueError(f"Invalid response data while making start up request: {status_data}")

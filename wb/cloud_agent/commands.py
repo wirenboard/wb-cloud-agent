@@ -11,11 +11,13 @@ from wb.cloud_agent.constants import (
     EXIT_INVALIDARGUMENT,
     EXIT_NOTCONFIGURED,
     EXIT_SUCCESS,
+    STARTUP_RETRY_MAX_PAUSE_SECONDS,
 )
 from wb.cloud_agent.handlers.curl import CloudNetworkError, CurlInterrupted
 from wb.cloud_agent.handlers.events import event_delete_controller, make_event_request
 from wb.cloud_agent.handlers.ping import wait_for_cloud_reachable
 from wb.cloud_agent.handlers.startup import (
+    CloudUnavailableError,
     make_start_up_request,
     on_message,
     send_packages_version,
@@ -137,20 +139,21 @@ def del_controller_from_cloud(options) -> int:
 
 def _register_in_cloud(settings, mqtt: MQTTCloudAgent, stop_requested: threading.Event) -> bool:
     """
-    Repeat the startup requests while the cloud is unreachable; False if a stop was requested first.
-
-    Any other failure is raised: the cloud has answered, and a retry would not change its answer.
+    Повторять startup-запросы с паузой, растущей до STARTUP_RETRY_MAX_PAUSE_SECONDS, пока облако недоступно
+    или отвечает временной ошибкой; False, если раньше попросили остановиться. Остальные ошибки, например
+    отказ облака (400/403) или плохой сертификат (curl 58), пробрасываются: повтор в процессе их не исправит.
     """
+    pause = settings.request_period_seconds
     while wait_for_cloud_reachable(settings.cloud_base_url, settings.ping_period_seconds, stop_requested):
         try:
             make_start_up_request(settings, mqtt)
             send_packages_version(settings)
             return True
-        except (CloudNetworkError, CurlInterrupted, subprocess.TimeoutExpired) as exc:
-            # The transport failures the event loop retries as well; curl 58 (a bad certificate) is not one.
-            logging.error("Startup request failed: %s. Retrying...", exc)
+        except (CloudNetworkError, CloudUnavailableError, CurlInterrupted, subprocess.TimeoutExpired) as exc:
+            logging.error("Startup request failed: %s. Retrying in %s s...", exc, pause)
             mqtt.publish_ctrl("status", "Network or Cloud is unreachable! Retrying...")
-            stop_requested.wait(settings.request_period_seconds)
+            stop_requested.wait(pause)
+            pause = min(pause * 2, STARTUP_RETRY_MAX_PAUSE_SECONDS)
     return False
 
 
