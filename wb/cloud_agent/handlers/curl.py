@@ -87,14 +87,21 @@ def do_curl(  # pylint: disable=too-many-arguments,too-many-positional-arguments
                     cert_file=settings.client_cert_file, cert_engine_key=settings.client_cert_engine_key
                 )
             ) from e
-        if e.returncode in (6, 7, 28):
+        if e.returncode in (6, 7, 28, 35, 56, 60):
             logging.debug(e)
             raise CloudNetworkError(
-                f"{endpoint} Network error while accessing {settings.cloud_base_url}"
+                f"{endpoint} Network error while accessing {settings.cloud_base_url}: {_curl_error_text(e)}"
             ) from e
         raise e
 
     return handle_curl_output(settings, result.stdout)
+
+
+def _curl_error_text(error: subprocess.CalledProcessError) -> str:
+    """Последняя строка stderr: выше неё curl пишет индикатор прогресса и предупреждения о повторах."""
+    lines = (error.stderr or b"").decode(errors="replace").replace("\r", "\n").split("\n")
+    messages = [line.strip() for line in lines if line.strip()]
+    return messages[-1] if messages else f"curl exit code {error.returncode}"
 
 
 def handle_curl_output(settings: AppSettings, stdout: bytes) -> tuple[dict, int]:

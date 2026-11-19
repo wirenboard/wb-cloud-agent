@@ -10,6 +10,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from wb.cloud_agent.commands import (
+    _register_in_cloud,
     add_on_premise_provider,
     add_provider,
     del_all_providers,
@@ -19,6 +20,7 @@ from wb.cloud_agent.commands import (
     show_providers,
 )
 from wb.cloud_agent.handlers.curl import CloudNetworkError, CurlInterrupted
+from wb.cloud_agent.handlers.startup import CloudUnavailableError
 
 
 @pytest.fixture
@@ -421,24 +423,37 @@ def test_run_daemon_custom_broker_overrides_config(daemon_settings):
 
 @pytest.mark.usefixtures("daemon_settings")
 @pytest.mark.parametrize(
-    "network_error",
+    "error",
     [
         CloudNetworkError("Startup failed"),
         CurlInterrupted("curl terminated by signal 15"),
         subprocess.TimeoutExpired("curl", 360),
+        CloudUnavailableError("Not a 200 status while making start up request: 503"),
     ],
-    ids=["unreachable", "interrupted", "timeout"],
+    ids=["unreachable", "interrupted", "timeout", "unavailable"],
 )
-def test_run_daemon_retries_startup_request_on_network_error(daemon_mqtt, cloud_requests, network_error):
+def test_run_daemon_retries_startup_request_on_transient_error(daemon_mqtt, cloud_requests, error):
     """
-    A handshake the cloud did not answer is repeated instead of ending the daemon; the status shows it.
+    Рукопожатие, на которое облако не ответило или ответило временной ошибкой, повторяется
+    без выхода из демона, а статус об этом сообщает.
     """
-    cloud_requests.startup.side_effect = [network_error, None]
+    cloud_requests.startup.side_effect = [error, None]
 
     assert run_daemon(DAEMON_OPTIONS) == 0
 
     assert cloud_requests.startup.call_count == 2
     daemon_mqtt.publish_ctrl.assert_any_call("status", "Network or Cloud is unreachable! Retrying...")
+
+
+def test_register_in_cloud_doubles_the_pause_up_to_the_limit(daemon_mqtt, daemon_settings, cloud_requests):
+    """Пауза между повторами растёт вдвое от периода опроса и упирается в 5 минут."""
+    daemon_settings.request_period_seconds = 10
+    cloud_requests.startup.side_effect = [CloudUnavailableError("503")] * 7 + [None]
+    stop_requested = MagicMock()
+
+    assert _register_in_cloud(daemon_settings, daemon_mqtt, stop_requested) is True
+
+    assert [c.args[0] for c in stop_requested.wait.call_args_list] == [10, 20, 40, 80, 160, 300, 300]
 
 
 @pytest.mark.usefixtures("daemon_settings")
