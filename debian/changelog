@@ -1,3 +1,10 @@
+wb-cloud-agent (1.9.1) stable; urgency=medium
+
+  * metrics collector: reject a config whose variable is not a string, number or boolean (e.g. a list
+    or a dict); the saved variables and the running collector script stay as they were
+
+ -- Arseniy Astafev <arseniy.astafev@wirenboard.com>  Fri, 20 Nov 2026 19:55:00 +0300
+
 wb-cloud-agent (1.9.0) stable; urgency=medium
 
   * run-daemon: serve the cloud without waiting for the MQTT broker, so remote diagnostics and tunnels
