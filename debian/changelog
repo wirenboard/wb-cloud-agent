@@ -1,6 +1,6 @@
 wb-cloud-agent (1.9.1) stable; urgency=medium
 
-  * Add LICENSE: The WB License (MIT-WB), Automation Technologies, LLC (Wiren Board) as the copyright holder,
+  * Add LICENSE: The WB License (MIT-WB), Wiren Board as the copyright holder,
     2023 as the first publication year, use restricted to Wiren Board equipment
   * Fill debian/copyright in the DEP-5 format, set license="MIT-WB" in setup.py
 
