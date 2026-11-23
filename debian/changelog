@@ -1,3 +1,10 @@
+wb-cloud-agent (1.9.1) stable; urgency=medium
+
+  * Use less memory: the cloud reachability check uses urllib instead of requests;
+    tabulate is imported only by the command that prints the providers table
+
+ -- Nikolay Korotkiy <nikolay.korotkiy@wirenboard.com>  Mon, 23 Nov 2026 17:00:00 +0400
+
 wb-cloud-agent (1.9.0) stable; urgency=medium
 
   * run-daemon: serve the cloud without waiting for the MQTT broker, so remote diagnostics and tunnels
