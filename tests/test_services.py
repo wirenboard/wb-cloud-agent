@@ -348,15 +348,22 @@ def test_cloud_vars_injection_is_escaped(cloud_vars_settings):
 
 
 @pytest.mark.usefixtures("metrics_template")
-@pytest.mark.parametrize("value", [['x"); __import__("os").system("evil"); ("'], {"a": 'b"'}, None])
-def test_cloud_vars_non_scalar_value_is_rejected(cloud_vars_settings, value):
-    """Список или словарь попал бы в скрипт через repr с неэкранированными кавычками: конфиг отвергаем."""
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("metrics_url", ['x"); __import__("os").system("evil"); ("']),
+        ("metrics_url", {"a": 'b"'}),
+        ("metrics_url", None),
+        ("interval_seconds", True),
+    ],
+)
+def test_cloud_vars_value_not_string_or_number_is_rejected(cloud_vars_settings, key, value):
     settings = cloud_vars_settings
-    payload = {"enabled": True, "vars": dict(CLOUD_VARS, metrics_url=value)}
+    payload = {"enabled": True, "vars": dict(CLOUD_VARS, **{key: value})}
 
     with (
         patch("wb.cloud_agent.services.metrics.start_and_enable_service") as mock_service,
-        pytest.raises(ValueError, match="'metrics_url' must be a string, number or boolean"),
+        pytest.raises(ValueError, match=f"'{key}' must be a string or a number"),
     ):
         update_metrics_config(settings, payload, MagicMock())
 

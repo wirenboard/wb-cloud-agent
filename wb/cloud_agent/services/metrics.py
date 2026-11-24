@@ -201,18 +201,13 @@ def _monitor_metrics_service(settings: AppSettings, service: str, stop_event: th
 
 
 def _escape_template_value(key: str, value: object) -> str:
-    """Готовит значение к подстановке в литерал ``"..."`` шаблона так, чтобы из него нельзя было выйти.
-
-    У строки ``json.dumps`` экранирует кавычки и обратные слэши, внешние кавычки отрезаем. Число и
-    булево кавычек не содержат. Список или словарь попал бы в шаблон через ``repr`` с неэкранированными
-    кавычками, поэтому любой другой тип отвергаем.
-    """
+    """Escape a value for a "..." template literal; reject anything but str, int and float (not bool)."""
     if isinstance(value, str):
         return json.dumps(value)[1:-1]
-    if isinstance(value, (bool, int, float)):
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
         return str(value)
     raise ValueError(
-        f"Metrics template variable {key!r} must be a string, number or boolean, got {type(value).__name__}"
+        f"Metrics template variable {key!r} must be a string or a number, got {type(value).__name__}"
     )
 
 
