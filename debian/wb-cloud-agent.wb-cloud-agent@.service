@@ -2,7 +2,7 @@
 Description=Wiren Board Cloud Agent (%i)
 Wants=network-online.target mosquitto.service
 After=network-online.target mosquitto.service
-# без лимита стартов: исчерпав его, systemd перестаёт перезапускать агент до перезагрузки
+# no start limit: once it is hit, systemd stops restarting the agent until a reboot
 StartLimitIntervalSec=0
 ConditionPathIsDirectory=/etc/wb-cloud-agent/providers/%i
 

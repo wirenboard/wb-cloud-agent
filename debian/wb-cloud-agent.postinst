@@ -62,7 +62,7 @@ if [ "$1" = "configure" ]; then
     for provider in /etc/wb-cloud-agent/providers/*; do
       [ -d "$provider" ] || continue
       provider_name="${provider##*/}"
-      # failed-экземпляры запускаем заново (try-restart их пропускает), остановленные вручную не трогаем
+      # try-restart skips failed instances; deb-systemd-invoke, unlike systemctl, does not start disabled ones
       if systemctl --quiet is-failed "wb-cloud-agent@$provider_name"; then
         deb-systemd-invoke start "wb-cloud-agent@$provider_name" || :
       else

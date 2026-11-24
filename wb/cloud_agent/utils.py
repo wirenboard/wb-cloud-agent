@@ -218,14 +218,18 @@ def stop_service(service: str, timeout: int = 120) -> None:
 
 
 def reset_failed_service(service: str, timeout: int = 10) -> None:
-    """Сбросить лимит стартов systemd: после StartLimitBurst неудачных запусков `start`
-    отказывает до конца часового окна, даже если причина падений уже устранена."""
-    subprocess.run(["systemctl", "reset-failed", service], check=False, timeout=timeout)
+    """Reset the failed state, the start limit and the restart counter of a unit: once StartLimitBurst
+    is hit, `start` is refused until the interval ends, even if the cause of the failures is gone.
+    Best effort: a failure is only logged, the callers go on without the reset."""
+    try:
+        subprocess.run(["systemctl", "reset-failed", service], check=False, timeout=timeout)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        logging.warning("Cannot reset the failed state of %s: %s", service, exc)
 
 
 def is_port_taken(addr: str, port: int) -> bool:
-    """Пробный bind с SO_REUSEADDR: слушающий сокет даёт EADDRINUSE, а TIME_WAIT от недавних
-    соединений — нет, иначе порт считался бы занятым сразу после `frpc reload`."""
+    """A trial bind with SO_REUSEADDR: a listening socket gives EADDRINUSE, while TIME_WAIT of recent
+    connections does not, otherwise the port would look taken right after `frpc reload`."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:

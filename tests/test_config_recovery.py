@@ -1,5 +1,7 @@
 import json
 import logging
+import re
+import subprocess
 from argparse import Namespace
 from contextlib import contextmanager
 from pathlib import Path
@@ -277,11 +279,35 @@ def test_the_unit_stops_retrying_on_our_exit_status(unit):
 
 
 def test_the_agent_unit_keeps_restarting_with_a_growing_delay():
-    """Агент не должен ни застревать после долгого сбоя облака, ни перезапускаться раз в 10 с бесконечно."""
+    """The agent must neither stay down after a long cloud outage nor restart every 10 s forever."""
     lines = packaged_file("wb-cloud-agent.wb-cloud-agent@.service").read_text().splitlines()
 
     expected = {"StartLimitIntervalSec=0", "RestartSec=10", "RestartSteps=5", "RestartMaxDelaySec=300"}
     assert expected <= set(lines)
+
+
+def test_postinst_starts_failed_instances_and_only_restarts_the_others(tmp_path):
+    """
+    The provider loop of the real postinst, run with systemctl and deb-systemd-invoke stubbed: an instance
+    left failed is started again, the rest get try-restart, which leaves stopped ones alone.
+    """
+    postinst = packaged_file("wb-cloud-agent.postinst").read_text()
+    pattern = r"^ *for provider in /etc/wb-cloud-agent/providers/\*; do$.*?^ *done$"
+    loop = re.search(pattern, postinst, re.M | re.S)
+    for provider in ("failed", "running"):
+        (tmp_path / provider).mkdir()
+    script = (
+        'systemctl() { [ "$*" = "--quiet is-failed wb-cloud-agent@failed" ]; }\n'
+        'deb-systemd-invoke() { echo "$*"; }\n'
+        + loop.group(0).replace("/etc/wb-cloud-agent/providers", str(tmp_path))
+    )
+
+    result = subprocess.run(["bash", "-c", script], capture_output=True, text=True, check=True)
+
+    assert sorted(result.stdout.splitlines()) == [
+        "start wb-cloud-agent@failed",
+        "try-restart wb-cloud-agent@running",
+    ]
 
 
 def test_invalid_log_level_does_not_stop_the_agent(cloud_dirs):

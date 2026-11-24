@@ -3,15 +3,19 @@ wb-cloud-agent (1.9.1) stable; urgency=medium
   * run-daemon: also retry the cloud handshake in process on 5xx, 429 and 404 answers and on TLS errors
     (curl 35, 56, 60), so the agent comes back by itself after a cloud outage; one request per attempt,
     the pause between attempts, network errors included, grows from the poll period to 5 minutes;
-    a rejection (400, 403) and a bad client certificate (curl 58) still exit with code 1
+    the status names the HTTP code of the answer, e.g. "Cloud is unavailable (HTTP 404)"
+  * run-daemon: a rejection (400, 403, or a TLS alert about the client certificate) and a bad client
+    certificate (curl 58) exit with code 1
   * run-daemon: network and TLS errors are logged with the error text from curl
   * systemd: no start rate limit for the agent: after 100 restarts within an hour systemd stopped
-    restarting it for good; instead the delay between restarts grows from 10 s to 5 minutes
+    restarting it for good; instead the delay between restarts grows from 10 s to 5 minutes and starts
+    over once the agent has registered in the cloud
   * postinst: on upgrade also start agent instances left failed, e.g. by the old start limit, so they
     come back without a reboot; instances stopped by hand stay stopped
-  * run-daemon: a TLS error of an event request is reported as "Network or Cloud is unreachable"
+  * run-daemon: a TLS error of an event request is reported as "Network or Cloud is unreachable",
+    unless the cloud rejected the client certificate
 
- -- Arseniy Astafev <arseniy.astafev@wirenboard.com>  Thu, 19 Nov 2026 16:12:39 +0300
+ -- Arseniy Astafev <arseniy.astafev@wirenboard.com>  Tue, 24 Nov 2026 16:08:30 +0300
 
 wb-cloud-agent (1.9.0) stable; urgency=medium
 

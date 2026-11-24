@@ -319,6 +319,7 @@ def daemon_mqtt(mock_mqtt_cloud_agent):
 @pytest.fixture
 def daemon_settings():
     settings = MagicMock()
+    settings.provider_name = "test"
     settings.cloud_base_url = "https://example.com"
     settings.broker_url = "tcp://localhost:1883"
     settings.request_period_seconds = 0
@@ -348,9 +349,10 @@ def cloud_requests(send_stop):
         patch("wb.cloud_agent.commands.send_packages_version"),
         patch("wb.cloud_agent.commands.read_activation_link", return_value="http://link"),
         patch("wb.cloud_agent.commands.reconcile_metrics_script") as metrics,
+        patch("wb.cloud_agent.commands.reset_failed_service") as reset_failed,
         patch("wb.cloud_agent.commands.make_event_request", side_effect=lambda *_: send_stop()) as events,
     ):
-        yield SimpleNamespace(startup=startup, events=events, metrics=metrics)
+        yield SimpleNamespace(startup=startup, events=events, metrics=metrics, reset_failed=reset_failed)
 
 
 DAEMON_OPTIONS = Namespace(provider_name="test", broker=None)
@@ -423,32 +425,43 @@ def test_run_daemon_custom_broker_overrides_config(daemon_settings):
 
 @pytest.mark.usefixtures("daemon_settings")
 @pytest.mark.parametrize(
-    "error",
+    "error, status",
     [
-        CloudNetworkError("Startup failed"),
-        CurlInterrupted("curl terminated by signal 15"),
-        subprocess.TimeoutExpired("curl", 360),
-        CloudUnavailableError("Not a 200 status while making start up request: 503"),
+        (CloudNetworkError("Startup failed"), "Network or Cloud is unreachable! Retrying..."),
+        (CurlInterrupted("curl terminated by signal 15"), "Network or Cloud is unreachable! Retrying..."),
+        (subprocess.TimeoutExpired("curl", 360), "Network or Cloud is unreachable! Retrying..."),
+        (CloudUnavailableError(404), "Cloud is unavailable (HTTP 404)! Retrying..."),
     ],
     ids=["unreachable", "interrupted", "timeout", "unavailable"],
 )
-def test_run_daemon_retries_startup_request_on_transient_error(daemon_mqtt, cloud_requests, error):
+def test_run_daemon_retries_startup_request_on_transient_error(daemon_mqtt, cloud_requests, error, status):
     """
-    Рукопожатие, на которое облако не ответило или ответило временной ошибкой, повторяется
-    без выхода из демона, а статус об этом сообщает.
+    A handshake the cloud did not answer, or answered with a temporary error, is repeated without
+    leaving the daemon, and the status tells which of the two it was.
     """
     cloud_requests.startup.side_effect = [error, None]
 
     assert run_daemon(DAEMON_OPTIONS) == 0
 
     assert cloud_requests.startup.call_count == 2
-    daemon_mqtt.publish_ctrl.assert_any_call("status", "Network or Cloud is unreachable! Retrying...")
+    daemon_mqtt.publish_ctrl.assert_any_call("status", status)
+
+
+@pytest.mark.usefixtures("daemon_settings", "daemon_mqtt")
+def test_run_daemon_resets_the_restart_counter_once_registered(cloud_requests):
+    """
+    systemd keeps counting restarts while the agent runs, so without the reset a single crash after
+    an outage would wait the longest RestartSteps delay.
+    """
+    assert run_daemon(DAEMON_OPTIONS) == 0
+
+    cloud_requests.reset_failed.assert_called_once_with("wb-cloud-agent@test.service")
 
 
 def test_register_in_cloud_doubles_the_pause_up_to_the_limit(daemon_mqtt, daemon_settings, cloud_requests):
-    """Пауза между повторами растёт вдвое от периода опроса и упирается в 5 минут."""
+    """The pause between attempts doubles from the poll period and stops at 5 minutes."""
     daemon_settings.request_period_seconds = 10
-    cloud_requests.startup.side_effect = [CloudUnavailableError("503")] * 7 + [None]
+    cloud_requests.startup.side_effect = [CloudUnavailableError(503)] * 7 + [None]
     stop_requested = MagicMock()
 
     assert _register_in_cloud(daemon_settings, daemon_mqtt, stop_requested) is True
@@ -478,6 +491,7 @@ def test_run_daemon_exits_1_on_rejected_startup_request(daemon_mqtt, cloud_reque
     cloud_requests.startup.assert_called_once()
     cloud_requests.events.assert_not_called()
     cloud_requests.metrics.assert_not_called()
+    cloud_requests.reset_failed.assert_not_called()
     daemon_mqtt.remove_vdev.assert_not_called()
     # stop() never triggers the Last Will, so the daemon reports the stop before disconnecting
     assert [c[0] for c in daemon_mqtt.method_calls][-2:] == ["publish_stopped", "stop"]

@@ -145,6 +145,38 @@ def test_do_curl_network_error_tells_the_curl_error(mock_subprocess_run, setting
     assert str(exc_info.value).endswith(f": {error_text}")
 
 
+@pytest.mark.parametrize(
+    "return_code, stderr",
+    [
+        (
+            56,
+            "curl: (56) OpenSSL SSL_read: OpenSSL/3.5.6: error:0A00045C:SSL routines::"
+            "tlsv13 alert certificate required, errno 0",
+        ),
+        (
+            56,
+            "curl: (56) OpenSSL SSL_read: OpenSSL/3.5.6: error:0A000418:SSL routines::"
+            "tlsv1 alert unknown ca, errno 0",
+        ),
+        (35, "curl: (35) TLS connect error: error:0A000418:SSL routines::tlsv1 alert unknown ca"),
+    ],
+    ids=["no-certificate", "unknown-ca", "unknown-ca-tls12"],
+)
+def test_do_curl_cloud_rejecting_the_certificate_is_no_network_error(
+    mock_subprocess_run, settings, return_code, stderr
+):
+    """
+    Traefik with RequireAndVerifyClientCert rejects a certificate by a TLS alert, not by 403 (stderr taken
+    from staging2): a retry would not help, so it ends up as a rejection, like curl 58.
+    """
+    mock_subprocess_run.side_effect = CalledProcessError(
+        returncode=return_code, cmd=["curl"], output=b"", stderr=stderr.encode()
+    )
+
+    with pytest.raises(RuntimeError, match="The cloud rejected the client certificate: curl: "):
+        do_curl(settings=settings, endpoint="agent-start-up/")
+
+
 def test_do_curl_multipart_post_method(mock_subprocess_run, settings, mock_subprocess, tmp_path):
     mock_subprocess(status.OK, '{"result": "success"}')
 

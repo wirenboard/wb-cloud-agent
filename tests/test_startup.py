@@ -89,20 +89,22 @@ def test_make_start_up_request_invalid_status(settings, http_status):
 )
 def test_make_start_up_request_cloud_unavailable(settings, http_status):
     with patch("wb.cloud_agent.handlers.startup.do_curl", return_value=({}, http_status)):
-        with pytest.raises(CloudUnavailableError, match=f"start up request: {http_status.value}"):
+        with pytest.raises(CloudUnavailableError, match=f"start up request: {http_status.value}") as exc_info:
             make_start_up_request(settings, MagicMock())
+
+    assert exc_info.value.http_status == http_status
 
 
 def test_make_start_up_request_runs_curl_without_its_retries(settings, mock_subprocess, mock_subprocess_run):
-    """Повторяя 503, curl пишет в stdout все ответы подряд, и пришедший следом 200 уже не разобрать."""
+    """Retrying a 503, curl writes every answer to stdout in a row, and a 200 after them is lost."""
     mock_subprocess(status.OK, '{"activated": true, "activationLink": ""}')
 
     with patch("wb.cloud_agent.handlers.startup.write_activation_link"):
         make_start_up_request(settings, MagicMock())
 
     command = mock_subprocess_run.call_args.args[0]
-    assert "--retry" not in command
-    assert "--connect-timeout" in command
+    assert command[command.index("--retry") + 1] == "0"
+    assert "--retry-all-errors" not in command
 
 
 def test_make_start_up_request_missing_activated_field(settings):

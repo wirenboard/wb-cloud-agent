@@ -37,6 +37,7 @@ from wb.cloud_agent.utils import (
     ConfigError,
     handle_connection_state,
     normalize_base_url,
+    reset_failed_service,
     show_providers_table,
     start_and_enable_service,
 )
@@ -139,9 +140,10 @@ def del_controller_from_cloud(options) -> int:
 
 def _register_in_cloud(settings, mqtt: MQTTCloudAgent, stop_requested: threading.Event) -> bool:
     """
-    Повторять startup-запросы с паузой, растущей до STARTUP_RETRY_MAX_PAUSE_SECONDS, пока облако недоступно
-    или отвечает временной ошибкой; False, если раньше попросили остановиться. Остальные ошибки, например
-    отказ облака (400/403) или плохой сертификат (curl 58), пробрасываются: повтор в процессе их не исправит.
+    Repeat the startup requests with a pause growing up to STARTUP_RETRY_MAX_PAUSE_SECONDS while the cloud
+    is unreachable or answers with a temporary error; False if a stop was requested first. Other failures,
+    e.g. a rejection (400/403 or a TLS alert about the client certificate) or a bad certificate (curl 58),
+    are raised: a retry in process would not change them.
     """
     pause = settings.request_period_seconds
     while wait_for_cloud_reachable(settings.cloud_base_url, settings.ping_period_seconds, stop_requested):
@@ -151,10 +153,16 @@ def _register_in_cloud(settings, mqtt: MQTTCloudAgent, stop_requested: threading
             return True
         except (CloudNetworkError, CloudUnavailableError, CurlInterrupted, subprocess.TimeoutExpired) as exc:
             logging.error("Startup request failed: %s. Retrying in %s s...", exc, pause)
-            mqtt.publish_ctrl("status", "Network or Cloud is unreachable! Retrying...")
+            mqtt.publish_ctrl("status", _retry_status(exc))
             stop_requested.wait(pause)
             pause = min(pause * 2, STARTUP_RETRY_MAX_PAUSE_SECONDS)
     return False
+
+
+def _retry_status(error: Exception) -> str:
+    if isinstance(error, CloudUnavailableError):
+        return f"Cloud is unavailable (HTTP {error.http_status})! Retrying..."
+    return "Network or Cloud is unreachable! Retrying..."
 
 
 def _serve_cloud(settings, mqtt: MQTTCloudAgent, stop_requested: threading.Event) -> int:
@@ -162,7 +170,8 @@ def _serve_cloud(settings, mqtt: MQTTCloudAgent, stop_requested: threading.Event
     Publish the virtual device, register in the cloud and poll its events until a stop is requested.
 
     Exit code 1 when the cloud rejects the registration: systemd restarts the unit, and check-certs.sh
-    rebuilds the certificate before the next attempt.
+    rebuilds the certificate before the next attempt. A successful registration resets the restart counter
+    of the unit, so the RestartSteps delay of a later failure starts from RestartSec again.
     """
     mqtt.publish_ctrl("status", "starting")
     mqtt.update_providers_list()
@@ -177,6 +186,7 @@ def _serve_cloud(settings, mqtt: MQTTCloudAgent, stop_requested: threading.Event
         logging.error("Startup request failed: %s", exc)
         return EXIT_FAILURE
 
+    reset_failed_service(f"wb-cloud-agent@{settings.provider_name}.service")
     mqtt.publish_ctrl("status", "connecting")
     reconcile_metrics_script(settings)
     logging.info("Cloud Agent initialization - OK")
