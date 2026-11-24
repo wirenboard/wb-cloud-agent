@@ -86,7 +86,7 @@ def assert_frpc_restarted(settings, tunnel_mocks):
 
 @pytest.mark.parametrize("payload", [{"config": CLOUD_CONFIG}, {"config": CLOUD_CONFIG, "restart": True}])
 def test_update_tunnel_config_restarts_frpc_with_admin_api(isolated_provider_runtime, tunnel_mocks, payload):
-    """Без флага (старое облако) и с restart=True — рестарт без попытки reload; admin API включает агент."""
+    """No flag (an older cloud) or restart=True: a restart without a reload; the agent adds the admin API."""
     settings = isolated_provider_runtime
     mock_mqtt = MagicMock()
 
@@ -129,7 +129,7 @@ def test_update_tunnel_config_restarts_on_same_port_when_reload_fails(
 def test_update_tunnel_config_restarts_frpc_without_admin_api_yet(
     isolated_provider_runtime, tunnel_mocks, previous
 ):
-    """Первое событие после обновления агента: у работающего frpc нет admin API, reload невозможен."""
+    """The first event after an agent upgrade: the running frpc has no admin API, so it cannot reload."""
     settings = isolated_provider_runtime
     if previous is not None:
         settings.frp_config.write_text(previous)
@@ -142,7 +142,7 @@ def test_update_tunnel_config_restarts_frpc_without_admin_api_yet(
 
 
 def test_update_tunnel_config_treats_corrupt_config_as_no_admin_api(isolated_provider_runtime, tunnel_mocks):
-    """Битый файл на флеше не должен вечно ронять обработчик: считаем, что admin API нет, и перезаписываем."""
+    """A broken file on the flash must not crash the handler forever: assume no admin API and rewrite it."""
     settings = isolated_provider_runtime
     settings.frp_config.write_bytes(b"[common]\nadmin_port = 7110\n\xff\xfe\n")
 
@@ -156,7 +156,7 @@ def test_update_tunnel_config_treats_corrupt_config_as_no_admin_api(isolated_pro
 def test_update_tunnel_config_takes_next_free_port_after_stopping_frpc(
     isolated_provider_runtime, tunnel_mocks
 ):
-    """Проба после остановки своего frpc (иначе он сам считался бы конфликтом): прежний порт первым."""
+    """Probing after our frpc stops (or it would count as a conflict itself), the previous port first."""
     settings = isolated_provider_runtime
     settings.frp_config.write_text("[common]\n" + admin_api(7110))
     tunnel_mocks["port_taken"].side_effect = lambda addr, port: port in (7110, 7106)
@@ -182,7 +182,7 @@ def test_update_tunnel_config_takes_next_free_port_after_stopping_frpc(
 def test_update_tunnel_config_starts_without_admin_api_when_no_port_is_free(
     isolated_provider_runtime, tunnel_mocks, caplog
 ):
-    """Все порты заняты — frpc без admin API лучше, чем frpc в рестарт-цикле systemd."""
+    """All ports are taken: frpc without the admin API is better than frpc in a systemd restart loop."""
     settings = isolated_provider_runtime
     tunnel_mocks["port_taken"].return_value = True
 
