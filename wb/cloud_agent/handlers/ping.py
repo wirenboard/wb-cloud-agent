@@ -2,11 +2,28 @@ import logging
 import threading
 from http.client import HTTPException
 from urllib.error import HTTPError
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from wb.cloud_agent import __version__ as agent_package_version
 
 USER_AGENT = f"wb-cloud-agent/{agent_package_version}"
+
+
+class _KeepHeadRedirectHandler(HTTPRedirectHandler):
+    """
+    Follow a redirect of a HEAD request with HEAD: urllib before Python 3.13 sends GET instead.
+    """
+
+    def redirect_request(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+        self, req, fp, code, msg, headers, newurl
+    ):
+        new_request = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if new_request is not None and req.get_method() == "HEAD":
+            new_request.method = "HEAD"
+        return new_request
+
+
+_opener = build_opener(_KeepHeadRedirectHandler)
 
 
 def _head_status(url: str, timeout: float) -> int:
@@ -15,7 +32,7 @@ def _head_status(url: str, timeout: float) -> int:
     """
     request = Request(url, method="HEAD", headers={"User-Agent": USER_AGENT})
     try:
-        with urlopen(request, timeout=timeout) as response:
+        with _opener.open(request, timeout=timeout) as response:
             return response.status
     except HTTPError as exc:  # any status but 2xx, including a 3xx that is not followed
         with exc:  # it holds the open response; close the connection now, not on GC
