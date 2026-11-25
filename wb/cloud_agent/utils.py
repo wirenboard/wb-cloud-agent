@@ -12,8 +12,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional
 from urllib.parse import urljoin
 
-from tabulate import tabulate
-
 from wb.cloud_agent.constants import (
     DEFAULT_ENGINE_KEY_PREFIX,
     DEVICE_TREE_COMPATIBLE_PATH,
@@ -276,6 +274,9 @@ def show_providers_table(providers: list["Provider"]) -> None:
     if not providers:
         print("No one provider was found")
         return
+
+    # imported here: only the command line prints the table, the daemon would load it for nothing
+    from tabulate import tabulate  # pylint: disable=import-outside-toplevel
 
     table = [[p.name, p.display_url] for p in providers]
     headers = ["Provider", "Controller Url / Activation Url"]

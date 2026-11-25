@@ -21,7 +21,6 @@ Package: wb-cloud-agent
 Architecture: all
 Depends: ${misc:Depends},
          ${python3:Depends},
-         python3-requests,
          python3-mqttrpc,
          frpc,
          curl (>= 8.15.0),

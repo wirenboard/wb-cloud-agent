@@ -1,4 +1,4 @@
-wb-cloud-agent (1.9.1) stable; urgency=medium
+wb-cloud-agent (1.9.2) stable; urgency=medium
 
   * run-daemon: also retry the cloud handshake in process on 5xx, 429 and 404 answers and on TLS errors
     (curl 35, 56, 60), so the agent comes back by itself after a cloud outage; one request per attempt,
@@ -15,7 +15,14 @@ wb-cloud-agent (1.9.1) stable; urgency=medium
   * run-daemon: a TLS error of an event request is reported as "Network or Cloud is unreachable",
     unless the cloud rejected the client certificate
 
- -- Arseniy Astafev <arseniy.astafev@wirenboard.com>  Tue, 24 Nov 2026 16:08:30 +0300
+ -- Arseniy Astafev <arseniy.astafev@wirenboard.com>  Wed, 25 Nov 2026 13:25:00 +0300
+
+wb-cloud-agent (1.9.1) stable; urgency=medium
+
+  * Use less memory: the cloud reachability check uses urllib instead of requests;
+    tabulate is imported only by the command that prints the providers table
+
+ -- Nikolay Korotkiy <nikolay.korotkiy@wirenboard.com>  Mon, 23 Nov 2026 17:00:00 +0400
 
 wb-cloud-agent (1.9.0) stable; urgency=medium
 
