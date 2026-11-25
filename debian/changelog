@@ -1,3 +1,9 @@
+wb-cloud-agent (1.9.3) stable; urgency=medium
+
+  * metrics collector: reject a config with a variable that is not a string or a number (list, dict, null, bool)
+
+ -- Arseniy Astafev <arseniy.astafev@wirenboard.com>  Wed, 25 Nov 2026 13:45:00 +0300
+
 wb-cloud-agent (1.9.2) stable; urgency=medium
 
   * run-daemon: also retry the cloud handshake in process on 5xx, 429 and 404 answers and on TLS errors

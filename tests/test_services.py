@@ -348,6 +348,31 @@ def test_cloud_vars_injection_is_escaped(cloud_vars_settings):
 
 
 @pytest.mark.usefixtures("metrics_template")
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("metrics_url", ['x"); __import__("os").system("evil"); ("']),
+        ("metrics_url", {"a": 'b"'}),
+        ("metrics_url", None),
+        ("interval_seconds", True),
+    ],
+)
+def test_cloud_vars_value_not_string_or_number_is_rejected(cloud_vars_settings, key, value):
+    settings = cloud_vars_settings
+    payload = {"enabled": True, "vars": dict(CLOUD_VARS, **{key: value})}
+
+    with (
+        patch("wb.cloud_agent.services.metrics.start_and_enable_service") as mock_service,
+        pytest.raises(ValueError, match=f"'{key}' must be a string or a number"),
+    ):
+        update_metrics_config(settings, payload, MagicMock())
+
+    assert not settings.metrics_script.exists()
+    assert not settings.metrics_vars_config.exists()
+    mock_service.assert_not_called()
+
+
+@pytest.mark.usefixtures("metrics_template")
 def test_cloud_vars_cannot_override_agent_keys(cloud_vars_settings):
     settings = cloud_vars_settings
     payload = {"enabled": True, "vars": dict(CLOUD_VARS, crypto_engine_key="EVIL")}
@@ -438,6 +463,27 @@ def test_reconcile_rerenders_when_script_outdated(cloud_vars_settings):
     assert "OUTDATED" not in content
     assert 'METRICS_URL = "https://metrics.example.com/write"' in content
     mock_service.assert_called_once_with(settings.metrics_service, restart=True)
+
+
+@pytest.mark.usefixtures("metrics_template")
+def test_reconcile_keeps_script_when_saved_vars_are_not_scalar(cloud_vars_settings):
+    settings = cloud_vars_settings
+    settings.metrics_vars_config.write_text(
+        json.dumps(
+            {
+                "vars": dict(CLOUD_VARS, metrics_url=["evil"]),
+                "mqtt_client_id": "wb-cloud-agent-metrics-fixedaaa",
+                "created_at": "2026-01-01 00:00:00+00:00",
+            }
+        )
+    )
+    settings.metrics_script.write_text("OLD")
+
+    with patch("wb.cloud_agent.services.metrics.start_and_enable_service") as mock_service:
+        reconcile_metrics_script(settings)
+
+    assert settings.metrics_script.read_text() == "OLD"
+    mock_service.assert_not_called()
 
 
 @pytest.mark.usefixtures("metrics_template")
