@@ -27,7 +27,7 @@ def isolated_provider_runtime(settings, tmp_path):  # pylint: disable=redefined-
 
 @pytest.fixture
 def tunnel_mocks():
-    """Моки применения frpc-конфига: по умолчанию reload проходит, admin-порт свободен."""
+    """Mocks for applying the frpc config: by default the reload succeeds and the admin port is free."""
     with (
         patch("wb.cloud_agent.services.tunnel.stop_service") as stop,
         patch("wb.cloud_agent.services.tunnel.reset_failed_service") as reset_failed,

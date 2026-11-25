@@ -1,6 +1,6 @@
 import json
 import socket
-from subprocess import CalledProcessError
+from subprocess import CalledProcessError, TimeoutExpired
 from unittest.mock import MagicMock
 
 import pytest
@@ -34,7 +34,7 @@ def test_is_port_taken():
 
 
 def test_is_port_taken_ignores_time_wait():
-    """Сервер закрывает соединение первым и оставляет TIME_WAIT на своём порту — порт не занят."""
+    """The server closes the connection first and leaves TIME_WAIT on its port: the port is not taken."""
     with socket.socket() as listener:
         listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         listener.bind(("127.0.0.1", 0))
@@ -54,6 +54,18 @@ def test_reset_failed_service_ignores_failures(mock_subprocess_run):
 
     assert mock_subprocess_run.call_args.args[0] == ["systemctl", "reset-failed", "x.service"]
     assert mock_subprocess_run.call_args.kwargs["check"] is False
+
+
+@pytest.mark.parametrize(
+    "error", [TimeoutExpired(["systemctl"], 10), FileNotFoundError("systemctl")], ids=["timeout", "missing"]
+)
+def test_reset_failed_service_does_not_raise(mock_subprocess_run, caplog, error):
+    """The daemon calls it right after registering in the cloud, where an exception would end the daemon."""
+    mock_subprocess_run.side_effect = error
+
+    reset_failed_service("x.service")
+
+    assert "Cannot reset the failed state of x.service" in caplog.text
 
 
 def test_write_to_file_explicit_mode(tmp_path):

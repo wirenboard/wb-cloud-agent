@@ -26,8 +26,9 @@ ADMIN_PORT = re.compile(r"^admin_port[ \t]*=[ \t]*(\d+)", re.MULTILINE)
 
 
 def update_tunnel_config(settings: AppSettings, payload: dict, mqtt: MQTTCloudAgent) -> None:
-    """Облако просит restart, когда меняется [common] или туннели надо поднять заново; без флага
-    (старое облако) тоже перезапускаем. Иначе применяем конфиг через admin API frpc — живые сессии целы."""
+    """The cloud asks for a restart when [common] changes or the tunnels have to come up again; without the
+    flag (an older cloud) frpc restarts too. Otherwise the config goes through the frpc admin API, and live
+    sessions survive."""
     config = payload["config"]
     port = _admin_port(settings.frp_config)
     if payload.get("restart", True) or port is None or not _reload_frpc(settings, config, port):
@@ -41,8 +42,8 @@ def _reload_frpc(settings: AppSettings, config: str, port: int) -> bool:
 
 
 def _restart_frpc(settings: AppSettings, config: str, previous_port: Optional[int]) -> None:
-    """frpc с занятым admin-портом не стартует и крутится в рестарт-цикле systemd, поэтому порт выбираем
-    после остановки своего frpc: прежний, иначе первый свободный (свой у каждого провайдера)."""
+    """frpc with a taken admin port does not start and loops in systemd restarts, so the port is picked once
+    our frpc is stopped: the previous one, else the first free one (each provider has its own)."""
     stop_service(settings.frp_service)
     reset_failed_service(settings.frp_service)
     port = _free_admin_port(previous_port)
@@ -57,8 +58,8 @@ def _restart_frpc(settings: AppSettings, config: str, previous_port: Optional[in
 
 
 def _admin_port(config_path: Path) -> Optional[int]:
-    """Порт admin API работающего frpc — из прошлого конфига, который писал этот же агент.
-    Нечитаемый или битый файл — нет admin API: restart перезапишет его целиком."""
+    """The admin API port of the running frpc, taken from the previous config written by this agent.
+    An unreadable or broken file means no admin API: a restart rewrites the whole file."""
     try:
         match = ADMIN_PORT.search(config_path.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError):
@@ -75,7 +76,7 @@ def _free_admin_port(preferred: Optional[int]) -> Optional[int]:
 
 
 def _with_admin_api(config: str, port: int) -> str:
-    """Пароль — токен connection: он меняется только вместе с restart, так что у reload он актуален."""
+    """The password is the connection token: it changes only with a restart, so it is current for a reload."""
     token = TUNNEL_TOKEN.search(config)
     if token is None:
         return config
@@ -87,8 +88,9 @@ def _with_admin_api(config: str, port: int) -> str:
 
 
 def reload_frpc(config_path: Path, timeout: int = 60) -> bool:
-    """Перечитать прокси-секции работающего frpc через его admin API (адрес и учётка — из конфига).
-    Неизменённые туннели и их сессии остаются. False — reload не прошёл, нужен restart."""
+    """Reread the proxy sections of the running frpc through its admin API (address and credentials come
+    from the config). Unchanged tunnels and their sessions stay. False means the reload failed and frpc
+    needs a restart."""
     try:
         result = subprocess.run(
             ["frpc", "reload", "-c", str(config_path)],

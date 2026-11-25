@@ -108,7 +108,7 @@ def test_do_curl_killed_by_signal_is_interrupted(mock_subprocess_run, settings):
         do_curl(settings=settings, endpoint="events/")
 
 
-@pytest.mark.parametrize("return_code", [6, 7, 28])
+@pytest.mark.parametrize("return_code", [6, 7, 28, 35, 56, 60])
 def test_do_curl_network_errors(mock_subprocess_run, settings, return_code):
     mock_subprocess_run.side_effect = CalledProcessError(
         returncode=return_code, cmd=["curl"], output=b"", stderr=b"Could not resolve host"
@@ -119,6 +119,62 @@ def test_do_curl_network_errors(mock_subprocess_run, settings, return_code):
 
     assert "Network error while accessing" in str(exc_info.value)
     assert settings.cloud_base_url in str(exc_info.value)
+
+
+@pytest.mark.parametrize(
+    "stderr, error_text",
+    [
+        (
+            b"  % Total    % Received % Xferd\r  0     0    0     0\r\n"
+            b"Warning: Problem : timeout. Will retry in 1 seconds. 8 retries left.\n"
+            b"curl: (60) SSL certificate problem: certificate is not yet valid\n",
+            "curl: (60) SSL certificate problem: certificate is not yet valid",
+        ),
+        (b"", "curl exit code 60"),
+    ],
+    ids=["last-line", "empty-stderr"],
+)
+def test_do_curl_network_error_tells_the_curl_error(mock_subprocess_run, settings, stderr, error_text):
+    mock_subprocess_run.side_effect = CalledProcessError(
+        returncode=60, cmd=["curl"], output=b"", stderr=stderr
+    )
+
+    with pytest.raises(CloudNetworkError) as exc_info:
+        do_curl(settings=settings, endpoint="agent-start-up/")
+
+    assert str(exc_info.value).endswith(f": {error_text}")
+
+
+@pytest.mark.parametrize(
+    "return_code, stderr",
+    [
+        (
+            56,
+            "curl: (56) OpenSSL SSL_read: OpenSSL/3.5.6: error:0A00045C:SSL routines::"
+            "tlsv13 alert certificate required, errno 0",
+        ),
+        (
+            56,
+            "curl: (56) OpenSSL SSL_read: OpenSSL/3.5.6: error:0A000418:SSL routines::"
+            "tlsv1 alert unknown ca, errno 0",
+        ),
+        (35, "curl: (35) TLS connect error: error:0A000418:SSL routines::tlsv1 alert unknown ca"),
+    ],
+    ids=["no-certificate", "unknown-ca", "unknown-ca-tls12"],
+)
+def test_do_curl_cloud_rejecting_the_certificate_is_no_network_error(
+    mock_subprocess_run, settings, return_code, stderr
+):
+    """
+    Traefik with RequireAndVerifyClientCert rejects a certificate by a TLS alert, not by 403 (stderr taken
+    from staging2): a retry would not help, so it ends up as a rejection, like curl 58.
+    """
+    mock_subprocess_run.side_effect = CalledProcessError(
+        returncode=return_code, cmd=["curl"], output=b"", stderr=stderr.encode()
+    )
+
+    with pytest.raises(RuntimeError, match="The cloud rejected the client certificate: curl: "):
+        do_curl(settings=settings, endpoint="agent-start-up/")
 
 
 def test_do_curl_multipart_post_method(mock_subprocess_run, settings, mock_subprocess, tmp_path):
