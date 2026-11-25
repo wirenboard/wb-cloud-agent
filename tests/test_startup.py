@@ -5,6 +5,7 @@ import pytest
 
 from wb.cloud_agent.constants import UNKNOWN_LINK
 from wb.cloud_agent.handlers.startup import (
+    CloudUnavailableError,
     collect_package_versions,
     make_start_up_request,
     on_message,
@@ -65,13 +66,45 @@ def test_make_start_up_request_not_activated_no_link(settings):
         mock_write.assert_called_once_with(settings, UNKNOWN_LINK, mock_mqtt)
 
 
-def test_make_start_up_request_invalid_status(settings):
+@pytest.mark.parametrize("http_status", [status.BAD_REQUEST, status.FORBIDDEN])
+def test_make_start_up_request_invalid_status(settings, http_status):
     mock_mqtt = MagicMock()
     with patch("wb.cloud_agent.handlers.startup.do_curl") as mock_curl:
-        mock_curl.return_value = ({}, status.BAD_REQUEST)
+        mock_curl.return_value = ({}, http_status)
 
         with pytest.raises(ValueError, match="Not a 200 status while making start up request"):
             make_start_up_request(settings, mock_mqtt)
+
+
+@pytest.mark.parametrize(
+    "http_status",
+    [
+        status.NOT_FOUND,
+        status.TOO_MANY_REQUESTS,
+        status.INTERNAL_SERVER_ERROR,
+        status.BAD_GATEWAY,
+        status.SERVICE_UNAVAILABLE,
+        status.GATEWAY_TIMEOUT,
+    ],
+)
+def test_make_start_up_request_cloud_unavailable(settings, http_status):
+    with patch("wb.cloud_agent.handlers.startup.do_curl", return_value=({}, http_status)):
+        with pytest.raises(CloudUnavailableError, match=f"start up request: {http_status.value}") as exc_info:
+            make_start_up_request(settings, MagicMock())
+
+    assert exc_info.value.http_status == http_status
+
+
+def test_make_start_up_request_runs_curl_without_its_retries(settings, mock_subprocess, mock_subprocess_run):
+    """Retrying a 503, curl writes every answer to stdout in a row, and a 200 after them is lost."""
+    mock_subprocess(status.OK, '{"activated": true, "activationLink": ""}')
+
+    with patch("wb.cloud_agent.handlers.startup.write_activation_link"):
+        make_start_up_request(settings, MagicMock())
+
+    command = mock_subprocess_run.call_args.args[0]
+    assert command[command.index("--retry") + 1] == "0"
+    assert "--retry-all-errors" not in command
 
 
 def test_make_start_up_request_missing_activated_field(settings):

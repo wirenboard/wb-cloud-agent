@@ -32,6 +32,8 @@ CLIENT_CERT_ERROR_MSG = (
 
 UNBIND_CTRL_REQUEST_TIMEOUT = 7
 
+STARTUP_RETRY_MAX_PAUSE_SECONDS = 300
+
 # Metrics collector script template shipped with the package and rendered locally
 # for agents that receive only substitution variables from the cloud (not the full script).
 METRICS_COLLECTOR_TEMPLATE_PATH = "/usr/lib/wb-cloud-agent/metrics_collector.py.tpl"
