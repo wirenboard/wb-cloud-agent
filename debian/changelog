@@ -1,10 +1,42 @@
-wb-cloud-agent (1.9.1) stable; urgency=medium
+wb-cloud-agent (1.9.4) stable; urgency=medium
 
   * Add LICENSE: The WB License (MIT-WB), Wiren Board as the copyright holder,
     2023 as the first publication year, use restricted to Wiren Board equipment
   * Fill debian/copyright in the DEP-5 format, set license="MIT-WB" in setup.py
 
- -- Ekaterina Volkova <ekaterina.volkova@wirenboard.com>  Thu, 12 Nov 2026 16:28:58 +0300
+ -- Ekaterina Volkova <ekaterina.volkova@wirenboard.com>  Thu, 26 Nov 2026 18:13:51 +0300
+
+wb-cloud-agent (1.9.3) stable; urgency=medium
+
+  * metrics collector: reject a config with a variable that is not a string or a number (list, dict, null, bool)
+
+ -- Arseniy Astafev <arseniy.astafev@wirenboard.com>  Wed, 25 Nov 2026 13:45:00 +0300
+
+wb-cloud-agent (1.9.2) stable; urgency=medium
+
+  * run-daemon: also retry the cloud handshake in process on 5xx, 429 and 404 answers and on TLS errors
+    (curl 35, 56, 60), so the agent comes back by itself after a cloud outage; one request per attempt,
+    the pause between attempts, network errors included, grows from the poll period to 5 minutes;
+    the status names the HTTP code of the answer, e.g. "Cloud is unavailable (HTTP 404)"
+  * run-daemon: a rejection (400, 403, or a TLS alert about the client certificate) and a bad client
+    certificate (curl 58) exit with code 1
+  * run-daemon: network and TLS errors are logged with the error text from curl
+  * systemd: no start rate limit for the agent: after 100 restarts within an hour systemd stopped
+    restarting it for good; instead the delay between restarts grows from 10 s to 5 minutes and starts
+    over once the agent has registered in the cloud
+  * postinst: on upgrade also start agent instances left failed, e.g. by the old start limit, so they
+    come back without a reboot; instances stopped by hand stay stopped
+  * run-daemon: a TLS error of an event request is reported as "Network or Cloud is unreachable",
+    unless the cloud rejected the client certificate
+
+ -- Arseniy Astafev <arseniy.astafev@wirenboard.com>  Wed, 25 Nov 2026 13:25:00 +0300
+
+wb-cloud-agent (1.9.1) stable; urgency=medium
+
+  * Use less memory: the cloud reachability check uses urllib instead of requests;
+    tabulate is imported only by the command that prints the providers table
+
+ -- Nikolay Korotkiy <nikolay.korotkiy@wirenboard.com>  Mon, 23 Nov 2026 17:00:00 +0400
 
 wb-cloud-agent (1.9.0) stable; urgency=medium
 

@@ -15,6 +15,14 @@ from wb.cloud_agent.utils import get_apt_package_version
 VersionFieldGetter = Callable[[AppSettings], str]
 
 
+class CloudUnavailableError(Exception):
+    """A temporary cloud error: 5xx, 429 or a 404 from the proxy while the backend is down."""
+
+    def __init__(self, http_status: int):
+        super().__init__(f"Not a {status.OK} status while making start up request: {http_status}")
+        self.http_status = http_status
+
+
 def get_agent_package_version(_settings: AppSettings) -> str:
     return agent_package_version
 
@@ -50,9 +58,20 @@ PACKAGE_VERSION_FIELDS: dict[str, VersionFieldGetter] = {
 
 
 def make_start_up_request(settings: AppSettings, mqtt: MQTTCloudAgent):
-    status_data, http_status = do_curl(settings=settings, method="get", endpoint="agent-start-up/")
+    """No curl retries: they glue answers together in stdout, and the daemon retries the request itself."""
+    status_data, http_status = do_curl(
+        settings=settings,
+        method="get",
+        endpoint="agent-start-up/",
+        retry_opts=["--connect-timeout", "45", "--retry", "0"],
+    )
     if http_status != status.OK:
         logging.debug("http_status=%s status_data=%s", http_status, status_data)
+        if (
+            http_status in (status.NOT_FOUND, status.TOO_MANY_REQUESTS)
+            or http_status >= status.INTERNAL_SERVER_ERROR
+        ):
+            raise CloudUnavailableError(http_status)
         raise ValueError(f"Not a {status.OK} status while making start up request: {http_status}")
 
     if "activated" not in status_data or "activationLink" not in status_data:

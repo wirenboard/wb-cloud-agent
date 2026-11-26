@@ -56,13 +56,18 @@ if [ "$1" = "configure" ]; then
     wb-cloud-agent add-provider https://wirenboard.cloud || true
   fi
   # Restart all running provider instances after upgrade
-  if [ -d /etc/wb-cloud-agent/providers ]; then
+  if [ -d /run/systemd/system ] && [ -d /etc/wb-cloud-agent/providers ]; then
     # Reload systemd units to apply updated unit files before restarting instances
     systemctl daemon-reload 2>/dev/null || :
     for provider in /etc/wb-cloud-agent/providers/*; do
       [ -d "$provider" ] || continue
       provider_name="${provider##*/}"
-      deb-systemd-invoke try-restart "wb-cloud-agent@$provider_name" || :
+      # try-restart skips failed instances; deb-systemd-invoke, unlike systemctl, does not start disabled ones
+      if systemctl --quiet is-failed "wb-cloud-agent@$provider_name"; then
+        deb-systemd-invoke start "wb-cloud-agent@$provider_name" || :
+      else
+        deb-systemd-invoke try-restart "wb-cloud-agent@$provider_name" || :
+      fi
     done
   fi
 fi

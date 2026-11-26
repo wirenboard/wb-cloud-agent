@@ -86,7 +86,7 @@ def assert_frpc_restarted(settings, tunnel_mocks):
 
 @pytest.mark.parametrize("payload", [{"config": CLOUD_CONFIG}, {"config": CLOUD_CONFIG, "restart": True}])
 def test_update_tunnel_config_restarts_frpc_with_admin_api(isolated_provider_runtime, tunnel_mocks, payload):
-    """Без флага (старое облако) и с restart=True — рестарт без попытки reload; admin API включает агент."""
+    """No flag (an older cloud) or restart=True: a restart without a reload; the agent adds the admin API."""
     settings = isolated_provider_runtime
     mock_mqtt = MagicMock()
 
@@ -129,7 +129,7 @@ def test_update_tunnel_config_restarts_on_same_port_when_reload_fails(
 def test_update_tunnel_config_restarts_frpc_without_admin_api_yet(
     isolated_provider_runtime, tunnel_mocks, previous
 ):
-    """Первое событие после обновления агента: у работающего frpc нет admin API, reload невозможен."""
+    """The first event after an agent upgrade: the running frpc has no admin API, so it cannot reload."""
     settings = isolated_provider_runtime
     if previous is not None:
         settings.frp_config.write_text(previous)
@@ -142,7 +142,7 @@ def test_update_tunnel_config_restarts_frpc_without_admin_api_yet(
 
 
 def test_update_tunnel_config_treats_corrupt_config_as_no_admin_api(isolated_provider_runtime, tunnel_mocks):
-    """Битый файл на флеше не должен вечно ронять обработчик: считаем, что admin API нет, и перезаписываем."""
+    """A broken file on the flash must not crash the handler forever: assume no admin API and rewrite it."""
     settings = isolated_provider_runtime
     settings.frp_config.write_bytes(b"[common]\nadmin_port = 7110\n\xff\xfe\n")
 
@@ -156,7 +156,7 @@ def test_update_tunnel_config_treats_corrupt_config_as_no_admin_api(isolated_pro
 def test_update_tunnel_config_takes_next_free_port_after_stopping_frpc(
     isolated_provider_runtime, tunnel_mocks
 ):
-    """Проба после остановки своего frpc (иначе он сам считался бы конфликтом): прежний порт первым."""
+    """Probing after our frpc stops (or it would count as a conflict itself), the previous port first."""
     settings = isolated_provider_runtime
     settings.frp_config.write_text("[common]\n" + admin_api(7110))
     tunnel_mocks["port_taken"].side_effect = lambda addr, port: port in (7110, 7106)
@@ -182,7 +182,7 @@ def test_update_tunnel_config_takes_next_free_port_after_stopping_frpc(
 def test_update_tunnel_config_starts_without_admin_api_when_no_port_is_free(
     isolated_provider_runtime, tunnel_mocks, caplog
 ):
-    """Все порты заняты — frpc без admin API лучше, чем frpc в рестарт-цикле systemd."""
+    """All ports are taken: frpc without the admin API is better than frpc in a systemd restart loop."""
     settings = isolated_provider_runtime
     tunnel_mocks["port_taken"].return_value = True
 
@@ -348,6 +348,31 @@ def test_cloud_vars_injection_is_escaped(cloud_vars_settings):
 
 
 @pytest.mark.usefixtures("metrics_template")
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("metrics_url", ['x"); __import__("os").system("evil"); ("']),
+        ("metrics_url", {"a": 'b"'}),
+        ("metrics_url", None),
+        ("interval_seconds", True),
+    ],
+)
+def test_cloud_vars_value_not_string_or_number_is_rejected(cloud_vars_settings, key, value):
+    settings = cloud_vars_settings
+    payload = {"enabled": True, "vars": dict(CLOUD_VARS, **{key: value})}
+
+    with (
+        patch("wb.cloud_agent.services.metrics.start_and_enable_service") as mock_service,
+        pytest.raises(ValueError, match=f"'{key}' must be a string or a number"),
+    ):
+        update_metrics_config(settings, payload, MagicMock())
+
+    assert not settings.metrics_script.exists()
+    assert not settings.metrics_vars_config.exists()
+    mock_service.assert_not_called()
+
+
+@pytest.mark.usefixtures("metrics_template")
 def test_cloud_vars_cannot_override_agent_keys(cloud_vars_settings):
     settings = cloud_vars_settings
     payload = {"enabled": True, "vars": dict(CLOUD_VARS, crypto_engine_key="EVIL")}
@@ -438,6 +463,27 @@ def test_reconcile_rerenders_when_script_outdated(cloud_vars_settings):
     assert "OUTDATED" not in content
     assert 'METRICS_URL = "https://metrics.example.com/write"' in content
     mock_service.assert_called_once_with(settings.metrics_service, restart=True)
+
+
+@pytest.mark.usefixtures("metrics_template")
+def test_reconcile_keeps_script_when_saved_vars_are_not_scalar(cloud_vars_settings):
+    settings = cloud_vars_settings
+    settings.metrics_vars_config.write_text(
+        json.dumps(
+            {
+                "vars": dict(CLOUD_VARS, metrics_url=["evil"]),
+                "mqtt_client_id": "wb-cloud-agent-metrics-fixedaaa",
+                "created_at": "2026-01-01 00:00:00+00:00",
+            }
+        )
+    )
+    settings.metrics_script.write_text("OLD")
+
+    with patch("wb.cloud_agent.services.metrics.start_and_enable_service") as mock_service:
+        reconcile_metrics_script(settings)
+
+    assert settings.metrics_script.read_text() == "OLD"
+    mock_service.assert_not_called()
 
 
 @pytest.mark.usefixtures("metrics_template")

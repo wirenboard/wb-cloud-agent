@@ -11,6 +11,15 @@ from wb.cloud_agent.utils import parse_headers
 
 DATA_DELIMITER = "|||"
 
+CLIENT_CERT_REJECTED_ALERTS = (
+    "alert certificate required",
+    "alert unknown ca",
+    "alert bad certificate",
+    "alert certificate unknown",
+    "alert certificate expired",
+    "alert certificate revoked",
+)
+
 
 class CloudNetworkError(OSError):
     """Network-level error while communicating with the cloud."""
@@ -87,14 +96,28 @@ def do_curl(  # pylint: disable=too-many-arguments,too-many-positional-arguments
                     cert_file=settings.client_cert_file, cert_engine_key=settings.client_cert_engine_key
                 )
             ) from e
-        if e.returncode in (6, 7, 28):
+        if e.returncode in (6, 7, 28, 35, 56, 60):
             logging.debug(e)
-            raise CloudNetworkError(
-                f"{endpoint} Network error while accessing {settings.cloud_base_url}"
-            ) from e
+            raise _network_error(settings, endpoint, _curl_error_text(e)) from e
         raise e
 
     return handle_curl_output(settings, result.stdout)
+
+
+def _network_error(settings: AppSettings, endpoint: str, error_text: str) -> Exception:
+    """A TLS alert about the client certificate means the cloud rejected it, and a retry would not help."""
+    if any(alert in error_text for alert in CLIENT_CERT_REJECTED_ALERTS):
+        return RuntimeError(f"{endpoint} The cloud rejected the client certificate: {error_text}")
+    return CloudNetworkError(
+        f"{endpoint} Network error while accessing {settings.cloud_base_url}: {error_text}"
+    )
+
+
+def _curl_error_text(error: subprocess.CalledProcessError) -> str:
+    """The last line of stderr: curl writes its progress meter and retry warnings above it."""
+    lines = (error.stderr or b"").decode(errors="replace").replace("\r", "\n").split("\n")
+    messages = [line.strip() for line in lines if line.strip()]
+    return messages[-1] if messages else f"curl exit code {error.returncode}"
 
 
 def handle_curl_output(settings: AppSettings, stdout: bytes) -> tuple[dict, int]:

@@ -200,16 +200,15 @@ def _monitor_metrics_service(settings: AppSettings, service: str, stop_event: th
             _monitor_threads.pop(settings.provider_name, None)
 
 
-def _escape_template_value(value: object) -> object:
-    """Neutralise a string so it cannot break out of the ``"..."`` literal it lands in.
-
-    ``json.dumps`` returns a valid quoted string with quotes and backslashes escaped;
-    dropping the outer quotes keeps the escaped contents. Non-strings pass through and
-    rely on the ``int()``/``float()`` wrappers in the template.
-    """
+def _escape_template_value(key: str, value: object) -> str:
+    """Escape a value for a "..." template literal; reject anything but str, int and float (not bool)."""
     if isinstance(value, str):
         return json.dumps(value)[1:-1]
-    return value
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return str(value)
+    raise ValueError(
+        f"Metrics template variable {key!r} must be a string or a number, got {type(value).__name__}"
+    )
 
 
 def _generate_mqtt_client_id() -> str:
@@ -251,7 +250,7 @@ def render_metrics_script(settings: AppSettings, conf: dict) -> str:
     )
     template = Path(METRICS_COLLECTOR_TEMPLATE_PATH).read_text(encoding="utf-8")
     return Template(template).substitute(
-        {key: _escape_template_value(value) for key, value in substitution.items()}
+        {key: _escape_template_value(key, value) for key, value in substitution.items()}
     )
 
 
@@ -299,11 +298,12 @@ def update_metrics_config(settings: AppSettings, payload: dict, mqtt: MQTTCloudA
     if not raw_vars:
         raise ValueError("Metrics config event payload has no variables")
     conf = _build_vars_conf(settings, raw_vars)
+    script = render_metrics_script(settings, conf)
     write_to_file(fpath=settings.metrics_vars_config, contents=json.dumps(conf, indent=2))
 
     logging.info("Applying metrics collector config for provider %s", settings.provider_name)
 
-    write_to_file(fpath=settings.metrics_script, contents=render_metrics_script(settings, conf))
+    write_to_file(fpath=settings.metrics_script, contents=script)
     os.chmod(settings.metrics_script, 0o755)
     start_and_enable_service(settings.metrics_service, restart=True)
     try:
