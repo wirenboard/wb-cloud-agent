@@ -1,3 +1,11 @@
+wb-cloud-agent (1.9.4) stable; urgency=medium
+
+  * Add LICENSE: The WB License (MIT-WB), Wiren Board as the copyright holder,
+    2023 as the first publication year, use restricted to Wiren Board equipment
+  * Fill debian/copyright in the DEP-5 format, set license="MIT-WB" in setup.py
+
+ -- Ekaterina Volkova <ekaterina.volkova@wirenboard.com>  Thu, 26 Nov 2026 18:13:51 +0300
+
 wb-cloud-agent (1.9.3) stable; urgency=medium
 
   * metrics collector: reject a config with a variable that is not a string or a number (list, dict, null, bool)

@@ -14,7 +14,7 @@ setup(
     maintainer="Wiren Board Team",
     maintainer_email="info@wirenboard.com",
     description="Wirenboard Cloud agent",
-    license="MIT",
+    license="MIT-WB",
     url="https://github.com/wirenboard/wb-cloud-agent",
     packages=[
         "wb.cloud_agent",
